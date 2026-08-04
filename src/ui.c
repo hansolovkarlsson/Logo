@@ -335,10 +335,12 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     g_action_map_add_action_entries(G_ACTION_MAP(app), text_size_actions,
                                      G_N_ELEMENTS(text_size_actions), logo);
 
-    const char *open_accels[] = {"<Primary>o", NULL};
-    const char *increase_accels[] = {"<Primary>plus", "<Primary>equal", NULL};
-    const char *decrease_accels[] = {"<Primary>minus", NULL};
-    const char *reset_accels[] = {"<Primary>0", NULL};
+    // <Primary> doesn't resolve to Cmd on this GTK build (shows as Ctrl in
+    // the menu), so use <Meta> directly — this app is macOS-only anyway.
+    const char *open_accels[] = {"<Meta>o", NULL};
+    const char *increase_accels[] = {"<Meta>plus", "<Meta>equal", NULL};
+    const char *decrease_accels[] = {"<Meta>minus", NULL};
+    const char *reset_accels[] = {"<Meta>0", NULL};
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
     gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);

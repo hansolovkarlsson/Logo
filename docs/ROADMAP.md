@@ -34,8 +34,6 @@ rather than marking it "done" in place.
 - [ ] Export the canvas as an image (PNG).
 - [ ] Syntax highlighting or at least bracket-matching feedback in the
   entry box.
-- [ ] Fix the View menu's accelerator modifier — `<Primary>` is currently
-  rendering as Control (⌃) in the native macOS menu instead of Command (⌘).
 
 ## Robustness
 
