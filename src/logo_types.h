@@ -18,20 +18,24 @@
 #define MAX_SCOPE_DEPTH 200
 #define MAX_HISTORY 200
 
-// One drawn segment of the turtle's trail, in the pen color active when
-// it was drawn (so a drawing can mix colors across SETPENCOLOR calls).
+// One drawn segment of the turtle's trail, in the pen color/width active
+// when it was drawn (so a drawing can mix both across SETPENCOLOR and
+// SETPENWIDTH calls).
 typedef struct {
     double x1, y1, x2, y2;
     double r, g, b; // 0.0-1.0
+    double width;
 } LineSegment;
 
-// The turtle's position, heading, pen state, and current pen color
-// (0.0-1.0 per channel; set via SETPENCOLOR/SETPC).
+// The turtle's position, heading, pen state, and current pen color/width
+// (color 0.0-1.0 per channel; set via SETPENCOLOR/SETPC and
+// SETPENWIDTH/SETPW).
 typedef struct {
     double x, y;
     double angle;
     int pen_down;
     double pen_r, pen_g, pen_b;
+    double pen_width;
 } Turtle;
 
 // A user-defined procedure (TO ... END).

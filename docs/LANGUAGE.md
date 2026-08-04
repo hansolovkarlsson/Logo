@@ -29,6 +29,7 @@ whenever a language feature changes.
 | `PENUP` | `PU` | — | Stop drawing while moving |
 | `PENDOWN` | `PD` | — | Resume drawing while moving |
 | `SETPENCOLOR` | `SETPC` | `r g b` (each 0-255) | Set the color new lines are drawn in |
+| `SETPENWIDTH` | `SETPW` | expr (clamped 0.5-20) | Set the width new lines are drawn with |
 | `SETBACKGROUND` | `SETBG` | `r g b` (each 0-255) | Set the canvas's background color |
 | `CLEAR` | `CS` | — | Erase the canvas and reset the turtle's position/angle |
 
@@ -51,10 +52,14 @@ FD 80
 - Each drawn line segment remembers the pen color it was drawn with, so a
   single drawing can freely mix colors across `SETPENCOLOR` calls — it's
   not a single canvas-wide color.
-- The turtle's own triangle marker is always the same fixed green,
-  regardless of pen color.
+- The turtle's own triangle marker is always the same fixed green/size,
+  regardless of pen color or width.
 - Default pen color is a dark gray, matching earlier versions of this app
   before `SETPENCOLOR` existed.
+- `SETPENWIDTH`/`SETPW` works the same way as `SETPENCOLOR` — each line
+  segment remembers the width it was drawn with, so a drawing can mix
+  widths across calls. Default is `2`, matching earlier versions of this
+  app before `SETPENWIDTH` existed.
 - `SETBACKGROUND`/`SETBG` works the same way but sets the canvas's
   background — unlike pen color, this is a single canvas-wide value (not
   remembered per line), so changing it recolors the whole background

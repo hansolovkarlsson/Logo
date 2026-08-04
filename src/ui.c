@@ -19,9 +19,9 @@ static void draw_scene(LogoApp *app, cairo_t *cr) {
     cairo_set_source_rgb(cr, app->bg_r, app->bg_g, app->bg_b);
     cairo_paint(cr);
 
-    cairo_set_line_width(cr, 2.0);
     for (int i = 0; i < app->line_count; i++) {
         cairo_set_source_rgb(cr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
+        cairo_set_line_width(cr, app->lines[i].width);
         cairo_move_to(cr, app->lines[i].x1, app->lines[i].y1);
         cairo_line_to(cr, app->lines[i].x2, app->lines[i].y2);
         cairo_stroke(cr);
@@ -389,6 +389,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->turtle = (Turtle){
         .x = 250, .y = 250, .angle = 0, .pen_down = 1,
         .pen_r = 0.1, .pen_g = 0.1, .pen_b = 0.1,
+        .pen_width = 2.0,
     };
     logo->bg_r = 1.0;
     logo->bg_g = 1.0;

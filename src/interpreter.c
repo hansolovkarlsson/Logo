@@ -55,18 +55,29 @@ static double clamp01(double v) {
     return v;
 }
 
+// Clamp to an arbitrary [lo, hi] range, e.g. pen width.
+static double clamp_range(double v, double lo, double hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+#define MIN_PEN_WIDTH 0.5
+#define MAX_PEN_WIDTH 20.0
+
 // Where CLEAR and HOME send the turtle back to.
 #define HOME_X 250.0
 #define HOME_Y 250.0
 
 // Move the turtle directly to an absolute position, recording a line
-// segment (in the turtle's current pen color) if the pen is down.
+// segment (in the turtle's current pen color/width) if the pen is down.
 static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
     if (app->turtle.pen_down && app->line_count < MAX_LINES) {
         app->lines[app->line_count++] = (LineSegment){
             .x1 = app->turtle.x, .y1 = app->turtle.y,
             .x2 = new_x, .y2 = new_y,
             .r = app->turtle.pen_r, .g = app->turtle.pen_g, .b = app->turtle.pen_b,
+            .width = app->turtle.pen_width,
         };
     }
 
@@ -516,6 +527,11 @@ void eval_logo(LogoApp *app, const char *code) {
             app->turtle.pen_r = clamp01(r / 255.0);
             app->turtle.pen_g = clamp01(g / 255.0);
             app->turtle.pen_b = clamp01(b / 255.0);
+        }
+        // 3c''a. SETPENWIDTH width — clamped to [0.5, 20], applies to lines drawn from now on
+        else if (strcasecmp(token, "SETPENWIDTH") == 0 || strcasecmp(token, "SETPW") == 0) {
+            double width = parse_expr(app, &ptr);
+            app->turtle.pen_width = clamp_range(width, MIN_PEN_WIDTH, MAX_PEN_WIDTH);
         }
         // 3c''. SETBACKGROUND r g b — each channel 0-255, the canvas's background color
         else if (strcasecmp(token, "SETBACKGROUND") == 0 || strcasecmp(token, "SETBG") == 0) {
