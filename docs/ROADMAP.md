@@ -18,7 +18,6 @@ rather than marking it "done" in place.
 
 ## Turtle & graphics
 
-- [ ] Background color (`SETBACKGROUND`).
 - [ ] Pen width control.
 - [ ] `ARC`/circle drawing primitive.
 - [ ] Multiple turtles / turtle identity (stretch — big change to the data

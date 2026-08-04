@@ -517,6 +517,15 @@ void eval_logo(LogoApp *app, const char *code) {
             app->turtle.pen_g = clamp01(g / 255.0);
             app->turtle.pen_b = clamp01(b / 255.0);
         }
+        // 3c''. SETBACKGROUND r g b — each channel 0-255, the canvas's background color
+        else if (strcasecmp(token, "SETBACKGROUND") == 0 || strcasecmp(token, "SETBG") == 0) {
+            double r = parse_expr(app, &ptr);
+            double g = parse_expr(app, &ptr);
+            double b = parse_expr(app, &ptr);
+            app->bg_r = clamp01(r / 255.0);
+            app->bg_g = clamp01(g / 255.0);
+            app->bg_b = clamp01(b / 255.0);
+        }
         // 3d. OUTPUT: PRINT "word   or   PRINT <expr>
         else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {
             ptr = skip_whitespace(ptr);

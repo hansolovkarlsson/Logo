@@ -10,9 +10,10 @@ whenever a language feature changes.
 - Angle `0` points up (north); `RIGHT`/`RT` increases the angle (clockwise),
   `LEFT`/`LT` decreases it.
 - `CLEAR`/`CS` erases all drawn lines and resets the turtle's position and
-  angle to the start (pen state and pen color are left unchanged).
-- There is currently one turtle and one canvas — no multiple turtles or
-  background color yet (see `ROADMAP.md`).
+  angle to the start (pen state, pen color, and background color are all
+  left unchanged).
+- There is currently one turtle and one canvas — no multiple turtles yet
+  (see `ROADMAP.md`).
 
 ## Turtle commands
 
@@ -28,6 +29,7 @@ whenever a language feature changes.
 | `PENUP` | `PU` | — | Stop drawing while moving |
 | `PENDOWN` | `PD` | — | Resume drawing while moving |
 | `SETPENCOLOR` | `SETPC` | `r g b` (each 0-255) | Set the color new lines are drawn in |
+| `SETBACKGROUND` | `SETBG` | `r g b` (each 0-255) | Set the canvas's background color |
 | `CLEAR` | `CS` | — | Erase the canvas and reset the turtle's position/angle |
 
 `SETXY`/`HOME` draw a connecting line if the pen is down, same as
@@ -53,6 +55,10 @@ FD 80
   regardless of pen color.
 - Default pen color is a dark gray, matching earlier versions of this app
   before `SETPENCOLOR` existed.
+- `SETBACKGROUND`/`SETBG` works the same way but sets the canvas's
+  background — unlike pen color, this is a single canvas-wide value (not
+  remembered per line), so changing it recolors the whole background
+  immediately, past drawing included. Default is white.
 
 ## Expressions
 

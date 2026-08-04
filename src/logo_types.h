@@ -74,6 +74,10 @@ typedef struct {
     Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call
     int scope_depth;
 
+    // Canvas background color (0.0-1.0 per channel; set via
+    // SETBACKGROUND/SETBG). A canvas-wide property, not the turtle's.
+    double bg_r, bg_g, bg_b;
+
     // REPL command history (up/down arrow recall in the entry box).
     char history[MAX_HISTORY][2048];
     int history_count;

@@ -16,7 +16,7 @@
 // itself as a triangle. Shared by the live on-screen canvas (draw_cb) and
 // PNG export (export_canvas_to_png), so both render identically.
 static void draw_scene(LogoApp *app, cairo_t *cr) {
-    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_set_source_rgb(cr, app->bg_r, app->bg_g, app->bg_b);
     cairo_paint(cr);
 
     cairo_set_line_width(cr, 2.0);
@@ -390,6 +390,9 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
         .x = 250, .y = 250, .angle = 0, .pen_down = 1,
         .pen_r = 0.1, .pen_g = 0.1, .pen_b = 0.1,
     };
+    logo->bg_r = 1.0;
+    logo->bg_g = 1.0;
+    logo->bg_b = 1.0;
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;
