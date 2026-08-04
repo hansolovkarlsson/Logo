@@ -46,6 +46,9 @@ typedef struct {
     GtkWidget *drawing_area;
     GtkWidget *text_view;
     GtkWidget *entry;
+
+    GtkCssProvider *css_provider;
+    int font_size;
 } LogoApp;
 
 // Forward Declarations
@@ -251,6 +254,19 @@ static double parse_condition(LogoApp *app, const char **ptr) {
     return left != 0;
 }
 
+// Append text to the history pane and scroll it into view.
+static void append_output(LogoApp *app, const char *text) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->text_view));
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    gtk_text_buffer_insert(buffer, &end, text, -1);
+
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    GtkTextMark *mark = gtk_text_buffer_create_mark(buffer, NULL, &end, FALSE);
+    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(app->text_view), mark, 0.0, FALSE, 0, 0);
+    gtk_text_buffer_delete_mark(buffer, mark);
+}
+
 // --- RECURSIVE INTERPRETER ---
 
 void eval_logo(LogoApp *app, const char *code) {
@@ -385,6 +401,26 @@ void eval_logo(LogoApp *app, const char *code) {
         else if (strcasecmp(token, "PENDOWN") == 0 || strcasecmp(token, "PD") == 0) {
             app->turtle.pen_down = 1;
         }
+        // 3d. OUTPUT: PRINT "word   or   PRINT <expr>
+        else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {
+            ptr = skip_whitespace(ptr);
+            char line[128];
+
+            if (*ptr == '"') {
+                ptr++;
+                size_t i = 0;
+                while (*ptr && !isspace((unsigned char)*ptr) && i < sizeof(line) - 1) {
+                    line[i++] = *ptr++;
+                }
+                line[i] = '\0';
+            } else {
+                double val = parse_expr(app, &ptr);
+                snprintf(line, sizeof(line), "%g", val);
+            }
+
+            append_output(app, line);
+            append_output(app, "\n");
+        }
         // 4. USER-DEFINED PROCEDURE CALL
         else {
             Procedure *proc = find_procedure(app, token);
@@ -455,6 +491,42 @@ static void on_entry_activate(GtkEntry *entry, gpointer user_data) {
     gtk_editable_set_text(GTK_EDITABLE(entry), "");
 }
 
+// --- TEXT SIZE MENU ---
+
+#define MIN_FONT_SIZE 8
+#define MAX_FONT_SIZE 40
+#define DEFAULT_FONT_SIZE 14
+
+static void apply_font_size(LogoApp *app) {
+    char css[64];
+    snprintf(css, sizeof(css), ".logo-text { font-size: %dpx; }", app->font_size);
+    gtk_css_provider_load_from_string(app->css_provider, css);
+}
+
+static void action_increase_text_size(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+    if (app->font_size < MAX_FONT_SIZE) app->font_size += 2;
+    apply_font_size(app);
+}
+
+static void action_decrease_text_size(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+    if (app->font_size > MIN_FONT_SIZE) app->font_size -= 2;
+    apply_font_size(app);
+}
+
+static void action_reset_text_size(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+    app->font_size = DEFAULT_FONT_SIZE;
+    apply_font_size(app);
+}
+
 static void activate(GtkApplication *app, gpointer user_data) {
     LogoApp *logo = g_new0(LogoApp, 1);
     logo->turtle = (Turtle){.x = 250, .y = 250, .angle = 0, .pen_down = 1};
@@ -479,12 +551,14 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     logo->text_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(logo->text_view), FALSE);
+    gtk_widget_add_css_class(logo->text_view, "logo-text");
     GtkWidget *scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), logo->text_view);
     gtk_widget_set_vexpand(scroll, TRUE);
 
     logo->entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(logo->entry), "Enter command or TO procedure...");
+    gtk_widget_add_css_class(logo->entry, "logo-text");
     g_signal_connect(logo->entry, "activate", G_CALLBACK(on_entry_activate), logo);
 
     gtk_box_append(GTK_BOX(repl_box), scroll);
@@ -493,6 +567,39 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_paned_set_end_child(GTK_PANED(paned), repl_box);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
     gtk_paned_set_position(GTK_PANED(paned), 500);
+
+    // Text size: CSS provider driven by the View menu / accelerators below.
+    logo->css_provider = gtk_css_provider_new();
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
+                                                GTK_STYLE_PROVIDER(logo->css_provider),
+                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    logo->font_size = DEFAULT_FONT_SIZE;
+    apply_font_size(logo);
+
+    static GActionEntry text_size_actions[] = {
+        {.name = "increase-text-size", .activate = action_increase_text_size},
+        {.name = "decrease-text-size", .activate = action_decrease_text_size},
+        {.name = "reset-text-size", .activate = action_reset_text_size},
+    };
+    g_action_map_add_action_entries(G_ACTION_MAP(app), text_size_actions,
+                                     G_N_ELEMENTS(text_size_actions), logo);
+
+    const char *increase_accels[] = {"<Primary>plus", "<Primary>equal", NULL};
+    const char *decrease_accels[] = {"<Primary>minus", NULL};
+    const char *reset_accels[] = {"<Primary>0", NULL};
+    gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
+    gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);
+    gtk_application_set_accels_for_action(app, "app.reset-text-size", reset_accels);
+
+    GMenu *menu_bar = g_menu_new();
+    GMenu *view_menu = g_menu_new();
+    g_menu_append(view_menu, "Increase Text Size", "app.increase-text-size");
+    g_menu_append(view_menu, "Decrease Text Size", "app.decrease-text-size");
+    g_menu_append(view_menu, "Reset Text Size", "app.reset-text-size");
+    g_menu_append_submenu(menu_bar, "View", G_MENU_MODEL(view_menu));
+    gtk_application_set_menubar(app, G_MENU_MODEL(menu_bar));
+    g_object_unref(view_menu);
+    g_object_unref(menu_bar);
 
     gtk_window_present(GTK_WINDOW(window));
 }
