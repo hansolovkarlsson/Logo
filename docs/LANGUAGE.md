@@ -183,6 +183,13 @@ LOAD "/Users/you/scripts/star.logo
   most Logo REPLs handle it.
 - Shift+Enter always inserts a newline without submitting, regardless of
   whether the input is complete.
+- **Up/Down arrow** recall previously-submitted history (each submission —
+  even a multi-line `TO ... END` — is one entry), same as a shell. They
+  only trigger recall when the cursor is on the entry's first line (Up) or
+  last line (Down); otherwise they move the cursor normally, so browsing
+  within a recalled multi-line block still works. Whatever you'd typed but
+  not yet submitted is preserved and restored once you browse back down
+  past the newest entry.
 - The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
   a file via a native dialog and runs it the same way `LOAD` does.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset

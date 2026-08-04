@@ -27,7 +27,6 @@ rather than marking it "done" in place.
 
 ## Interface & workflow
 
-- [ ] Command history recall (up/down arrow in the entry box).
 - [ ] Save the current session (typed commands and procedure definitions)
   to a file — the write side of the `LOAD`/File → Open… read side that
   already exists. Probably a File → Save… that dumps all currently-defined

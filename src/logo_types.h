@@ -16,6 +16,7 @@
 #define MAX_WHILE_ITERATIONS 1000000
 #define MAX_PARAMS 8
 #define MAX_SCOPE_DEPTH 200
+#define MAX_HISTORY 200
 
 // One drawn segment of the turtle's trail.
 typedef struct {
@@ -68,6 +69,12 @@ typedef struct {
 
     Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call
     int scope_depth;
+
+    // REPL command history (up/down arrow recall in the entry box).
+    char history[MAX_HISTORY][2048];
+    int history_count;
+    int history_pos; // index currently shown; == history_count means "live" (not browsing)
+    char history_draft[2048]; // in-progress text saved when browsing starts
 
     GtkWidget *window;
     GtkWidget *drawing_area;

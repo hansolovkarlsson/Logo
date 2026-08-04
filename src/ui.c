@@ -43,20 +43,88 @@ static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gp
     cairo_restore(cr);
 }
 
-// Handles Enter/Shift+Enter in the command entry. Runs the accumulated
-// text once it's syntactically complete (is_input_complete); otherwise
-// lets GTK insert a newline so the box grows and composition continues.
+// Record a submitted command in the history, skipping an exact repeat of
+// the last entry, and reset browsing back to the "live" position.
+static void history_push(LogoApp *app, const char *text) {
+    if (app->history_count > 0 && strcmp(app->history[app->history_count - 1], text) == 0) {
+        app->history_pos = app->history_count;
+        return;
+    }
+    if (app->history_count < MAX_HISTORY) {
+        snprintf(app->history[app->history_count], sizeof(app->history[0]), "%s", text);
+        app->history_count++;
+    } else {
+        memmove(app->history[0], app->history[1], (MAX_HISTORY - 1) * sizeof(app->history[0]));
+        snprintf(app->history[MAX_HISTORY - 1], sizeof(app->history[0]), "%s", text);
+    }
+    app->history_pos = app->history_count;
+}
+
+// Move history browsing by `direction` (-1 = older, +1 = newer) and load
+// the resulting entry into the entry buffer, cursor at the end. Returns
+// FALSE (nothing to do, let the default cursor movement happen) if
+// there's nowhere to go in that direction.
+static gboolean history_recall(LogoApp *app, GtkTextBuffer *buffer, int direction) {
+    if (direction < 0) {
+        if (app->history_pos == 0) return FALSE;
+        if (app->history_pos == app->history_count) {
+            GtkTextIter start, end;
+            gtk_text_buffer_get_bounds(buffer, &start, &end);
+            char *draft = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+            snprintf(app->history_draft, sizeof(app->history_draft), "%s", draft);
+            g_free(draft);
+        }
+        app->history_pos--;
+    } else {
+        if (app->history_pos >= app->history_count) return FALSE;
+        app->history_pos++;
+    }
+
+    const char *text = (app->history_pos == app->history_count)
+        ? app->history_draft
+        : app->history[app->history_pos];
+
+    gtk_text_buffer_set_text(buffer, text, -1);
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    gtk_text_buffer_place_cursor(buffer, &end);
+    return TRUE;
+}
+
+// Handles Enter/Shift+Enter and Up/Down history recall in the command
+// entry. Enter runs the accumulated text once it's syntactically complete
+// (is_input_complete); otherwise lets GTK insert a newline so the box
+// grows and composition continues. Up/Down recall history only when the
+// cursor is on the entry's first/last line respectively, so they still
+// move the cursor normally while editing a multi-line block.
 static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode,
                                       GdkModifierType state, gpointer user_data) {
     (void)controller;
     (void)keycode;
 
+    LogoApp *app = (LogoApp *)user_data;
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->entry));
+
+    GdkModifierType mods = state & gtk_accelerator_get_default_mod_mask();
+    if ((keyval == GDK_KEY_Up || keyval == GDK_KEY_Down) && mods == 0) {
+        GtkTextIter cursor;
+        gtk_text_buffer_get_iter_at_mark(buffer, &cursor, gtk_text_buffer_get_insert(buffer));
+        int line = gtk_text_iter_get_line(&cursor);
+        int last_line = gtk_text_buffer_get_line_count(buffer) - 1;
+
+        if (keyval == GDK_KEY_Up && line == 0) {
+            return history_recall(app, buffer, -1);
+        }
+        if (keyval == GDK_KEY_Down && line == last_line) {
+            return history_recall(app, buffer, 1);
+        }
+        return FALSE;
+    }
+
     if ((keyval != GDK_KEY_Return && keyval != GDK_KEY_KP_Enter) || (state & GDK_SHIFT_MASK)) {
         return FALSE;
     }
 
-    LogoApp *app = (LogoApp *)user_data;
-    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->entry));
     GtkTextIter start, end;
     gtk_text_buffer_get_bounds(buffer, &start, &end);
     char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
@@ -70,6 +138,8 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
         append_output(app, "> ");
         append_output(app, text);
         append_output(app, "\n");
+
+        history_push(app, text);
 
         eval_logo(app, text);
         gtk_widget_queue_draw(app->drawing_area);
