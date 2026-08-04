@@ -103,52 +103,66 @@ static Procedure* find_procedure(LogoApp *app, const char *name) {
     return NULL;
 }
 
-// Look up a variable's value (case-insensitive). Searches the scope stack
-// from the innermost active call outward, so a procedure's own parameter
-// shadows a same-named variable from an outer call or a global, then
-// falls back to the globals. 0 if the name isn't bound anywhere.
-static double get_var(LogoApp *app, const char *name) {
+// Find a variable binding by name (case-insensitive). Searches the scope
+// stack from the innermost active call outward, so a procedure's own
+// parameter shadows a same-named variable from an outer call or a
+// global, then falls back to the globals. NULL if unbound anywhere.
+static Variable* find_var(LogoApp *app, const char *name) {
     for (int s = app->scope_depth - 1; s >= 0; s--) {
         Scope *scope = &app->scopes[s];
         for (int i = 0; i < scope->count; i++) {
             if (strcasecmp(scope->vars[i].name, name) == 0) {
-                return scope->vars[i].value;
+                return &scope->vars[i];
             }
         }
     }
     for (int i = 0; i < app->var_count; i++) {
         if (strcasecmp(app->variables[i].name, name) == 0) {
-            return app->variables[i].value;
+            return &app->variables[i];
         }
     }
-    return 0;
+    return NULL;
 }
 
-// Set a variable's value. Updates the binding in the innermost scope (or
-// outer call, or global) where `name` already exists — the same
-// inside-out search as get_var, so MAKE on a procedure's own parameter
-// name updates that parameter rather than creating an unrelated global.
-// If `name` isn't bound anywhere yet, creates it as a new global.
-static void set_var(LogoApp *app, const char *name, double value) {
-    for (int s = app->scope_depth - 1; s >= 0; s--) {
-        Scope *scope = &app->scopes[s];
-        for (int i = 0; i < scope->count; i++) {
-            if (strcasecmp(scope->vars[i].name, name) == 0) {
-                scope->vars[i].value = value;
-                return;
-            }
-        }
-    }
-    for (int i = 0; i < app->var_count; i++) {
-        if (strcasecmp(app->variables[i].name, name) == 0) {
-            app->variables[i].value = value;
-            return;
-        }
-    }
+// Find an existing binding to update (same inside-out search as
+// find_var), or create a new global if `name` isn't bound anywhere yet.
+// NULL only if the global table is full and there's no existing binding.
+static Variable* find_or_create_var(LogoApp *app, const char *name) {
+    Variable *v = find_var(app, name);
+    if (v != NULL) return v;
     if (app->var_count < MAX_VARIABLES) {
-        snprintf(app->variables[app->var_count].name, sizeof(app->variables[0].name), "%s", name);
-        app->variables[app->var_count].value = value;
-        app->var_count++;
+        Variable *nv = &app->variables[app->var_count++];
+        snprintf(nv->name, sizeof(nv->name), "%s", name);
+        return nv;
+    }
+    return NULL;
+}
+
+// Look up a variable's numeric value; 0 if it's unbound or word-typed.
+// Used throughout arithmetic (parse_factor's :name case), which only
+// ever deals in numbers.
+static double get_var(LogoApp *app, const char *name) {
+    Variable *v = find_var(app, name);
+    return (v != NULL && v->type == VALUE_NUMBER) ? v->number : 0;
+}
+
+// Set a variable to a number (MAKE "name expr), creating it as a global
+// if it's not already bound in some active scope.
+static void set_var(LogoApp *app, const char *name, double value) {
+    Variable *v = find_or_create_var(app, name);
+    if (v != NULL) {
+        v->type = VALUE_NUMBER;
+        v->number = value;
+    }
+}
+
+// Set a variable to a word (MAKE "name "word), same binding rules as
+// set_var.
+static void set_var_word(LogoApp *app, const char *name, const char *word) {
+    Variable *v = find_or_create_var(app, name);
+    if (v != NULL) {
+        v->type = VALUE_WORD;
+        snprintf(v->word, sizeof(v->word), "%s", word);
     }
 }
 
@@ -232,11 +246,73 @@ static double parse_expr(LogoApp *app, const char **ptr) {
     return val;
 }
 
-// Parse a single relational comparison, e.g. :X > 10, :X = :Y, :X <> 0.
-// With no relational operator, falls back to the expression's truthiness
-// (non-zero = true). The base case for parse_condition, below.
+// One side of a comparison: a number or a word. Only parse_comparison
+// deals in this — arithmetic (parse_expr and below) stays pure-number.
+typedef struct {
+    gboolean is_word;
+    double number;
+    char word[128];
+} Operand;
+
+// Parse one comparison operand: a "word literal, a :variable (carrying
+// whichever type it holds), or a numeric expression.
+static Operand parse_operand(LogoApp *app, const char **ptr) {
+    *ptr = skip_whitespace(*ptr);
+    Operand result = {0};
+
+    if (**ptr == '"') {
+        (*ptr)++;
+        size_t i = 0;
+        while (**ptr && !isspace((unsigned char)**ptr) && i < sizeof(result.word) - 1) {
+            result.word[i++] = **ptr;
+            (*ptr)++;
+        }
+        result.word[i] = '\0';
+        result.is_word = TRUE;
+        return result;
+    }
+
+    if (**ptr == ':') {
+        const char *lookahead = *ptr + 1;
+        char name[32] = {0};
+        size_t i = 0;
+        while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
+            name[i] = lookahead[i];
+            i++;
+        }
+        name[i] = '\0';
+
+        Variable *v = find_var(app, name);
+        if (v != NULL && v->type == VALUE_WORD) {
+            *ptr = lookahead + i;
+            snprintf(result.word, sizeof(result.word), "%s", v->word);
+            result.is_word = TRUE;
+            return result;
+        }
+        // Numeric variable (or unbound, which reads as 0): fall through
+        // to normal expression parsing, same as any other numeric term.
+    }
+
+    result.number = parse_expr(app, ptr);
+    return result;
+}
+
+// Render an operand as text for word comparison: a word as-is, a number
+// formatted the same way PRINT would show it.
+static void operand_to_text(const Operand *v, char *out, size_t out_size) {
+    if (v->is_word) {
+        snprintf(out, out_size, "%s", v->word);
+    } else {
+        snprintf(out, out_size, "%g", v->number);
+    }
+}
+
+// Parse a single relational comparison, e.g. :X > 10, :X = :Y, :X = "hi.
+// With no relational operator, falls back to the operand's truthiness
+// (non-zero number, or non-empty word = true). The base case for
+// parse_condition, below.
 static double parse_comparison(LogoApp *app, const char **ptr) {
-    double left = parse_expr(app, ptr);
+    Operand left = parse_operand(app, ptr);
     *ptr = skip_whitespace(*ptr);
 
     if (**ptr == '<' || **ptr == '>' || **ptr == '=') {
@@ -247,17 +323,29 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
             op2 = **ptr;
             (*ptr)++;
         }
-        double right = parse_expr(app, ptr);
+        Operand right = parse_operand(app, ptr);
 
-        if (op1 == '=') return left == right;
-        if (op1 == '<' && op2 == '=') return left <= right;
-        if (op1 == '<' && op2 == '>') return left != right;
-        if (op1 == '<') return left < right;
-        if (op1 == '>' && op2 == '=') return left >= right;
-        return left > right;
+        if (left.is_word || right.is_word) {
+            // Words only support = and <>; a text comparison for the
+            // rest wouldn't be meaningful, so they just report unequal.
+            char left_text[128], right_text[128];
+            operand_to_text(&left, left_text, sizeof(left_text));
+            operand_to_text(&right, right_text, sizeof(right_text));
+            int equal = strcasecmp(left_text, right_text) == 0;
+            if (op1 == '=') return equal;
+            if (op1 == '<' && op2 == '>') return !equal;
+            return 0;
+        }
+
+        if (op1 == '=') return left.number == right.number;
+        if (op1 == '<' && op2 == '=') return left.number <= right.number;
+        if (op1 == '<' && op2 == '>') return left.number != right.number;
+        if (op1 == '<') return left.number < right.number;
+        if (op1 == '>' && op2 == '=') return left.number >= right.number;
+        return left.number > right.number;
     }
 
-    return left != 0;
+    return left.is_word ? (left.word[0] != '\0') : (left.number != 0);
 }
 
 // Peek the next whitespace-delimited word without consuming it unless it
@@ -502,13 +590,26 @@ void eval_logo(LogoApp *app, const char *code) {
         else if (strcasecmp(token, "SETHEADING") == 0 || strcasecmp(token, "SETH") == 0) {
             app->turtle.angle = parse_expr(app, &ptr);
         }
-        // 3b. VARIABLES: MAKE "name expr
+        // 3b. VARIABLES: MAKE "name expr   or   MAKE "name "word
         else if (strcasecmp(token, "MAKE") == 0) {
             char varname[64] = {0};
             if (sscanf(ptr, "%63s%n", varname, &read_bytes) == 1 && varname[0] == '"') {
                 ptr += read_bytes;
-                double val = parse_expr(app, &ptr);
-                set_var(app, varname + 1, val);
+                ptr = skip_whitespace(ptr);
+
+                if (*ptr == '"') {
+                    ptr++;
+                    char word[128] = {0};
+                    size_t i = 0;
+                    while (*ptr && !isspace((unsigned char)*ptr) && i < sizeof(word) - 1) {
+                        word[i++] = *ptr++;
+                    }
+                    word[i] = '\0';
+                    set_var_word(app, varname + 1, word);
+                } else {
+                    double val = parse_expr(app, &ptr);
+                    set_var(app, varname + 1, val);
+                }
             }
         }
         // 3c. CONDITIONALS: IF <cond> [block] (ELSE [block])   or   IFELSE <cond> [block] [block]
@@ -588,7 +689,7 @@ void eval_logo(LogoApp *app, const char *code) {
             app->bg_g = clamp01(g / 255.0);
             app->bg_b = clamp01(b / 255.0);
         }
-        // 3d. OUTPUT: PRINT "word   or   PRINT <expr>
+        // 3d. OUTPUT: PRINT "word   PRINT [list of words]   or   PRINT <expr>
         else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {
             ptr = skip_whitespace(ptr);
             char line[128];
@@ -600,6 +701,51 @@ void eval_logo(LogoApp *app, const char *code) {
                     line[i++] = *ptr++;
                 }
                 line[i] = '\0';
+            } else if (*ptr == '[') {
+                // A bracketed list literal prints as its words, single-
+                // spaced — it's not evaluated as code the way REPEAT/IF
+                // blocks are.
+                char list_text[256] = {0};
+                const char *after = extract_block(ptr, list_text, sizeof(list_text));
+                if (after != NULL) ptr = after;
+
+                line[0] = '\0';
+                const char *lp = list_text;
+                gboolean first_word = TRUE;
+                while (*lp) {
+                    lp = skip_whitespace(lp);
+                    if (*lp == '\0') break;
+                    char word[64] = {0};
+                    int n = 0;
+                    if (sscanf(lp, "%63s%n", word, &n) != 1 || n == 0) break;
+                    if (!first_word) strncat(line, " ", sizeof(line) - strlen(line) - 1);
+                    strncat(line, word, sizeof(line) - strlen(line) - 1);
+                    first_word = FALSE;
+                    lp += n;
+                }
+            } else if (*ptr == ':') {
+                // A bare word-typed variable prints its text; anything
+                // else (numeric variable, or :name as part of a larger
+                // expression) falls through to normal numeric evaluation.
+                const char *lookahead = ptr + 1;
+                char name[32] = {0};
+                size_t i = 0;
+                while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
+                    name[i] = lookahead[i];
+                    i++;
+                }
+                name[i] = '\0';
+                const char *after_name = lookahead + i;
+                gboolean sole_reference = (*after_name == '\0' || isspace((unsigned char)*after_name));
+
+                Variable *v = sole_reference ? find_var(app, name) : NULL;
+                if (v != NULL && v->type == VALUE_WORD) {
+                    snprintf(line, sizeof(line), "%s", v->word);
+                    ptr = after_name;
+                } else {
+                    double val = parse_expr(app, &ptr);
+                    snprintf(line, sizeof(line), "%g", val);
+                }
             } else {
                 double val = parse_expr(app, &ptr);
                 snprintf(line, sizeof(line), "%g", val);
@@ -630,7 +776,8 @@ void eval_logo(LogoApp *app, const char *code) {
                     for (int p = 0; p < proc->param_count; p++) {
                         // param_names are stored with their leading ':'; strip it.
                         snprintf(scope->vars[p].name, sizeof(scope->vars[p].name), "%s", proc->param_names[p] + 1);
-                        scope->vars[p].value = arg_vals[p];
+                        scope->vars[p].type = VALUE_NUMBER;
+                        scope->vars[p].number = arg_vals[p];
                     }
                     app->scope_depth++;
 

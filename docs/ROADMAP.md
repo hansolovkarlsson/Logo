@@ -7,11 +7,14 @@ rather than marking it "done" in place.
 
 ## Language
 
-- [ ] String/word variables and a real string type, distinct from numbers.
-- [ ] Lists (`[1 2 3]` as a first-class value, not just a code block) plus
-  basic list ops (`FIRST`, `BUTFIRST`, `LAST`, `COUNT`, ...).
-- [ ] `PRINT` of a full quoted string (with spaces) and of lists, not just a
-  single bare word.
+- [ ] A real multi-word string type (concatenation, substrings) distinct
+  from the current single-token word — words/variables landed, but
+  `MAKE "name` and `PRINT "word` still can't hold text with spaces in it.
+- [ ] Lists as a first-class, storable, manipulable value (`MAKE "mylist
+  [1 2 3]`, `FIRST`, `BUTFIRST`, `LAST`, `COUNT`, ...) — a bigger change,
+  since it means the expression evaluator (currently pure `double`)
+  needs a real tagged value type threaded through arithmetic itself, not
+  just variables/`PRINT`/`=` the way words are handled now.
 - [ ] Surface parse/runtime errors to the user (e.g. "unknown command",
   unmatched brackets) instead of silently doing nothing.
 

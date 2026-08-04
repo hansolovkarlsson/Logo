@@ -1,0 +1,10 @@
+MAKE "name "World
+PRINT :name
+PRINT [hello there, this   prints   as one line]
+
+MAKE "greeting "Hello
+IF :greeting = "Hello [PRINT "matched]
+IF :greeting = "Goodbye [PRINT "should-not-print]
+
+MAKE "n 5
+PRINT :n

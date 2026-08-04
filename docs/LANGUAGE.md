@@ -86,11 +86,10 @@ FD :size
 MAKE "size :size + 10
 ```
 
-- `MAKE "name expr` sets a variable, creating it if it doesn't already
-  exist.
+- `MAKE "name expr` sets a variable to a number, creating it if it doesn't
+  already exist.
 - `:name` reads a variable's value inside any expression.
-- All variables are numeric (`double`). There is no string/word variable
-  type yet.
+- Variables are either numbers or **words** — see "Words" below.
 
 Procedure parameters are **local, dynamically-scoped** variables. Calling a
 procedure pushes a fresh scope binding its parameters to the (already
@@ -112,6 +111,30 @@ outer calls on the stack, then the globals — so:
   global.
 - Recursion is capped at 200 nested calls; going deeper prints "Recursion
   too deep, call ignored" instead of crashing.
+
+## Words
+
+```
+MAKE "name "World
+PRINT :name
+IF :name = "World [PRINT "matched]
+```
+
+- `MAKE "name "word` sets a variable to a **word** — a single token, no
+  spaces — instead of a number. `:name` still reads it back the same way.
+- A word-typed variable used inside a numeric context (arithmetic, a
+  `FORWARD`/`REPEAT`/etc. argument) just reads as `0` — words don't
+  participate in arithmetic. `PRINT` and `=`/`<>` comparisons are word-aware
+  (see Output and Conditionals below); every other numeric-expecting spot
+  in the language is not.
+- `MAKE "a :b` where `:b` is a word does **not** copy the word — it falls
+  back to that same numeric-context behavior (copies `0`). To copy a word,
+  assign it again as a literal (`MAKE "a "sameword`).
+- There is no general string type with spaces, concatenation, or
+  substring operations — a word is one token. A `[bracketed list of
+  words]` can be printed directly (see `PRINT` below) but isn't a value
+  you can store in a variable or take apart (`FIRST`/`BUTFIRST`/etc. don't
+  exist) — see `ROADMAP.md`.
 
 ## Procedures
 
@@ -149,7 +172,11 @@ IFELSE :size > 10 [PRINT "big] [PRINT "small]
   `ELSE` keyword in between.)
 - Conditions are expressions optionally followed by a relational operator
   and a second expression: `< > = <= >= <>`. If no relational operator is
-  present, the expression's truthiness is used (non-zero = true).
+  present, the expression's truthiness is used (non-zero number, or
+  non-empty word = true).
+- `=` and `<>` also work between words (`:name = "Alice`), comparing text
+  case-insensitively. `< > <= >=` are numeric-only — comparing a word with
+  one of those always reports false.
 
 ```
 IF :x > 0 AND :x < 10 [PRINT "in-range]
@@ -196,13 +223,22 @@ WHILE :i < 4 [FD 80 RT 90 MAKE "i :i + 1]
 PRINT "hello
 PRINT 2 + 2
 PRINT :size
+PRINT :name
+PRINT [hello there, this prints as one line]
 ```
 
 - `PRINT`/`PR` writes to the history pane (auto-scrolling into view).
 - `PRINT "word` prints a single literal word (no spaces — it stops at the
-  first whitespace character). There is no support yet for printing a
-  bracketed list of words or a quoted string containing spaces.
-- `PRINT <expr>` evaluates and prints a numeric expression.
+  first whitespace character).
+- `PRINT :name` prints a word-typed variable as its text, or a
+  numeric-typed variable as a number — whichever it holds.
+- `PRINT [words...]` prints a bracketed list as its words, joined by
+  single spaces (any original whitespace inside the brackets is
+  collapsed). This is direct, immediate printing — the list isn't
+  evaluated as code (unlike a `REPEAT`/`IF`/`WHILE` block) and isn't
+  stored anywhere.
+- `PRINT <expr>` (anything else) evaluates and prints a numeric
+  expression.
 
 ## Files
 
@@ -257,10 +293,13 @@ SAVE "/Users/you/scripts/star.logo
 
 ## Known limitations (intentional, tracked in `ROADMAP.md`)
 
-- No string/word data type — everything numeric except `PRINT "word`,
-  `MAKE "name`, and `LOAD "path` literals.
-- No lists/arrays.
-- No pen color, background color, or multiple turtles.
+- No general string type (concatenation, substrings, multi-word text in a
+  variable) — only single-token words, and only `PRINT`/`=`/`<>` are
+  word-aware. See "Words" above.
+- No lists/arrays as a storable, manipulable value — `PRINT [...]` prints
+  a bracketed list's words directly but there's no `FIRST`/`BUTFIRST`/
+  `LAST`/`COUNT`, and a list can't be assigned to a variable.
+- No multiple turtles.
 - Malformed input generally fails silently (no error messages surfaced to
   the user) rather than reporting a parse/runtime error.
 - The multi-line input's completeness check only balances `[`/`]` and counts

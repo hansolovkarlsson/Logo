@@ -46,11 +46,22 @@ typedef struct {
     char body[2048];
 } Procedure;
 
+// A variable's value is either a number or a word (single-token string,
+// no spaces) — see the "Words" section of docs/LANGUAGE.md. Arithmetic
+// (parse_expr and everything built on it) only ever deals in numbers; a
+// word-typed variable read in a numeric context is just 0.
+typedef enum {
+    VALUE_NUMBER,
+    VALUE_WORD,
+} ValueType;
+
 // A variable binding: a global (MAKE "name value / :name) or one entry in
 // a procedure call's local Scope.
 typedef struct {
     char name[32];
-    double value;
+    ValueType type;
+    double number;
+    char word[128];
 } Variable;
 
 // A local scope pushed for one procedure call: its parameters bound to
