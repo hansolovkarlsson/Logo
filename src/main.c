@@ -461,7 +461,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     GtkWidget *window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), "Logo Turtle Engine with Procedures");
-    gtk_window_set_default_size(GTK_WINDOW(window), 850, 500);
+    gtk_window_set_default_size(GTK_WINDOW(window), 1550, 500);
 
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_window_set_child(GTK_WINDOW(window), paned);
@@ -470,9 +470,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_size_request(logo->drawing_area, 500, 500);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(logo->drawing_area), draw_cb, logo, NULL);
     gtk_paned_set_start_child(GTK_PANED(paned), logo->drawing_area);
+    gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
+    gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
 
     GtkWidget *repl_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    
+    gtk_widget_set_hexpand(repl_box, TRUE);
+    gtk_widget_set_size_request(repl_box, 1050, -1);
+
     logo->text_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(logo->text_view), FALSE);
     GtkWidget *scroll = gtk_scrolled_window_new();
@@ -485,8 +489,10 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     gtk_box_append(GTK_BOX(repl_box), scroll);
     gtk_box_append(GTK_BOX(repl_box), logo->entry);
-    
+
     gtk_paned_set_end_child(GTK_PANED(paned), repl_box);
+    gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
+    gtk_paned_set_position(GTK_PANED(paned), 500);
 
     gtk_window_present(GTK_WINDOW(window));
 }
