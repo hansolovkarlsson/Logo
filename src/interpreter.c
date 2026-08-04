@@ -55,13 +55,13 @@ static double clamp01(double v) {
     return v;
 }
 
-// Move the turtle by `distance` along its current heading, recording a
-// line segment (in the turtle's current pen color) if the pen is down.
-static void move_turtle_forward(LogoApp *app, double distance) {
-    double rad = (app->turtle.angle - 90.0) * M_PI / 180.0;
-    double new_x = app->turtle.x + distance * cos(rad);
-    double new_y = app->turtle.y + distance * sin(rad);
+// Where CLEAR and HOME send the turtle back to.
+#define HOME_X 250.0
+#define HOME_Y 250.0
 
+// Move the turtle directly to an absolute position, recording a line
+// segment (in the turtle's current pen color) if the pen is down.
+static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
     if (app->turtle.pen_down && app->line_count < MAX_LINES) {
         app->lines[app->line_count++] = (LineSegment){
             .x1 = app->turtle.x, .y1 = app->turtle.y,
@@ -72,6 +72,14 @@ static void move_turtle_forward(LogoApp *app, double distance) {
 
     app->turtle.x = new_x;
     app->turtle.y = new_y;
+}
+
+// Move the turtle by `distance` along its current heading.
+static void move_turtle_forward(LogoApp *app, double distance) {
+    double rad = (app->turtle.angle - 90.0) * M_PI / 180.0;
+    move_turtle_to(app,
+                    app->turtle.x + distance * cos(rad),
+                    app->turtle.y + distance * sin(rad));
 }
 
 // Look up a user-defined procedure by name (case-insensitive).
@@ -429,6 +437,14 @@ void eval_logo(LogoApp *app, const char *code) {
             double val = parse_expr(app, &ptr);
             app->turtle.angle -= val;
         }
+        else if (strcasecmp(token, "SETXY") == 0) {
+            double x = parse_expr(app, &ptr);
+            double y = parse_expr(app, &ptr);
+            move_turtle_to(app, x, y);
+        }
+        else if (strcasecmp(token, "SETHEADING") == 0 || strcasecmp(token, "SETH") == 0) {
+            app->turtle.angle = parse_expr(app, &ptr);
+        }
         // 3b. VARIABLES: MAKE "name expr
         else if (strcasecmp(token, "MAKE") == 0) {
             char varname[64] = {0};
@@ -478,8 +494,12 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
             app->line_count = 0;
-            app->turtle.x = 250;
-            app->turtle.y = 250;
+            app->turtle.x = HOME_X;
+            app->turtle.y = HOME_Y;
+            app->turtle.angle = 0;
+        }
+        else if (strcasecmp(token, "HOME") == 0) {
+            move_turtle_to(app, HOME_X, HOME_Y);
             app->turtle.angle = 0;
         }
         else if (strcasecmp(token, "PENUP") == 0 || strcasecmp(token, "PU") == 0) {

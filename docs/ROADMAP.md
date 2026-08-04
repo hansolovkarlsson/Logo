@@ -18,7 +18,6 @@ rather than marking it "done" in place.
 
 ## Turtle & graphics
 
-- [ ] `SETXY x y`, `HOME`, `SETHEADING angle` for direct positioning.
 - [ ] Background color (`SETBACKGROUND`).
 - [ ] Pen width control.
 - [ ] `ARC`/circle drawing primitive.

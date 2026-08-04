@@ -11,8 +11,8 @@ whenever a language feature changes.
   `LEFT`/`LT` decreases it.
 - `CLEAR`/`CS` erases all drawn lines and resets the turtle's position and
   angle to the start (pen state and pen color are left unchanged).
-- There is currently one turtle and one canvas — no multiple turtles,
-  background color, or SETXY/HOME/SETHEADING yet (see `ROADMAP.md`).
+- There is currently one turtle and one canvas — no multiple turtles or
+  background color yet (see `ROADMAP.md`).
 
 ## Turtle commands
 
@@ -22,10 +22,18 @@ whenever a language feature changes.
 | `BACK` | `BK` | expr | Move backward by `expr` |
 | `RIGHT` | `RT` | expr | Turn clockwise by `expr` degrees |
 | `LEFT` | `LT` | expr | Turn counter-clockwise by `expr` degrees |
+| `SETXY` | — | `x y` | Jump directly to an absolute position, drawing if pen is down; heading unchanged |
+| `SETHEADING` | `SETH` | expr | Set the turtle's absolute heading (no movement) |
+| `HOME` | — | — | `SETXY` back to the start position and `SETHEADING 0`, drawing if pen is down |
 | `PENUP` | `PU` | — | Stop drawing while moving |
 | `PENDOWN` | `PD` | — | Resume drawing while moving |
 | `SETPENCOLOR` | `SETPC` | `r g b` (each 0-255) | Set the color new lines are drawn in |
 | `CLEAR` | `CS` | — | Erase the canvas and reset the turtle's position/angle |
+
+`SETXY`/`HOME` draw a connecting line if the pen is down, same as
+`FORWARD` — they're a direct jump to a position, not a teleport. `CLEAR`
+is the one that resets position without drawing, since it wipes the
+canvas first.
 
 All commands are case-insensitive (`fd 100` and `FD 100` are equivalent).
 
