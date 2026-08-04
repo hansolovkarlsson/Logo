@@ -150,7 +150,22 @@ IFELSE :size > 10 [PRINT "big] [PRINT "small]
 - Conditions are expressions optionally followed by a relational operator
   and a second expression: `< > = <= >= <>`. If no relational operator is
   present, the expression's truthiness is used (non-zero = true).
-- There is no `AND`/`OR`/`NOT` yet — see `ROADMAP.md`.
+
+```
+IF :x > 0 AND :x < 10 [PRINT "in-range]
+IF :x < 0 OR :x > 100 [PRINT "out-of-range]
+IF NOT :x = 0 [PRINT "nonzero]
+```
+
+- `AND`, `OR`, and `NOT` combine comparisons into a larger condition, same
+  as in `IF`/`IFELSE`/`WHILE`. `NOT` binds tightest, then `AND`, then `OR`
+  — standard boolean precedence — and clauses combine strictly left to
+  right within each level.
+- There are **no parentheses for grouping** boolean clauses (parens are
+  only for arithmetic — see Expressions above). `:a AND :b OR :c` always
+  parses as `(:a AND :b) OR :c`; if that's not what you mean, restructure
+  the condition (e.g. two separate `IF`s) rather than trying to force
+  grouping with parens.
 
 ## Loops
 
@@ -245,7 +260,6 @@ SAVE "/Users/you/scripts/star.logo
 - No string/word data type — everything numeric except `PRINT "word`,
   `MAKE "name`, and `LOAD "path` literals.
 - No lists/arrays.
-- No boolean `AND`/`OR`/`NOT`.
 - No pen color, background color, or multiple turtles.
 - Malformed input generally fails silently (no error messages surfaced to
   the user) rather than reporting a parse/runtime error.

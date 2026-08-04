@@ -7,7 +7,6 @@ rather than marking it "done" in place.
 
 ## Language
 
-- [ ] Boolean `AND`, `OR`, `NOT` in conditions.
 - [ ] String/word variables and a real string type, distinct from numbers.
 - [ ] Lists (`[1 2 3]` as a first-class value, not just a code block) plus
   basic list ops (`FIRST`, `BUTFIRST`, `LAST`, `COUNT`, ...).

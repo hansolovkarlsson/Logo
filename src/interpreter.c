@@ -232,10 +232,10 @@ static double parse_expr(LogoApp *app, const char **ptr) {
     return val;
 }
 
-// Parse a relational expression used by IF/IFELSE/WHILE, e.g. :X > 10,
-// :X = :Y, :X <> 0. With no relational operator, falls back to the
-// expression's truthiness (non-zero = true).
-static double parse_condition(LogoApp *app, const char **ptr) {
+// Parse a single relational comparison, e.g. :X > 10, :X = :Y, :X <> 0.
+// With no relational operator, falls back to the expression's truthiness
+// (non-zero = true). The base case for parse_condition, below.
+static double parse_comparison(LogoApp *app, const char **ptr) {
     double left = parse_expr(app, ptr);
     *ptr = skip_whitespace(*ptr);
 
@@ -258,6 +258,52 @@ static double parse_condition(LogoApp *app, const char **ptr) {
     }
 
     return left != 0;
+}
+
+// Peek the next whitespace-delimited word without consuming it unless it
+// case-insensitively matches `keyword`, in which case `*ptr` is advanced
+// past it. Used to recognize the NOT/AND/OR keywords.
+static gboolean consume_keyword(const char **ptr, const char *keyword) {
+    const char *lookahead = skip_whitespace(*ptr);
+    char word[8] = {0};
+    int n = 0;
+    if (sscanf(lookahead, "%7s%n", word, &n) == 1 && strcasecmp(word, keyword) == 0) {
+        *ptr = lookahead + n;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// NOT <bool> | comparison — NOT binds tighter than AND/OR and can nest
+// (NOT NOT ...).
+static double parse_bool_not(LogoApp *app, const char **ptr) {
+    if (consume_keyword(ptr, "NOT")) {
+        return parse_bool_not(app, ptr) == 0 ? 1 : 0;
+    }
+    return parse_comparison(app, ptr);
+}
+
+// <bool> (AND <bool>)* — AND binds tighter than OR.
+static double parse_bool_and(LogoApp *app, const char **ptr) {
+    double val = parse_bool_not(app, ptr);
+    while (consume_keyword(ptr, "AND")) {
+        double rhs = parse_bool_not(app, ptr);
+        val = (val != 0 && rhs != 0) ? 1 : 0;
+    }
+    return val;
+}
+
+// Parse a full boolean condition used by IF/IFELSE/WHILE: comparisons
+// combined with NOT/AND/OR, e.g. :X > 0 AND NOT :Y = 0. No parentheses
+// for grouping — clauses combine strictly left to right within each
+// precedence level (NOT tightest, then AND, then OR).
+static double parse_condition(LogoApp *app, const char **ptr) {
+    double val = parse_bool_and(app, ptr);
+    while (consume_keyword(ptr, "OR")) {
+        double rhs = parse_bool_and(app, ptr);
+        val = (val != 0 || rhs != 0) ? 1 : 0;
+    }
+    return val;
 }
 
 // Append text to the history pane and scroll it into view.

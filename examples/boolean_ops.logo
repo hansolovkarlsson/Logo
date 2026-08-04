@@ -1,0 +1,8 @@
+MAKE "x 5
+
+IF :x > 0 AND :x < 10 [PRINT "in-range]
+IF :x < 0 OR :x > 100 [PRINT "should-not-print]
+IF NOT :x = 0 [PRINT "nonzero]
+IF NOT :x > 0 AND :x < 10 [PRINT "should-not-print-either]
+
+WHILE :x > 0 AND :x < 8 [PRINT :x MAKE "x :x + 1]
