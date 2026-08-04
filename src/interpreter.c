@@ -1,0 +1,492 @@
+// interpreter.c
+//
+// The Logo language core: tokenizing and evaluating commands
+// (eval_logo), the recursive-descent expression/condition parser used
+// by every numeric argument, the procedure and variable symbol tables,
+// and the REPL-input-completeness check the UI uses to decide when
+// Enter should run a command versus just add a line.
+
+#include "interpreter.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+// --- HELPER FUNCTIONS ---
+
+// Advance past leading whitespace.
+static const char* skip_whitespace(const char *str) {
+    while (*str && isspace((unsigned char)*str)) str++;
+    return str;
+}
+
+// Parse a bracketed [ ... ] block, honoring nested brackets, and copy its
+// contents into buffer. Returns the position just past the closing ']',
+// or NULL if str doesn't start with '['.
+static const char* extract_block(const char *str, char *buffer, size_t buf_size) {
+    str = skip_whitespace(str);
+    if (*str != '[') return NULL;
+
+    str++;
+    int depth = 1;
+    size_t idx = 0;
+
+    while (*str && depth > 0) {
+        if (*str == '[') depth++;
+        else if (*str == ']') depth--;
+
+        if (depth > 0) {
+            if (idx < buf_size - 1) buffer[idx++] = *str;
+            str++;
+        }
+    }
+
+    buffer[idx] = '\0';
+    if (*str == ']') str++;
+    return str;
+}
+
+// Move the turtle by `distance` along its current heading, recording a
+// line segment if the pen is down.
+static void move_turtle_forward(LogoApp *app, double distance) {
+    double rad = (app->turtle.angle - 90.0) * M_PI / 180.0;
+    double new_x = app->turtle.x + distance * cos(rad);
+    double new_y = app->turtle.y + distance * sin(rad);
+
+    if (app->turtle.pen_down && app->line_count < MAX_LINES) {
+        app->lines[app->line_count++] = (LineSegment){
+            app->turtle.x, app->turtle.y, new_x, new_y
+        };
+    }
+
+    app->turtle.x = new_x;
+    app->turtle.y = new_y;
+}
+
+// Look up a user-defined procedure by name (case-insensitive).
+static Procedure* find_procedure(LogoApp *app, const char *name) {
+    for (int i = 0; i < app->proc_count; i++) {
+        if (strcasecmp(app->procedures[i].name, name) == 0) {
+            return &app->procedures[i];
+        }
+    }
+    return NULL;
+}
+
+// Look up a variable's value (case-insensitive); 0 if it doesn't exist.
+static double get_var(LogoApp *app, const char *name) {
+    for (int i = 0; i < app->var_count; i++) {
+        if (strcasecmp(app->variables[i].name, name) == 0) {
+            return app->variables[i].value;
+        }
+    }
+    return 0;
+}
+
+// Set a variable's value, creating it if it doesn't exist yet.
+static void set_var(LogoApp *app, const char *name, double value) {
+    for (int i = 0; i < app->var_count; i++) {
+        if (strcasecmp(app->variables[i].name, name) == 0) {
+            app->variables[i].value = value;
+            return;
+        }
+    }
+    if (app->var_count < MAX_VARIABLES) {
+        snprintf(app->variables[app->var_count].name, sizeof(app->variables[0].name), "%s", name);
+        app->variables[app->var_count].value = value;
+        app->var_count++;
+    }
+}
+
+// Replace every whole-token occurrence of `param` (e.g. ":SIZE") in `body`
+// with `val`, writing the result to `output`. A whole-token match means
+// the character right after the match isn't alphanumeric/underscore, so
+// substituting :X doesn't also corrupt :XY.
+static void substitute_param(const char *body, const char *param, const char *val, char *output, size_t out_size) {
+    output[0] = '\0';
+    if (strlen(param) == 0) {
+        snprintf(output, out_size, "%s", body);
+        return;
+    }
+
+    const char *pos = body;
+    const char *match;
+    size_t param_len = strlen(param);
+
+    while ((match = strstr(pos, param)) != NULL) {
+        // Require a full token match so :X doesn't also match inside :XY.
+        char after = match[param_len];
+        if (isalnum((unsigned char)after) || after == '_') {
+            strncat(output, pos, (match - pos) + 1);
+            pos = match + 1;
+            continue;
+        }
+        strncat(output, pos, match - pos);
+        strcat(output, val);
+        pos = match + param_len;
+    }
+    strcat(output, pos);
+}
+
+// --- EXPRESSION EVALUATION (numbers, :variables, + - * / (), comparisons) ---
+
+static double parse_expr(LogoApp *app, const char **ptr);
+
+// Parse a single value: a parenthesized expression, a unary +/-, a
+// :variable reference, or a numeric literal.
+static double parse_factor(LogoApp *app, const char **ptr) {
+    *ptr = skip_whitespace(*ptr);
+
+    if (**ptr == '(') {
+        (*ptr)++;
+        double val = parse_expr(app, ptr);
+        *ptr = skip_whitespace(*ptr);
+        if (**ptr == ')') (*ptr)++;
+        return val;
+    }
+    if (**ptr == '-') {
+        (*ptr)++;
+        return -parse_factor(app, ptr);
+    }
+    if (**ptr == '+') {
+        (*ptr)++;
+        return parse_factor(app, ptr);
+    }
+    if (**ptr == ':') {
+        (*ptr)++;
+        char name[32] = {0};
+        size_t i = 0;
+        while (**ptr && (isalnum((unsigned char)**ptr) || **ptr == '_') && i < sizeof(name) - 1) {
+            name[i++] = **ptr;
+            (*ptr)++;
+        }
+        name[i] = '\0';
+        return get_var(app, name);
+    }
+
+    char *end;
+    double val = strtod(*ptr, &end);
+    *ptr = end;
+    return val;
+}
+
+// Parse a sequence of factors joined by * and /.
+static double parse_term(LogoApp *app, const char **ptr) {
+    double val = parse_factor(app, ptr);
+    for (;;) {
+        *ptr = skip_whitespace(*ptr);
+        if (**ptr == '*') {
+            (*ptr)++;
+            val *= parse_factor(app, ptr);
+        } else if (**ptr == '/') {
+            (*ptr)++;
+            double divisor = parse_factor(app, ptr);
+            val = (divisor != 0) ? val / divisor : 0;
+        } else {
+            break;
+        }
+    }
+    return val;
+}
+
+// Parse a sequence of terms joined by + and -. This is the entry point
+// for any argument that expects a number.
+static double parse_expr(LogoApp *app, const char **ptr) {
+    double val = parse_term(app, ptr);
+    for (;;) {
+        *ptr = skip_whitespace(*ptr);
+        if (**ptr == '+') {
+            (*ptr)++;
+            val += parse_term(app, ptr);
+        } else if (**ptr == '-') {
+            (*ptr)++;
+            val -= parse_term(app, ptr);
+        } else {
+            break;
+        }
+    }
+    return val;
+}
+
+// Parse a relational expression used by IF/IFELSE/WHILE, e.g. :X > 10,
+// :X = :Y, :X <> 0. With no relational operator, falls back to the
+// expression's truthiness (non-zero = true).
+static double parse_condition(LogoApp *app, const char **ptr) {
+    double left = parse_expr(app, ptr);
+    *ptr = skip_whitespace(*ptr);
+
+    if (**ptr == '<' || **ptr == '>' || **ptr == '=') {
+        char op1 = **ptr;
+        (*ptr)++;
+        char op2 = '\0';
+        if ((op1 == '<' && (**ptr == '=' || **ptr == '>')) || (op1 == '>' && **ptr == '=')) {
+            op2 = **ptr;
+            (*ptr)++;
+        }
+        double right = parse_expr(app, ptr);
+
+        if (op1 == '=') return left == right;
+        if (op1 == '<' && op2 == '=') return left <= right;
+        if (op1 == '<' && op2 == '>') return left != right;
+        if (op1 == '<') return left < right;
+        if (op1 == '>' && op2 == '=') return left >= right;
+        return left > right;
+    }
+
+    return left != 0;
+}
+
+// Append text to the history pane and scroll it into view.
+void append_output(LogoApp *app, const char *text) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->text_view));
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    gtk_text_buffer_insert(buffer, &end, text, -1);
+
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    GtkTextMark *mark = gtk_text_buffer_create_mark(buffer, NULL, &end, FALSE);
+    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(app->text_view), mark, 0.0, FALSE, 0, 0);
+    gtk_text_buffer_delete_mark(buffer, mark);
+}
+
+// --- RECURSIVE INTERPRETER ---
+
+// Tokenize and execute one chunk of Logo source (a REPL line, a
+// procedure body, or a REPEAT/IF/WHILE block), recursing for nested
+// blocks and procedure calls.
+void eval_logo(LogoApp *app, const char *code) {
+    const char *ptr = code;
+
+    while (*ptr != '\0') {
+        ptr = skip_whitespace(ptr);
+        if (*ptr == '\0') break;
+
+        char token[64] = {0};
+        int read_bytes = 0;
+
+        if (sscanf(ptr, "%63s%n", token, &read_bytes) != 1) break;
+        ptr += read_bytes;
+
+        // 1. PROCEDURE DEFINITION: TO <NAME> [:PARAM ...] ... END
+        if (strcasecmp(token, "TO") == 0) {
+            if (app->proc_count >= MAX_PROCEDURES) break;
+
+            Procedure *proc = &app->procedures[app->proc_count];
+            memset(proc, 0, sizeof(Procedure));
+
+            // Read Procedure Name
+            if (sscanf(ptr, "%31s%n", proc->name, &read_bytes) == 1) {
+                ptr += read_bytes;
+                ptr = skip_whitespace(ptr);
+
+                // Zero or more parameters (each starts with ':')
+                while (*ptr == ':' && proc->param_count < MAX_PARAMS) {
+                    sscanf(ptr, "%31s%n", proc->param_names[proc->param_count], &read_bytes);
+                    ptr += read_bytes;
+                    proc->param_count++;
+                    ptr = skip_whitespace(ptr);
+                }
+
+                // Extract body until END
+                const char *end_ptr = strcasestr(ptr, "END");
+                if (end_ptr != NULL) {
+                    size_t body_len = end_ptr - ptr;
+                    if (body_len < sizeof(proc->body)) {
+                        strncpy(proc->body, ptr, body_len);
+                        proc->body[body_len] = '\0';
+                    }
+                    ptr = end_ptr + 3; // Advance past "END"
+                    app->proc_count++;
+                }
+            }
+        }
+        // 2. REPEAT LOOPS
+        else if (strcasecmp(token, "REPEAT") == 0) {
+            int count = (int)parse_expr(app, &ptr);
+            char block_body[1024];
+            ptr = extract_block(ptr, block_body, sizeof(block_body));
+
+            if (ptr != NULL) {
+                for (int i = 0; i < count; i++) {
+                    eval_logo(app, block_body);
+                }
+            }
+        }
+        // 2b. WHILE LOOPS: WHILE <cond> [block]
+        else if (strcasecmp(token, "WHILE") == 0) {
+            const char *cond_start = ptr;
+            double cond = parse_condition(app, &ptr);
+            size_t cond_len = (size_t)(ptr - cond_start);
+
+            char cond_text[256] = {0};
+            if (cond_len >= sizeof(cond_text)) cond_len = sizeof(cond_text) - 1;
+            memcpy(cond_text, cond_start, cond_len);
+            cond_text[cond_len] = '\0';
+
+            char block_body[1024] = {0};
+            const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
+
+            if (after_block != NULL) {
+                ptr = after_block;
+                int iterations = 0;
+                while (cond != 0) {
+                    if (iterations >= MAX_WHILE_ITERATIONS) {
+                        append_output(app, "WHILE: stopped after too many iterations\n");
+                        break;
+                    }
+                    eval_logo(app, block_body);
+                    const char *cptr = cond_text;
+                    cond = parse_condition(app, &cptr);
+                    iterations++;
+                }
+            }
+        }
+        // 3. BASIC TURTLE COMMANDS
+        else if (strcasecmp(token, "FORWARD") == 0 || strcasecmp(token, "FD") == 0) {
+            double val = parse_expr(app, &ptr);
+            move_turtle_forward(app, val);
+        }
+        else if (strcasecmp(token, "BACK") == 0 || strcasecmp(token, "BK") == 0) {
+            double val = parse_expr(app, &ptr);
+            move_turtle_forward(app, -val);
+        }
+        else if (strcasecmp(token, "RIGHT") == 0 || strcasecmp(token, "RT") == 0) {
+            double val = parse_expr(app, &ptr);
+            app->turtle.angle += val;
+        }
+        else if (strcasecmp(token, "LEFT") == 0 || strcasecmp(token, "LT") == 0) {
+            double val = parse_expr(app, &ptr);
+            app->turtle.angle -= val;
+        }
+        // 3b. VARIABLES: MAKE "name expr
+        else if (strcasecmp(token, "MAKE") == 0) {
+            char varname[64] = {0};
+            if (sscanf(ptr, "%63s%n", varname, &read_bytes) == 1 && varname[0] == '"') {
+                ptr += read_bytes;
+                double val = parse_expr(app, &ptr);
+                set_var(app, varname + 1, val);
+            }
+        }
+        // 3c. CONDITIONALS: IF <cond> [block] (ELSE [block])   or   IFELSE <cond> [block] [block]
+        else if (strcasecmp(token, "IF") == 0 || strcasecmp(token, "IFELSE") == 0) {
+            double cond = parse_condition(app, &ptr);
+
+            char true_body[1024] = {0};
+            const char *after_true = extract_block(ptr, true_body, sizeof(true_body));
+
+            if (after_true != NULL) {
+                ptr = after_true;
+                char false_body[1024] = {0};
+                int has_false = 0;
+
+                const char *lookahead = skip_whitespace(ptr);
+                char maybe_else[16] = {0};
+                int else_bytes = 0;
+                if (sscanf(lookahead, "%15s%n", maybe_else, &else_bytes) == 1 &&
+                    strcasecmp(maybe_else, "ELSE") == 0) {
+                    const char *after_false = extract_block(skip_whitespace(lookahead + else_bytes),
+                                                              false_body, sizeof(false_body));
+                    if (after_false != NULL) {
+                        ptr = after_false;
+                        has_false = 1;
+                    }
+                } else {
+                    const char *after_false = extract_block(lookahead, false_body, sizeof(false_body));
+                    if (after_false != NULL) {
+                        ptr = after_false;
+                        has_false = 1;
+                    }
+                }
+
+                if (cond != 0) {
+                    eval_logo(app, true_body);
+                } else if (has_false) {
+                    eval_logo(app, false_body);
+                }
+            }
+        }
+        else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
+            app->line_count = 0;
+            app->turtle.x = 250;
+            app->turtle.y = 250;
+            app->turtle.angle = 0;
+        }
+        else if (strcasecmp(token, "PENUP") == 0 || strcasecmp(token, "PU") == 0) {
+            app->turtle.pen_down = 0;
+        }
+        else if (strcasecmp(token, "PENDOWN") == 0 || strcasecmp(token, "PD") == 0) {
+            app->turtle.pen_down = 1;
+        }
+        // 3d. OUTPUT: PRINT "word   or   PRINT <expr>
+        else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {
+            ptr = skip_whitespace(ptr);
+            char line[128];
+
+            if (*ptr == '"') {
+                ptr++;
+                size_t i = 0;
+                while (*ptr && !isspace((unsigned char)*ptr) && i < sizeof(line) - 1) {
+                    line[i++] = *ptr++;
+                }
+                line[i] = '\0';
+            } else {
+                double val = parse_expr(app, &ptr);
+                snprintf(line, sizeof(line), "%g", val);
+            }
+
+            append_output(app, line);
+            append_output(app, "\n");
+        }
+        // 4. USER-DEFINED PROCEDURE CALL
+        else {
+            Procedure *proc = find_procedure(app, token);
+            if (proc != NULL) {
+                // Read one positional argument per declared parameter, and
+                // substitute each into the body in turn.
+                char bound_body[2048];
+                snprintf(bound_body, sizeof(bound_body), "%s", proc->body);
+
+                for (int p = 0; p < proc->param_count; p++) {
+                    double arg_val = parse_expr(app, &ptr);
+                    char val_str[32];
+                    snprintf(val_str, sizeof(val_str), "%g", arg_val);
+
+                    char next_body[2048];
+                    substitute_param(bound_body, proc->param_names[p], val_str, next_body, sizeof(next_body));
+                    snprintf(bound_body, sizeof(bound_body), "%s", next_body);
+                }
+
+                eval_logo(app, bound_body);
+            }
+        }
+    }
+}
+
+// --- REPL INPUT COMPLETENESS ---
+
+// An input is ready to run once its brackets are balanced and every TO has
+// a matching END — otherwise Enter should just add a line and keep going.
+gboolean is_input_complete(const char *text) {
+    int bracket_depth = 0;
+    for (const char *p = text; *p; p++) {
+        if (*p == '[') bracket_depth++;
+        else if (*p == ']') bracket_depth--;
+    }
+    if (bracket_depth > 0) return FALSE;
+
+    int to_count = 0, end_count = 0;
+    const char *p = text;
+    while (*p) {
+        p = skip_whitespace(p);
+        if (*p == '\0') break;
+        char word[64] = {0};
+        int n = 0;
+        if (sscanf(p, "%63s%n", word, &n) != 1 || n == 0) break;
+        if (strcasecmp(word, "TO") == 0) to_count++;
+        else if (strcasecmp(word, "END") == 0) end_count++;
+        p += n;
+    }
+    return to_count <= end_count;
+}

@@ -2,8 +2,8 @@
 
 CC = gcc
 TARGET = bin/logo
-SRC = src/main.c
-OBJ = build/main.o
+SRC = $(wildcard src/*.c)
+OBJ = $(patsubst src/%.c,build/%.o,$(SRC))
 
 PKG_CONFIG = pkg-config
 GTK_LIBS = gtk4
@@ -19,7 +19,9 @@ $(TARGET): $(OBJ)
 	@mkdir -p bin
 	$(CC) $(OBJ) -o $(TARGET) $(LDFLAGS)
 
-build/%.o: src/%.c
+HEADERS = $(wildcard src/*.h)
+
+build/%.o: src/%.c $(HEADERS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 

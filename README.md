@@ -55,10 +55,13 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 ## Project structure
 
 ```
-src/main.c       the interpreter and GTK UI
-docs/            language reference and roadmap
-Makefile         make / make run / make clean
-build.sh         one-shot alternative build script
-scripts/         Homebrew/GTK setup helpers
-archive/         earlier prototype iterations, kept for reference
+src/logo_types.h    shared structs (Turtle, Procedure, Variable, LogoApp)
+src/interpreter.h/c the Logo language core: eval_logo, expression parser
+src/ui.h/c          the GTK window: canvas, REPL entry, View menu
+src/main.c          entry point
+docs/               language reference and roadmap
+Makefile            make / make run / make clean
+build.sh            one-shot alternative build script
+scripts/            Homebrew/GTK setup helpers
+archive/            earlier prototype iterations, kept for reference
 ```
