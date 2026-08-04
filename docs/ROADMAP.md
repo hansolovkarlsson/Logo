@@ -7,9 +7,6 @@ rather than marking it "done" in place.
 
 ## Language
 
-- [ ] `WHILE <condition> [block]` — condition-driven looping; today only
-  `REPEAT n` exists, so anything needing a dynamic exit condition needs a
-  manual counter-and-`IF` workaround.
 - [ ] Multi-parameter procedures (`TO name :a :b :c ... END`) — currently
   capped at one parameter.
 - [ ] Proper local variable scoping for procedure parameters, replacing the

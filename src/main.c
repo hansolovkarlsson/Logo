@@ -8,6 +8,7 @@
 #define MAX_LINES 10000
 #define MAX_PROCEDURES 50
 #define MAX_VARIABLES 100
+#define MAX_WHILE_ITERATIONS 1000000
 
 typedef struct {
     double x1, y1, x2, y2;
@@ -322,6 +323,35 @@ void eval_logo(LogoApp *app, const char *code) {
             if (ptr != NULL) {
                 for (int i = 0; i < count; i++) {
                     eval_logo(app, block_body);
+                }
+            }
+        }
+        // 2b. WHILE LOOPS: WHILE <cond> [block]
+        else if (strcasecmp(token, "WHILE") == 0) {
+            const char *cond_start = ptr;
+            double cond = parse_condition(app, &ptr);
+            size_t cond_len = (size_t)(ptr - cond_start);
+
+            char cond_text[256] = {0};
+            if (cond_len >= sizeof(cond_text)) cond_len = sizeof(cond_text) - 1;
+            memcpy(cond_text, cond_start, cond_len);
+            cond_text[cond_len] = '\0';
+
+            char block_body[1024] = {0};
+            const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
+
+            if (after_block != NULL) {
+                ptr = after_block;
+                int iterations = 0;
+                while (cond != 0) {
+                    if (iterations >= MAX_WHILE_ITERATIONS) {
+                        append_output(app, "WHILE: stopped after too many iterations\n");
+                        break;
+                    }
+                    eval_logo(app, block_body);
+                    const char *cptr = cond_text;
+                    cond = parse_condition(app, &cptr);
+                    iterations++;
                 }
             }
         }

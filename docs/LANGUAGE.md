@@ -104,7 +104,18 @@ REPEAT 4 [FD 100 RT 90]
 - `REPEAT <expr> [block]` evaluates `block` `expr` times (truncated to an
   integer). Blocks can nest and contain any commands, including further
   `REPEAT`/`IF`/procedure calls.
-- There is no `WHILE` or condition-driven loop yet — see `ROADMAP.md`.
+```
+MAKE "i 0
+WHILE :i < 4 [FD 80 RT 90 MAKE "i :i + 1]
+```
+
+- `WHILE <condition> [block]` re-checks `condition` before each pass and
+  runs `block` for as long as it's true. Unlike `REPEAT`, the condition is
+  a live expression — remember to update whatever it depends on inside the
+  block, or the loop won't terminate.
+- As a safety net against runaway loops freezing the app, `WHILE` stops
+  itself after 1,000,000 iterations and prints a warning to the history
+  pane rather than hanging.
 
 ## Output
 
