@@ -7,6 +7,7 @@
 
 #define MAX_LINES 10000
 #define MAX_PROCEDURES 50
+#define MAX_VARIABLES 100
 
 typedef struct {
     double x1, y1, x2, y2;
@@ -14,7 +15,7 @@ typedef struct {
 
 typedef struct {
     double x, y;
-    double angle; 
+    double angle;
     int pen_down;
 } Turtle;
 
@@ -25,6 +26,12 @@ typedef struct {
     char body[2048];
 } Procedure;
 
+// Global variable (MAKE "name value)
+typedef struct {
+    char name[32];
+    double value;
+} Variable;
+
 typedef struct {
     Turtle turtle;
     LineSegment lines[MAX_LINES];
@@ -32,6 +39,9 @@ typedef struct {
 
     Procedure procedures[MAX_PROCEDURES];
     int proc_count;
+
+    Variable variables[MAX_VARIABLES];
+    int var_count;
 
     GtkWidget *drawing_area;
     GtkWidget *text_view;
@@ -96,6 +106,30 @@ Procedure* find_procedure(LogoApp *app, const char *name) {
     return NULL;
 }
 
+// Variable Symbol Table (MAKE / :name)
+static double get_var(LogoApp *app, const char *name) {
+    for (int i = 0; i < app->var_count; i++) {
+        if (strcasecmp(app->variables[i].name, name) == 0) {
+            return app->variables[i].value;
+        }
+    }
+    return 0;
+}
+
+static void set_var(LogoApp *app, const char *name, double value) {
+    for (int i = 0; i < app->var_count; i++) {
+        if (strcasecmp(app->variables[i].name, name) == 0) {
+            app->variables[i].value = value;
+            return;
+        }
+    }
+    if (app->var_count < MAX_VARIABLES) {
+        snprintf(app->variables[app->var_count].name, sizeof(app->variables[0].name), "%s", name);
+        app->variables[app->var_count].value = value;
+        app->var_count++;
+    }
+}
+
 // Simple text replacement for parameter binding (e.g. replace :SIZE with 100)
 void substitute_param(const char *body, const char *param, const char *val, char *output, size_t out_size) {
     output[0] = '\0';
@@ -114,6 +148,107 @@ void substitute_param(const char *body, const char *param, const char *val, char
         pos = match + param_len;
     }
     strcat(output, pos);
+}
+
+// --- EXPRESSION EVALUATION (numbers, :variables, + - * / (), comparisons) ---
+
+static double parse_expr(LogoApp *app, const char **ptr);
+
+static double parse_factor(LogoApp *app, const char **ptr) {
+    *ptr = skip_whitespace(*ptr);
+
+    if (**ptr == '(') {
+        (*ptr)++;
+        double val = parse_expr(app, ptr);
+        *ptr = skip_whitespace(*ptr);
+        if (**ptr == ')') (*ptr)++;
+        return val;
+    }
+    if (**ptr == '-') {
+        (*ptr)++;
+        return -parse_factor(app, ptr);
+    }
+    if (**ptr == '+') {
+        (*ptr)++;
+        return parse_factor(app, ptr);
+    }
+    if (**ptr == ':') {
+        (*ptr)++;
+        char name[32] = {0};
+        size_t i = 0;
+        while (**ptr && (isalnum((unsigned char)**ptr) || **ptr == '_') && i < sizeof(name) - 1) {
+            name[i++] = **ptr;
+            (*ptr)++;
+        }
+        name[i] = '\0';
+        return get_var(app, name);
+    }
+
+    char *end;
+    double val = strtod(*ptr, &end);
+    *ptr = end;
+    return val;
+}
+
+static double parse_term(LogoApp *app, const char **ptr) {
+    double val = parse_factor(app, ptr);
+    for (;;) {
+        *ptr = skip_whitespace(*ptr);
+        if (**ptr == '*') {
+            (*ptr)++;
+            val *= parse_factor(app, ptr);
+        } else if (**ptr == '/') {
+            (*ptr)++;
+            double divisor = parse_factor(app, ptr);
+            val = (divisor != 0) ? val / divisor : 0;
+        } else {
+            break;
+        }
+    }
+    return val;
+}
+
+static double parse_expr(LogoApp *app, const char **ptr) {
+    double val = parse_term(app, ptr);
+    for (;;) {
+        *ptr = skip_whitespace(*ptr);
+        if (**ptr == '+') {
+            (*ptr)++;
+            val += parse_term(app, ptr);
+        } else if (**ptr == '-') {
+            (*ptr)++;
+            val -= parse_term(app, ptr);
+        } else {
+            break;
+        }
+    }
+    return val;
+}
+
+// Relational expression used by IF/IFELSE, e.g. :X > 10, :X = :Y, :X <> 0
+static double parse_condition(LogoApp *app, const char **ptr) {
+    double left = parse_expr(app, ptr);
+    *ptr = skip_whitespace(*ptr);
+
+    if (**ptr == '<' || **ptr == '>' || **ptr == '=') {
+        char op1 = **ptr;
+        (*ptr)++;
+        char op2 = '\0';
+        if ((op1 == '<' && (**ptr == '=' || **ptr == '>')) || (op1 == '>' && **ptr == '=')) {
+            op2 = **ptr;
+            (*ptr)++;
+        }
+        double right = parse_expr(app, ptr);
+
+        if (op1 == '=') return left == right;
+        if (op1 == '<' && op2 == '=') return left <= right;
+        if (op1 == '<' && op2 == '>') return left != right;
+        if (op1 == '<') return left < right;
+        if (op1 == '>' && op2 == '=') return left >= right;
+        return left > right;
+    }
+
+    return left != 0;
 }
 
 // --- RECURSIVE INTERPRETER ---
@@ -164,46 +299,78 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         // 2. REPEAT LOOPS
         else if (strcasecmp(token, "REPEAT") == 0) {
-            int count = 0;
-            if (sscanf(ptr, "%d%n", &count, &read_bytes) == 1) {
-                ptr += read_bytes;
-                char block_body[1024];
-                ptr = extract_block(ptr, block_body, sizeof(block_body));
-                
-                if (ptr != NULL) {
-                    for (int i = 0; i < count; i++) {
-                        eval_logo(app, block_body);
-                    }
+            int count = (int)parse_expr(app, &ptr);
+            char block_body[1024];
+            ptr = extract_block(ptr, block_body, sizeof(block_body));
+
+            if (ptr != NULL) {
+                for (int i = 0; i < count; i++) {
+                    eval_logo(app, block_body);
                 }
             }
-        } 
+        }
         // 3. BASIC TURTLE COMMANDS
         else if (strcasecmp(token, "FORWARD") == 0 || strcasecmp(token, "FD") == 0) {
-            double val = 0;
-            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
-                ptr += read_bytes;
-                move_turtle_forward(app, val);
-            }
-        } 
+            double val = parse_expr(app, &ptr);
+            move_turtle_forward(app, val);
+        }
         else if (strcasecmp(token, "BACK") == 0 || strcasecmp(token, "BK") == 0) {
-            double val = 0;
-            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
-                ptr += read_bytes;
-                move_turtle_forward(app, -val);
-            }
+            double val = parse_expr(app, &ptr);
+            move_turtle_forward(app, -val);
         }
         else if (strcasecmp(token, "RIGHT") == 0 || strcasecmp(token, "RT") == 0) {
-            double val = 0;
-            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
-                ptr += read_bytes;
-                app->turtle.angle += val;
-            }
+            double val = parse_expr(app, &ptr);
+            app->turtle.angle += val;
         }
         else if (strcasecmp(token, "LEFT") == 0 || strcasecmp(token, "LT") == 0) {
-            double val = 0;
-            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
+            double val = parse_expr(app, &ptr);
+            app->turtle.angle -= val;
+        }
+        // 3b. VARIABLES: MAKE "name expr
+        else if (strcasecmp(token, "MAKE") == 0) {
+            char varname[64] = {0};
+            if (sscanf(ptr, "%63s%n", varname, &read_bytes) == 1 && varname[0] == '"') {
                 ptr += read_bytes;
-                app->turtle.angle -= val;
+                double val = parse_expr(app, &ptr);
+                set_var(app, varname + 1, val);
+            }
+        }
+        // 3c. CONDITIONALS: IF <cond> [block] (ELSE [block])   or   IFELSE <cond> [block] [block]
+        else if (strcasecmp(token, "IF") == 0 || strcasecmp(token, "IFELSE") == 0) {
+            double cond = parse_condition(app, &ptr);
+
+            char true_body[1024] = {0};
+            const char *after_true = extract_block(ptr, true_body, sizeof(true_body));
+
+            if (after_true != NULL) {
+                ptr = after_true;
+                char false_body[1024] = {0};
+                int has_false = 0;
+
+                const char *lookahead = skip_whitespace(ptr);
+                char maybe_else[16] = {0};
+                int else_bytes = 0;
+                if (sscanf(lookahead, "%15s%n", maybe_else, &else_bytes) == 1 &&
+                    strcasecmp(maybe_else, "ELSE") == 0) {
+                    const char *after_false = extract_block(skip_whitespace(lookahead + else_bytes),
+                                                              false_body, sizeof(false_body));
+                    if (after_false != NULL) {
+                        ptr = after_false;
+                        has_false = 1;
+                    }
+                } else {
+                    const char *after_false = extract_block(lookahead, false_body, sizeof(false_body));
+                    if (after_false != NULL) {
+                        ptr = after_false;
+                        has_false = 1;
+                    }
+                }
+
+                if (cond != 0) {
+                    eval_logo(app, true_body);
+                } else if (has_false) {
+                    eval_logo(app, false_body);
+                }
             }
         }
         else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
@@ -225,11 +392,8 @@ void eval_logo(LogoApp *app, const char *code) {
                 char val_str[32] = "";
                 // Read argument if procedure expects a parameter
                 if (strlen(proc->param_name) > 0) {
-                    double arg_val = 0;
-                    if (sscanf(ptr, "%lf%n", &arg_val, &read_bytes) == 1) {
-                        ptr += read_bytes;
-                        snprintf(val_str, sizeof(val_str), "%g", arg_val);
-                    }
+                    double arg_val = parse_expr(app, &ptr);
+                    snprintf(val_str, sizeof(val_str), "%g", arg_val);
                 }
 
                 // Substitute parameter into body and evaluate recursively
