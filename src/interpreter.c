@@ -48,8 +48,15 @@ static const char* extract_block(const char *str, char *buffer, size_t buf_size)
     return str;
 }
 
+// Clamp a color channel to the valid 0.0-1.0 range Cairo expects.
+static double clamp01(double v) {
+    if (v < 0) return 0;
+    if (v > 1) return 1;
+    return v;
+}
+
 // Move the turtle by `distance` along its current heading, recording a
-// line segment if the pen is down.
+// line segment (in the turtle's current pen color) if the pen is down.
 static void move_turtle_forward(LogoApp *app, double distance) {
     double rad = (app->turtle.angle - 90.0) * M_PI / 180.0;
     double new_x = app->turtle.x + distance * cos(rad);
@@ -57,7 +64,9 @@ static void move_turtle_forward(LogoApp *app, double distance) {
 
     if (app->turtle.pen_down && app->line_count < MAX_LINES) {
         app->lines[app->line_count++] = (LineSegment){
-            app->turtle.x, app->turtle.y, new_x, new_y
+            .x1 = app->turtle.x, .y1 = app->turtle.y,
+            .x2 = new_x, .y2 = new_y,
+            .r = app->turtle.pen_r, .g = app->turtle.pen_g, .b = app->turtle.pen_b,
         };
     }
 
@@ -478,6 +487,15 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         else if (strcasecmp(token, "PENDOWN") == 0 || strcasecmp(token, "PD") == 0) {
             app->turtle.pen_down = 1;
+        }
+        // 3c'. SETPENCOLOR r g b — each channel 0-255, applies to lines drawn from now on
+        else if (strcasecmp(token, "SETPENCOLOR") == 0 || strcasecmp(token, "SETPC") == 0) {
+            double r = parse_expr(app, &ptr);
+            double g = parse_expr(app, &ptr);
+            double b = parse_expr(app, &ptr);
+            app->turtle.pen_r = clamp01(r / 255.0);
+            app->turtle.pen_g = clamp01(g / 255.0);
+            app->turtle.pen_b = clamp01(b / 255.0);
         }
         // 3d. OUTPUT: PRINT "word   or   PRINT <expr>
         else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {

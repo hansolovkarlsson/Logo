@@ -9,11 +9,10 @@ whenever a language feature changes.
 - The turtle starts at position `(250, 250)` facing angle `0`, pen down.
 - Angle `0` points up (north); `RIGHT`/`RT` increases the angle (clockwise),
   `LEFT`/`LT` decreases it.
-- `CLEAR`/`CS` erases all drawn lines and resets the turtle to its start
-  position and angle (pen state is left unchanged).
-- There is currently one turtle, one pen color (fixed, dark gray), and one
-  canvas — no color, multiple turtles, or SETXY/HOME/SETHEADING yet (see
-  `ROADMAP.md`).
+- `CLEAR`/`CS` erases all drawn lines and resets the turtle's position and
+  angle to the start (pen state and pen color are left unchanged).
+- There is currently one turtle and one canvas — no multiple turtles,
+  background color, or SETXY/HOME/SETHEADING yet (see `ROADMAP.md`).
 
 ## Turtle commands
 
@@ -25,9 +24,27 @@ whenever a language feature changes.
 | `LEFT` | `LT` | expr | Turn counter-clockwise by `expr` degrees |
 | `PENUP` | `PU` | — | Stop drawing while moving |
 | `PENDOWN` | `PD` | — | Resume drawing while moving |
-| `CLEAR` | `CS` | — | Erase the canvas and reset the turtle |
+| `SETPENCOLOR` | `SETPC` | `r g b` (each 0-255) | Set the color new lines are drawn in |
+| `CLEAR` | `CS` | — | Erase the canvas and reset the turtle's position/angle |
 
 All commands are case-insensitive (`fd 100` and `FD 100` are equivalent).
+
+```
+SETPENCOLOR 255 0 0
+FD 80 RT 90
+SETPC 0 100 255
+FD 80
+```
+
+- `SETPENCOLOR`/`SETPC` takes three expressions, each clamped to 0-255,
+  and becomes the color used by every line drawn from then on.
+- Each drawn line segment remembers the pen color it was drawn with, so a
+  single drawing can freely mix colors across `SETPENCOLOR` calls — it's
+  not a single canvas-wide color.
+- The turtle's own triangle marker is always the same fixed green,
+  regardless of pen color.
+- Default pen color is a dark gray, matching earlier versions of this app
+  before `SETPENCOLOR` existed.
 
 ## Expressions
 

@@ -19,7 +19,7 @@ rather than marking it "done" in place.
 ## Turtle & graphics
 
 - [ ] `SETXY x y`, `HOME`, `SETHEADING angle` for direct positioning.
-- [ ] Pen color (`SETPENCOLOR`) and background color (`SETBACKGROUND`).
+- [ ] Background color (`SETBACKGROUND`).
 - [ ] Pen width control.
 - [ ] `ARC`/circle drawing primitive.
 - [ ] Multiple turtles / turtle identity (stretch — big change to the data
