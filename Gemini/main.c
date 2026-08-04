@@ -1,0 +1,337 @@
+#include <gtk/gtk.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_LINES 10000
+#define MAX_PROCEDURES 50
+
+typedef struct {
+    double x1, y1, x2, y2;
+} LineSegment;
+
+typedef struct {
+    double x, y;
+    double angle; 
+    int pen_down;
+} Turtle;
+
+// Structure to hold a user-defined procedure (TO ... END)
+typedef struct {
+    char name[32];
+    char param_name[32]; // Single param support (e.g. :SIZE)
+    char body[2048];
+} Procedure;
+
+typedef struct {
+    Turtle turtle;
+    LineSegment lines[MAX_LINES];
+    int line_count;
+
+    Procedure procedures[MAX_PROCEDURES];
+    int proc_count;
+
+    GtkWidget *drawing_area;
+    GtkWidget *text_view;
+    GtkWidget *entry;
+} LogoApp;
+
+// Forward Declarations
+void eval_logo(LogoApp *app, const char *code);
+
+// --- HELPER FUNCTIONS ---
+
+static const char* skip_whitespace(const char *str) {
+    while (*str && isspace((unsigned char)*str)) str++;
+    return str;
+}
+
+static const char* extract_block(const char *str, char *buffer, size_t buf_size) {
+    str = skip_whitespace(str);
+    if (*str != '[') return NULL;
+
+    str++;
+    int depth = 1;
+    size_t idx = 0;
+
+    while (*str && depth > 0) {
+        if (*str == '[') depth++;
+        else if (*str == ']') depth--;
+
+        if (depth > 0) {
+            if (idx < buf_size - 1) buffer[idx++] = *str;
+            str++;
+        }
+    }
+
+    buffer[idx] = '\0';
+    if (*str == ']') str++;
+    return str;
+}
+
+static void move_turtle_forward(LogoApp *app, double distance) {
+    double rad = (app->turtle.angle - 90.0) * M_PI / 180.0;
+    double new_x = app->turtle.x + distance * cos(rad);
+    double new_y = app->turtle.y + distance * sin(rad);
+
+    if (app->turtle.pen_down && app->line_count < MAX_LINES) {
+        app->lines[app->line_count++] = (LineSegment){
+            app->turtle.x, app->turtle.y, new_x, new_y
+        };
+    }
+
+    app->turtle.x = new_x;
+    app->turtle.y = new_y;
+}
+
+// Procedure Symbol Table Lookup
+Procedure* find_procedure(LogoApp *app, const char *name) {
+    for (int i = 0; i < app->proc_count; i++) {
+        if (strcasecmp(app->procedures[i].name, name) == 0) {
+            return &app->procedures[i];
+        }
+    }
+    return NULL;
+}
+
+// Simple text replacement for parameter binding (e.g. replace :SIZE with 100)
+void substitute_param(const char *body, const char *param, const char *val, char *output, size_t out_size) {
+    output[0] = '\0';
+    if (strlen(param) == 0) {
+        snprintf(output, out_size, "%s", body);
+        return;
+    }
+
+    const char *pos = body;
+    const char *match;
+    size_t param_len = strlen(param);
+
+    while ((match = strstr(pos, param)) != NULL) {
+        strncat(output, pos, match - pos);
+        strcat(output, val);
+        pos = match + param_len;
+    }
+    strcat(output, pos);
+}
+
+// --- RECURSIVE INTERPRETER ---
+
+void eval_logo(LogoApp *app, const char *code) {
+    const char *ptr = code;
+
+    while (*ptr != '\0') {
+        ptr = skip_whitespace(ptr);
+        if (*ptr == '\0') break;
+
+        char token[64] = {0};
+        int read_bytes = 0;
+
+        if (sscanf(ptr, "%63s%n", token, &read_bytes) != 1) break;
+        ptr += read_bytes;
+
+        // 1. PROCEDURE DEFINITION: TO <NAME> [:PARAM] ... END
+        if (strcasecmp(token, "TO") == 0) {
+            if (app->proc_count >= MAX_PROCEDURES) break;
+
+            Procedure *proc = &app->procedures[app->proc_count];
+            memset(proc, 0, sizeof(Procedure));
+
+            // Read Procedure Name
+            if (sscanf(ptr, "%31s%n", proc->name, &read_bytes) == 1) {
+                ptr += read_bytes;
+                ptr = skip_whitespace(ptr);
+
+                // Optional Parameter (starts with ':')
+                if (*ptr == ':') {
+                    sscanf(ptr, "%31s%n", proc->param_name, &read_bytes);
+                    ptr += read_bytes;
+                }
+
+                // Extract body until END
+                const char *end_ptr = strcasestr(ptr, "END");
+                if (end_ptr != NULL) {
+                    size_t body_len = end_ptr - ptr;
+                    if (body_len < sizeof(proc->body)) {
+                        strncpy(proc->body, ptr, body_len);
+                        proc->body[body_len] = '\0';
+                    }
+                    ptr = end_ptr + 3; // Advance past "END"
+                    app->proc_count++;
+                }
+            }
+        }
+        // 2. REPEAT LOOPS
+        else if (strcasecmp(token, "REPEAT") == 0) {
+            int count = 0;
+            if (sscanf(ptr, "%d%n", &count, &read_bytes) == 1) {
+                ptr += read_bytes;
+                char block_body[1024];
+                ptr = extract_block(ptr, block_body, sizeof(block_body));
+                
+                if (ptr != NULL) {
+                    for (int i = 0; i < count; i++) {
+                        eval_logo(app, block_body);
+                    }
+                }
+            }
+        } 
+        // 3. BASIC TURTLE COMMANDS
+        else if (strcasecmp(token, "FORWARD") == 0 || strcasecmp(token, "FD") == 0) {
+            double val = 0;
+            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
+                ptr += read_bytes;
+                move_turtle_forward(app, val);
+            }
+        } 
+        else if (strcasecmp(token, "BACK") == 0 || strcasecmp(token, "BK") == 0) {
+            double val = 0;
+            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
+                ptr += read_bytes;
+                move_turtle_forward(app, -val);
+            }
+        }
+        else if (strcasecmp(token, "RIGHT") == 0 || strcasecmp(token, "RT") == 0) {
+            double val = 0;
+            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
+                ptr += read_bytes;
+                app->turtle.angle += val;
+            }
+        }
+        else if (strcasecmp(token, "LEFT") == 0 || strcasecmp(token, "LT") == 0) {
+            double val = 0;
+            if (sscanf(ptr, "%lf%n", &val, &read_bytes) == 1) {
+                ptr += read_bytes;
+                app->turtle.angle -= val;
+            }
+        }
+        else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
+            app->line_count = 0;
+            app->turtle.x = 250;
+            app->turtle.y = 250;
+            app->turtle.angle = 0;
+        }
+        else if (strcasecmp(token, "PENUP") == 0 || strcasecmp(token, "PU") == 0) {
+            app->turtle.pen_down = 0;
+        }
+        else if (strcasecmp(token, "PENDOWN") == 0 || strcasecmp(token, "PD") == 0) {
+            app->turtle.pen_down = 1;
+        }
+        // 4. USER-DEFINED PROCEDURE CALL
+        else {
+            Procedure *proc = find_procedure(app, token);
+            if (proc != NULL) {
+                char val_str[32] = "";
+                // Read argument if procedure expects a parameter
+                if (strlen(proc->param_name) > 0) {
+                    double arg_val = 0;
+                    if (sscanf(ptr, "%lf%n", &arg_val, &read_bytes) == 1) {
+                        ptr += read_bytes;
+                        snprintf(val_str, sizeof(val_str), "%g", arg_val);
+                    }
+                }
+
+                // Substitute parameter into body and evaluate recursively
+                char bound_body[2048];
+                substitute_param(proc->body, proc->param_name, val_str, bound_body, sizeof(bound_body));
+                eval_logo(app, bound_body);
+            }
+        }
+    }
+}
+
+// --- GTK DRAWING & CALLBACKS ---
+
+static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer user_data) {
+    LogoApp *app = (LogoApp *)user_data;
+
+    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_paint(cr);
+
+    cairo_set_source_rgb(cr, 0.1, 0.1, 0.1);
+    cairo_set_line_width(cr, 2.0);
+
+    for (int i = 0; i < app->line_count; i++) {
+        cairo_move_to(cr, app->lines[i].x1, app->lines[i].y1);
+        cairo_line_to(cr, app->lines[i].x2, app->lines[i].y2);
+    }
+    cairo_stroke(cr);
+
+    cairo_save(cr);
+    cairo_translate(cr, app->turtle.x, app->turtle.y);
+    cairo_rotate(cr, app->turtle.angle * M_PI / 180.0);
+    
+    cairo_set_source_rgb(cr, 0.1, 0.7, 0.3);
+    cairo_move_to(cr, 0, -10);
+    cairo_line_to(cr, 7, 10);
+    cairo_line_to(cr, -7, 10);
+    cairo_close_path(cr);
+    cairo_fill(cr);
+    
+    cairo_restore(cr);
+}
+
+static void on_entry_activate(GtkEntry *entry, gpointer user_data) {
+    LogoApp *app = (LogoApp *)user_data;
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+
+    if (strlen(text) == 0) return;
+
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->text_view));
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    gtk_text_buffer_insert(buffer, &end, "> ", -1);
+    gtk_text_buffer_insert(buffer, &end, text, -1);
+    gtk_text_buffer_insert(buffer, &end, "\n", -1);
+
+    eval_logo(app, text);
+
+    gtk_widget_queue_draw(app->drawing_area);
+    gtk_editable_set_text(GTK_EDITABLE(entry), "");
+}
+
+static void activate(GtkApplication *app, gpointer user_data) {
+    LogoApp *logo = g_new0(LogoApp, 1);
+    logo->turtle = (Turtle){.x = 250, .y = 250, .angle = 0, .pen_down = 1};
+
+    GtkWidget *window = gtk_application_window_new(app);
+    gtk_window_set_title(GTK_WINDOW(window), "Logo Turtle Engine with Procedures");
+    gtk_window_set_default_size(GTK_WINDOW(window), 850, 500);
+
+    GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_window_set_child(GTK_WINDOW(window), paned);
+
+    logo->drawing_area = gtk_drawing_area_new();
+    gtk_widget_set_size_request(logo->drawing_area, 500, 500);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(logo->drawing_area), draw_cb, logo, NULL);
+    gtk_paned_set_start_child(GTK_PANED(paned), logo->drawing_area);
+
+    GtkWidget *repl_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    
+    logo->text_view = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(logo->text_view), FALSE);
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), logo->text_view);
+    gtk_widget_set_vexpand(scroll, TRUE);
+
+    logo->entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(logo->entry), "Enter command or TO procedure...");
+    g_signal_connect(logo->entry, "activate", G_CALLBACK(on_entry_activate), logo);
+
+    gtk_box_append(GTK_BOX(repl_box), scroll);
+    gtk_box_append(GTK_BOX(repl_box), logo->entry);
+    
+    gtk_paned_set_end_child(GTK_PANED(paned), repl_box);
+
+    gtk_window_present(GTK_WINDOW(window));
+}
+
+int main(int argc, char **argv) {
+    GtkApplication *app = gtk_application_new("org.logo.procedures", G_APPLICATION_DEFAULT_FLAGS);
+    g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
+    int status = g_application_run(G_APPLICATION(app), argc, argv);
+    g_object_unref(app);
+    return status;
+}
+
