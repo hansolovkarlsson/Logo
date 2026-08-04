@@ -22,4 +22,9 @@ gboolean is_input_complete(const char *text);
 // Append text to the history pane and scroll it into view.
 void append_output(LogoApp *app, const char *text);
 
+// Build a Logo-source rendering of every currently-defined procedure
+// (each as TO ... END), readable back in by LOAD or File > Open. Returns
+// a newly g_malloc'd string the caller must g_free.
+char *serialize_procedures(LogoApp *app);
+
 #endif // INTERPRETER_H

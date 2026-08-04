@@ -343,6 +343,25 @@ void eval_logo(LogoApp *app, const char *code) {
                 }
             }
         }
+        // 1d. SAVE "path — write all defined procedures out as Logo source
+        else if (strcasecmp(token, "SAVE") == 0) {
+            char path_buf[256] = {0};
+            if (sscanf(ptr, "%255s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+                ptr += read_bytes;
+
+                char *content = serialize_procedures(app);
+                GError *error = NULL;
+                if (g_file_set_contents(path_buf + 1, content, -1, &error)) {
+                    append_output(app, "Saved ");
+                    append_output(app, path_buf + 1);
+                    append_output(app, "\n");
+                } else {
+                    append_output(app, "SAVE: could not write file\n");
+                    g_error_free(error);
+                }
+                g_free(content);
+            }
+        }
         // 2. REPEAT LOOPS
         else if (strcasecmp(token, "REPEAT") == 0) {
             int count = (int)parse_expr(app, &ptr);
@@ -540,4 +559,25 @@ gboolean is_input_complete(const char *text) {
         p += n;
     }
     return to_count <= end_count;
+}
+
+// --- SAVING ---
+
+// Build a Logo-source rendering of every currently-defined procedure
+// (each as TO ... END), readable back in by LOAD or File > Open.
+char *serialize_procedures(LogoApp *app) {
+    GString *out = g_string_new(NULL);
+    for (int i = 0; i < app->proc_count; i++) {
+        Procedure *proc = &app->procedures[i];
+        g_string_append(out, "TO ");
+        g_string_append(out, proc->name);
+        for (int p = 0; p < proc->param_count; p++) {
+            g_string_append_c(out, ' ');
+            g_string_append(out, proc->param_names[p]); // already includes leading ':'
+        }
+        g_string_append_c(out, '\n');
+        g_string_append(out, proc->body);
+        g_string_append(out, "\nEND\n\n");
+    }
+    return g_string_free(out, FALSE);
 }

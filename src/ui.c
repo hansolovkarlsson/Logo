@@ -152,6 +152,18 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
 
 // --- FILE MENU ---
 
+// The *.logo/*.txt filter shared by the Open and Save dialogs.
+static GListModel *logo_file_filters(void) {
+    GtkFileFilter *logo_filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(logo_filter, "Logo scripts");
+    gtk_file_filter_add_pattern(logo_filter, "*.logo");
+    gtk_file_filter_add_pattern(logo_filter, "*.txt");
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, logo_filter);
+    g_object_unref(logo_filter);
+    return G_LIST_MODEL(filters); // caller owns the returned GListStore
+}
+
 // Finishes the async GtkFileDialog started by action_open_file: reads the
 // chosen file and runs it as Logo source, same as typing it into the REPL.
 static void on_file_open_response(GObject *source, GAsyncResult *result, gpointer user_data) {
@@ -195,18 +207,60 @@ static void action_open_file(GSimpleAction *action, GVariant *parameter, gpointe
 
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Open Logo Script");
-
-    GtkFileFilter *logo_filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(logo_filter, "Logo scripts");
-    gtk_file_filter_add_pattern(logo_filter, "*.logo");
-    gtk_file_filter_add_pattern(logo_filter, "*.txt");
-    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filters, logo_filter);
-    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
-    g_object_unref(logo_filter);
+    GListModel *filters = logo_file_filters();
+    gtk_file_dialog_set_filters(dialog, filters);
     g_object_unref(filters);
 
     gtk_file_dialog_open(dialog, GTK_WINDOW(app->window), NULL, on_file_open_response, app);
+    g_object_unref(dialog);
+}
+
+// Finishes the async GtkFileDialog started by action_save_file: writes
+// every currently-defined procedure to the chosen file.
+static void on_file_save_response(GObject *source, GAsyncResult *result, gpointer user_data) {
+    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
+    LogoApp *app = (LogoApp *)user_data;
+
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_save_finish(dialog, result, &error);
+    if (file == NULL) {
+        if (error != NULL) g_error_free(error); // includes user cancellation
+        return;
+    }
+
+    char *content = serialize_procedures(app);
+    GError *write_error = NULL;
+    if (g_file_replace_contents(file, content, strlen(content), NULL, FALSE,
+                                 G_FILE_CREATE_NONE, NULL, NULL, &write_error)) {
+        char *path = g_file_get_path(file);
+        append_output(app, "Saved ");
+        append_output(app, path != NULL ? path : "file");
+        append_output(app, "\n");
+        g_free(path);
+    } else {
+        append_output(app, "Could not save file\n");
+        if (write_error != NULL) g_error_free(write_error);
+    }
+
+    g_free(content);
+    g_object_unref(file);
+}
+
+// File > Save… — shows a native save dialog, then hands off to
+// on_file_save_response once the user picks a destination.
+static void action_save_file(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Save Logo Script");
+    gtk_file_dialog_set_initial_name(dialog, "untitled.logo");
+    GListModel *filters = logo_file_filters();
+    gtk_file_dialog_set_filters(dialog, filters);
+    g_object_unref(filters);
+
+    gtk_file_dialog_save(dialog, GTK_WINDOW(app->window), NULL, on_file_save_response, app);
     g_object_unref(dialog);
 }
 
@@ -323,6 +377,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
 
     static GActionEntry file_actions[] = {
         {.name = "open-file", .activate = action_open_file},
+        {.name = "save-file", .activate = action_save_file},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(app), file_actions,
                                      G_N_ELEMENTS(file_actions), logo);
@@ -338,10 +393,12 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     // <Primary> doesn't resolve to Cmd on this GTK build (shows as Ctrl in
     // the menu), so use <Meta> directly — this app is macOS-only anyway.
     const char *open_accels[] = {"<Meta>o", NULL};
+    const char *save_accels[] = {"<Meta>s", NULL};
     const char *increase_accels[] = {"<Meta>plus", "<Meta>equal", NULL};
     const char *decrease_accels[] = {"<Meta>minus", NULL};
     const char *reset_accels[] = {"<Meta>0", NULL};
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
+    gtk_application_set_accels_for_action(app, "app.save-file", save_accels);
     gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
     gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);
     gtk_application_set_accels_for_action(app, "app.reset-text-size", reset_accels);
@@ -350,6 +407,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
 
     GMenu *file_menu = g_menu_new();
     g_menu_append(file_menu, "Open\xe2\x80\xa6", "app.open-file");
+    g_menu_append(file_menu, "Save\xe2\x80\xa6", "app.save-file");
     g_menu_append_submenu(menu_bar, "File", G_MENU_MODEL(file_menu));
     g_object_unref(file_menu);
 

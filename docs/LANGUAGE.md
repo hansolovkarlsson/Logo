@@ -157,19 +157,25 @@ PRINT :size
 
 ```
 LOAD "/Users/you/scripts/star.logo
+SAVE "/Users/you/scripts/star.logo
 ```
 
 - `LOAD "path` reads a file and runs its contents as Logo source, exactly
   as if it had been typed into the REPL — including `TO` definitions,
   which is the main use case (write/edit a script externally, `LOAD` it,
   test, repeat).
-- The path is a single whitespace-delimited word, same as `PRINT "word` and
-  `MAKE "name` — a path containing spaces won't parse correctly typed this
-  way. Use **File → Open…** in the menu bar instead for paths with spaces,
-  since that goes through a native file picker rather than this text
-  syntax.
-- If the file can't be read, prints "LOAD: could not read file" rather
-  than crashing.
+- `SAVE "path` writes every currently-defined procedure out as `TO ... END`
+  Logo source, readable back in by `LOAD`. It only saves procedure
+  definitions, not variables, turtle state, or drawing — loading a saved
+  file gives you back the same reusable procedures, not a replay of
+  everything you typed.
+- Both take the path as a single whitespace-delimited word, same as
+  `PRINT "word` and `MAKE "name` — a path containing spaces won't parse
+  correctly typed this way. Use **File → Open…**/**Save…** in the menu bar
+  instead for paths with spaces, since those go through a native file
+  picker rather than this text syntax.
+- If the file can't be read or written, prints "LOAD: could not read
+  file" / "SAVE: could not write file" rather than crashing.
 
 ## Interface
 
@@ -191,7 +197,8 @@ LOAD "/Users/you/scripts/star.logo
   not yet submitted is preserved and restored once you browse back down
   past the newest entry.
 - The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
-  a file via a native dialog and runs it the same way `LOAD` does.
+  a file via a native dialog and runs it the same way `LOAD` does, and
+  **Save…** (⌘S), which does the same for `SAVE`.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
   Text Size, applied to both the history pane and the entry box.
 

@@ -1,0 +1,8 @@
+TO square :size
+	repeat 4 [fd :size rt 90]
+END
+
+TO rect :w :h
+	repeat 2 [fd :w rt 90 fd :h rt 90]
+END
+
