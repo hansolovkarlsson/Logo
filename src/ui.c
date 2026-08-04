@@ -12,11 +12,10 @@
 #include <stdio.h>
 #include <string.h>
 
-// Cairo draw callback for the turtle canvas: paints the background, every
-// recorded line segment, then the turtle itself as a triangle.
-static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer user_data) {
-    LogoApp *app = (LogoApp *)user_data;
-
+// Paints the background, every recorded line segment, then the turtle
+// itself as a triangle. Shared by the live on-screen canvas (draw_cb) and
+// PNG export (export_canvas_to_png), so both render identically.
+static void draw_scene(LogoApp *app, cairo_t *cr) {
     cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
     cairo_paint(cr);
 
@@ -41,6 +40,34 @@ static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gp
     cairo_fill(cr);
 
     cairo_restore(cr);
+}
+
+// Cairo draw callback for the turtle canvas.
+static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer user_data) {
+    (void)area;
+    (void)width;
+    (void)height;
+    draw_scene((LogoApp *)user_data, cr);
+}
+
+// Renders the current scene to an off-screen surface at the canvas's
+// actual size and writes it out as a PNG. Returns FALSE on failure.
+static gboolean export_canvas_to_png(LogoApp *app, const char *path) {
+    int width = gtk_widget_get_width(app->drawing_area);
+    int height = gtk_widget_get_height(app->drawing_area);
+    if (width <= 0 || height <= 0) {
+        width = 500;
+        height = 500;
+    }
+
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+    cairo_t *cr = cairo_create(surface);
+    draw_scene(app, cr);
+    cairo_status_t status = cairo_surface_write_to_png(surface, path);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+
+    return status == CAIRO_STATUS_SUCCESS;
 }
 
 // Record a submitted command in the history, skipping an exact repeat of
@@ -264,6 +291,55 @@ static void action_save_file(GSimpleAction *action, GVariant *parameter, gpointe
     g_object_unref(dialog);
 }
 
+// Finishes the async GtkFileDialog started by action_export_png: renders
+// the current canvas to the chosen file.
+static void on_export_png_response(GObject *source, GAsyncResult *result, gpointer user_data) {
+    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
+    LogoApp *app = (LogoApp *)user_data;
+
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_save_finish(dialog, result, &error);
+    if (file == NULL) {
+        if (error != NULL) g_error_free(error); // includes user cancellation
+        return;
+    }
+
+    char *path = g_file_get_path(file);
+    if (path != NULL && export_canvas_to_png(app, path)) {
+        append_output(app, "Exported ");
+        append_output(app, path);
+        append_output(app, "\n");
+    } else {
+        append_output(app, "Could not export PNG\n");
+    }
+    g_free(path);
+    g_object_unref(file);
+}
+
+// File > Export as PNG… — shows a native save dialog, then hands off to
+// on_export_png_response once the user picks a destination.
+static void action_export_png(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Export Canvas as PNG");
+    gtk_file_dialog_set_initial_name(dialog, "turtle.png");
+
+    GtkFileFilter *png_filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(png_filter, "PNG image");
+    gtk_file_filter_add_pattern(png_filter, "*.png");
+    GListStore *png_filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(png_filters, png_filter);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(png_filters));
+    g_object_unref(png_filter);
+    g_object_unref(png_filters);
+
+    gtk_file_dialog_save(dialog, GTK_WINDOW(app->window), NULL, on_export_png_response, app);
+    g_object_unref(dialog);
+}
+
 // --- TEXT SIZE MENU ---
 
 #define MIN_FONT_SIZE 8
@@ -378,6 +454,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     static GActionEntry file_actions[] = {
         {.name = "open-file", .activate = action_open_file},
         {.name = "save-file", .activate = action_save_file},
+        {.name = "export-png", .activate = action_export_png},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(app), file_actions,
                                      G_N_ELEMENTS(file_actions), logo);
@@ -394,11 +471,13 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     // the menu), so use <Meta> directly — this app is macOS-only anyway.
     const char *open_accels[] = {"<Meta>o", NULL};
     const char *save_accels[] = {"<Meta>s", NULL};
+    const char *export_png_accels[] = {"<Meta>e", NULL};
     const char *increase_accels[] = {"<Meta>plus", "<Meta>equal", NULL};
     const char *decrease_accels[] = {"<Meta>minus", NULL};
     const char *reset_accels[] = {"<Meta>0", NULL};
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.save-file", save_accels);
+    gtk_application_set_accels_for_action(app, "app.export-png", export_png_accels);
     gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
     gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);
     gtk_application_set_accels_for_action(app, "app.reset-text-size", reset_accels);
@@ -408,6 +487,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     GMenu *file_menu = g_menu_new();
     g_menu_append(file_menu, "Open\xe2\x80\xa6", "app.open-file");
     g_menu_append(file_menu, "Save\xe2\x80\xa6", "app.save-file");
+    g_menu_append(file_menu, "Export as PNG\xe2\x80\xa6", "app.export-png");
     g_menu_append_submenu(menu_bar, "File", G_MENU_MODEL(file_menu));
     g_object_unref(file_menu);
 

@@ -197,8 +197,10 @@ SAVE "/Users/you/scripts/star.logo
   not yet submitted is preserved and restored once you browse back down
   past the newest entry.
 - The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
-  a file via a native dialog and runs it the same way `LOAD` does, and
-  **Save…** (⌘S), which does the same for `SAVE`.
+  a file via a native dialog and runs it the same way `LOAD` does;
+  **Save…** (⌘S), which does the same for `SAVE`; and **Export as PNG…**
+  (⌘E), which renders the current canvas (background, drawn lines, and the
+  turtle) to an image file at the canvas's actual pixel size.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
   Text Size, applied to both the history pane and the entry box.
 

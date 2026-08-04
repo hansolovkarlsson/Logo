@@ -27,7 +27,6 @@ rather than marking it "done" in place.
 
 ## Interface & workflow
 
-- [ ] Export the canvas as an image (PNG).
 - [ ] Syntax highlighting or at least bracket-matching feedback in the
   entry box.
 
