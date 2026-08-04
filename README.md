@@ -1,0 +1,57 @@
+# Logo
+
+A small Logo interpreter with turtle graphics, built in C with GTK4.
+
+Type commands into the entry box and watch the turtle draw on the canvas — the
+classic 80s Logo experience, running natively on macOS.
+
+## Features
+
+- Turtle graphics canvas (Cairo-drawn) alongside a REPL/history pane
+- Core turtle commands: `FORWARD`/`FD`, `BACK`/`BK`, `RIGHT`/`RT`, `LEFT`/`LT`,
+  `PENUP`/`PU`, `PENDOWN`/`PD`, `CLEAR`/`CS`
+- `REPEAT n [ ... ]` loops
+- User-defined procedures: `TO name :param ... END`
+- Variables: `MAKE "name expr` to set, `:name` to read
+- Numeric expressions: `+ - * /` and parentheses, usable anywhere a number is
+  expected (`FD :size * 2 + 10`)
+- Conditionals: `IF <cond> [block]`, `IF <cond> [block] ELSE [block]`, and
+  classic `IFELSE <cond> [block] [block]`, with `< > = <= >= <>` comparisons
+- `PRINT`/`PR` to write text or expression results to the history pane
+- A **View** menu (native macOS menu bar) to increase, decrease, or reset the
+  text size of the REPL
+
+## Requirements
+
+- macOS
+- [Homebrew](https://brew.sh)
+- GTK4 and pkg-config (`scripts/install_gtk.sh` installs both)
+
+## Build & Run
+
+```sh
+./scripts/install_brew.sh   # only if Homebrew isn't installed yet
+./scripts/install_gtk.sh    # installs gtk4 + pkg-config
+make run
+```
+
+`make` alone builds `bin/logo` without launching it; `make clean` removes
+build artifacts.
+
+## Example
+
+```
+MAKE "size 50
+REPEAT 4 [FD :size RT 90]
+IF :size > 10 [PRINT "big] ELSE [PRINT "small]
+```
+
+## Project structure
+
+```
+src/main.c       the interpreter and GTK UI
+Makefile         make / make run / make clean
+build.sh         one-shot alternative build script
+scripts/         Homebrew/GTK setup helpers
+archive/         earlier prototype iterations, kept for reference
+```
