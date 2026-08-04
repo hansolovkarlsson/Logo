@@ -9,6 +9,7 @@
 #define MAX_PROCEDURES 50
 #define MAX_VARIABLES 100
 #define MAX_WHILE_ITERATIONS 1000000
+#define MAX_PARAMS 8
 
 typedef struct {
     double x1, y1, x2, y2;
@@ -23,7 +24,8 @@ typedef struct {
 // Structure to hold a user-defined procedure (TO ... END)
 typedef struct {
     char name[32];
-    char param_name[32]; // Single param support (e.g. :SIZE)
+    char param_names[MAX_PARAMS][32]; // e.g. :SIZE :ANGLE ...
+    int param_count;
     char body[2048];
 } Procedure;
 
@@ -147,6 +149,13 @@ void substitute_param(const char *body, const char *param, const char *val, char
     size_t param_len = strlen(param);
 
     while ((match = strstr(pos, param)) != NULL) {
+        // Require a full token match so :X doesn't also match inside :XY.
+        char after = match[param_len];
+        if (isalnum((unsigned char)after) || after == '_') {
+            strncat(output, pos, (match - pos) + 1);
+            pos = match + 1;
+            continue;
+        }
         strncat(output, pos, match - pos);
         strcat(output, val);
         pos = match + param_len;
@@ -283,7 +292,7 @@ void eval_logo(LogoApp *app, const char *code) {
         if (sscanf(ptr, "%63s%n", token, &read_bytes) != 1) break;
         ptr += read_bytes;
 
-        // 1. PROCEDURE DEFINITION: TO <NAME> [:PARAM] ... END
+        // 1. PROCEDURE DEFINITION: TO <NAME> [:PARAM ...] ... END
         if (strcasecmp(token, "TO") == 0) {
             if (app->proc_count >= MAX_PROCEDURES) break;
 
@@ -295,10 +304,12 @@ void eval_logo(LogoApp *app, const char *code) {
                 ptr += read_bytes;
                 ptr = skip_whitespace(ptr);
 
-                // Optional Parameter (starts with ':')
-                if (*ptr == ':') {
-                    sscanf(ptr, "%31s%n", proc->param_name, &read_bytes);
+                // Zero or more parameters (each starts with ':')
+                while (*ptr == ':' && proc->param_count < MAX_PARAMS) {
+                    sscanf(ptr, "%31s%n", proc->param_names[proc->param_count], &read_bytes);
                     ptr += read_bytes;
+                    proc->param_count++;
+                    ptr = skip_whitespace(ptr);
                 }
 
                 // Extract body until END
@@ -455,16 +466,21 @@ void eval_logo(LogoApp *app, const char *code) {
         else {
             Procedure *proc = find_procedure(app, token);
             if (proc != NULL) {
-                char val_str[32] = "";
-                // Read argument if procedure expects a parameter
-                if (strlen(proc->param_name) > 0) {
+                // Read one positional argument per declared parameter, and
+                // substitute each into the body in turn.
+                char bound_body[2048];
+                snprintf(bound_body, sizeof(bound_body), "%s", proc->body);
+
+                for (int p = 0; p < proc->param_count; p++) {
                     double arg_val = parse_expr(app, &ptr);
+                    char val_str[32];
                     snprintf(val_str, sizeof(val_str), "%g", arg_val);
+
+                    char next_body[2048];
+                    substitute_param(bound_body, proc->param_names[p], val_str, next_body, sizeof(next_body));
+                    snprintf(bound_body, sizeof(bound_body), "%s", next_body);
                 }
 
-                // Substitute parameter into body and evaluate recursively
-                char bound_body[2048];
-                substitute_param(proc->body, proc->param_name, val_str, bound_body, sizeof(bound_body));
                 eval_logo(app, bound_body);
             }
         }
@@ -502,23 +518,63 @@ static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gp
     cairo_restore(cr);
 }
 
-static void on_entry_activate(GtkEntry *entry, gpointer user_data) {
+// An input is ready to run once its brackets are balanced and every TO has
+// a matching END — otherwise Enter should just add a line and keep going.
+static gboolean is_input_complete(const char *text) {
+    int bracket_depth = 0;
+    for (const char *p = text; *p; p++) {
+        if (*p == '[') bracket_depth++;
+        else if (*p == ']') bracket_depth--;
+    }
+    if (bracket_depth > 0) return FALSE;
+
+    int to_count = 0, end_count = 0;
+    const char *p = text;
+    while (*p) {
+        p = skip_whitespace(p);
+        if (*p == '\0') break;
+        char word[64] = {0};
+        int n = 0;
+        if (sscanf(p, "%63s%n", word, &n) != 1 || n == 0) break;
+        if (strcasecmp(word, "TO") == 0) to_count++;
+        else if (strcasecmp(word, "END") == 0) end_count++;
+        p += n;
+    }
+    return to_count <= end_count;
+}
+
+static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode,
+                                      GdkModifierType state, gpointer user_data) {
+    (void)controller;
+    (void)keycode;
+
+    if ((keyval != GDK_KEY_Return && keyval != GDK_KEY_KP_Enter) || (state & GDK_SHIFT_MASK)) {
+        return FALSE;
+    }
+
     LogoApp *app = (LogoApp *)user_data;
-    const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->entry));
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
 
-    if (strlen(text) == 0) return;
+    if (!is_input_complete(text)) {
+        g_free(text);
+        return FALSE; // let GTK insert the newline; keep composing
+    }
 
-    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->text_view));
-    GtkTextIter end;
-    gtk_text_buffer_get_end_iter(buffer, &end);
-    gtk_text_buffer_insert(buffer, &end, "> ", -1);
-    gtk_text_buffer_insert(buffer, &end, text, -1);
-    gtk_text_buffer_insert(buffer, &end, "\n", -1);
+    if (strlen(text) > 0) {
+        append_output(app, "> ");
+        append_output(app, text);
+        append_output(app, "\n");
 
-    eval_logo(app, text);
+        eval_logo(app, text);
+        gtk_widget_queue_draw(app->drawing_area);
+    }
 
-    gtk_widget_queue_draw(app->drawing_area);
-    gtk_editable_set_text(GTK_EDITABLE(entry), "");
+    gtk_text_buffer_set_text(buffer, "", -1);
+    g_free(text);
+    return TRUE; // consume the keypress, don't insert a newline
 }
 
 // --- TEXT SIZE MENU ---
@@ -586,13 +642,29 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), logo->text_view);
     gtk_widget_set_vexpand(scroll, TRUE);
 
-    logo->entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(logo->entry), "Enter command or TO procedure...");
+    GtkWidget *hint_label = gtk_label_new(
+        "Enter to run \xc2\xb7 Shift+Enter for a new line \xc2\xb7 unfinished TO/[ blocks continue automatically");
+    gtk_label_set_xalign(GTK_LABEL(hint_label), 0.0);
+    gtk_widget_add_css_class(hint_label, "dim-label");
+
+    logo->entry = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(logo->entry), GTK_WRAP_WORD_CHAR);
     gtk_widget_add_css_class(logo->entry, "logo-text");
-    g_signal_connect(logo->entry, "activate", G_CALLBACK(on_entry_activate), logo);
+
+    GtkEventController *entry_key_controller = gtk_event_controller_key_new();
+    g_signal_connect(entry_key_controller, "key-pressed", G_CALLBACK(on_entry_key_pressed), logo);
+    gtk_widget_add_controller(logo->entry, entry_key_controller);
+
+    GtkWidget *entry_scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(entry_scroll), logo->entry);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(entry_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(entry_scroll), TRUE);
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(entry_scroll), 34);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(entry_scroll), 150);
 
     gtk_box_append(GTK_BOX(repl_box), scroll);
-    gtk_box_append(GTK_BOX(repl_box), logo->entry);
+    gtk_box_append(GTK_BOX(repl_box), hint_label);
+    gtk_box_append(GTK_BOX(repl_box), entry_scroll);
 
     gtk_paned_set_end_child(GTK_PANED(paned), repl_box);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);

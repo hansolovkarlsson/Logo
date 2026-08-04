@@ -60,21 +60,24 @@ MAKE "size :size + 10
 ## Procedures
 
 ```
-TO square :size
-  REPEAT 4 [FD :size RT 90]
+TO rect :w :h
+  REPEAT 2 [FD :w RT 90 FD :h RT 90]
 END
 
-square 50
+rect 100 40
 ```
 
-- Defined with `TO name [:param] ... END`. `END` ends the definition —
+- Defined with `TO name [:param ...] ... END`. `END` ends the definition —
   don't use the literal word `END` elsewhere in a procedure body.
-- At most **one** parameter is supported per procedure.
+- Up to 8 parameters are supported per procedure, bound positionally: the
+  first argument at the call site fills the first declared parameter, and
+  so on.
 - Parameter binding is implemented as literal text substitution: the
   procedure body has every occurrence of `:param` replaced with the
-  argument's value (as text) before the body is evaluated. This means a
-  parameter name can't currently be dynamically scoped/shadowed the way a
-  true call-by-value binding would be — see `ROADMAP.md`.
+  corresponding argument's value (as text), one parameter at a time, before
+  the body is evaluated. This means parameters can't currently be
+  dynamically scoped/shadowed the way a true call-by-value binding would be
+  — see `ROADMAP.md`.
 - Procedures can call other procedures, including recursively.
 
 ## Conditionals
@@ -103,7 +106,8 @@ REPEAT 4 [FD 100 RT 90]
 
 - `REPEAT <expr> [block]` evaluates `block` `expr` times (truncated to an
   integer). Blocks can nest and contain any commands, including further
-  `REPEAT`/`IF`/procedure calls.
+  `REPEAT`/`IF`/`WHILE`/procedure calls.
+
 ```
 MAKE "i 0
 WHILE :i < 4 [FD 80 RT 90 MAKE "i :i + 1]
@@ -133,8 +137,16 @@ PRINT :size
 
 ## Interface
 
-- Commands are typed into the entry box at the bottom of the REPL pane and
-  run on Enter.
+- Commands are typed into the entry box at the bottom of the REPL pane.
+- Enter runs the input **once it's complete** — brackets are balanced and
+  every `TO` has a matching `END`. A single-line command like `FD 100`
+  always runs immediately. A `TO ... END` procedure (or anything with an
+  unclosed `[`) keeps accepting new lines, growing the box, until it
+  balances out — then the whole thing runs at once. This means you can
+  type a multi-line procedure definition one line at a time, the same way
+  most Logo REPLs handle it.
+- Shift+Enter always inserts a newline without submitting, regardless of
+  whether the input is complete.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
   Text Size, applied to both the history pane and the entry box.
 
@@ -144,8 +156,10 @@ PRINT :size
   `MAKE "name` literals.
 - No lists/arrays.
 - Variables are global; no local scoping in procedures.
-- Procedures take at most one parameter.
-- No `WHILE`, no boolean `AND`/`OR`/`NOT`.
+- No boolean `AND`/`OR`/`NOT`.
 - No pen color, background color, or multiple turtles.
 - Malformed input generally fails silently (no error messages surfaced to
   the user) rather than reporting a parse/runtime error.
+- The multi-line input's completeness check only balances `[`/`]` and counts
+  `TO`/`END` — it doesn't validate the syntax inside, so e.g. a stray `]`
+  can make an otherwise-valid input submit early.

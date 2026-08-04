@@ -7,8 +7,6 @@ rather than marking it "done" in place.
 
 ## Language
 
-- [ ] Multi-parameter procedures (`TO name :a :b :c ... END`) — currently
-  capped at one parameter.
 - [ ] Proper local variable scoping for procedure parameters, replacing the
   current text-substitution binding. Needed before recursion with
   parameters gets tricky (shadowing, reentrancy).
