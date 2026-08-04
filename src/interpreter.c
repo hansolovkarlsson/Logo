@@ -75,8 +75,19 @@ static Procedure* find_procedure(LogoApp *app, const char *name) {
     return NULL;
 }
 
-// Look up a variable's value (case-insensitive); 0 if it doesn't exist.
+// Look up a variable's value (case-insensitive). Searches the scope stack
+// from the innermost active call outward, so a procedure's own parameter
+// shadows a same-named variable from an outer call or a global, then
+// falls back to the globals. 0 if the name isn't bound anywhere.
 static double get_var(LogoApp *app, const char *name) {
+    for (int s = app->scope_depth - 1; s >= 0; s--) {
+        Scope *scope = &app->scopes[s];
+        for (int i = 0; i < scope->count; i++) {
+            if (strcasecmp(scope->vars[i].name, name) == 0) {
+                return scope->vars[i].value;
+            }
+        }
+    }
     for (int i = 0; i < app->var_count; i++) {
         if (strcasecmp(app->variables[i].name, name) == 0) {
             return app->variables[i].value;
@@ -85,8 +96,21 @@ static double get_var(LogoApp *app, const char *name) {
     return 0;
 }
 
-// Set a variable's value, creating it if it doesn't exist yet.
+// Set a variable's value. Updates the binding in the innermost scope (or
+// outer call, or global) where `name` already exists — the same
+// inside-out search as get_var, so MAKE on a procedure's own parameter
+// name updates that parameter rather than creating an unrelated global.
+// If `name` isn't bound anywhere yet, creates it as a new global.
 static void set_var(LogoApp *app, const char *name, double value) {
+    for (int s = app->scope_depth - 1; s >= 0; s--) {
+        Scope *scope = &app->scopes[s];
+        for (int i = 0; i < scope->count; i++) {
+            if (strcasecmp(scope->vars[i].name, name) == 0) {
+                scope->vars[i].value = value;
+                return;
+            }
+        }
+    }
     for (int i = 0; i < app->var_count; i++) {
         if (strcasecmp(app->variables[i].name, name) == 0) {
             app->variables[i].value = value;
@@ -98,36 +122,6 @@ static void set_var(LogoApp *app, const char *name, double value) {
         app->variables[app->var_count].value = value;
         app->var_count++;
     }
-}
-
-// Replace every whole-token occurrence of `param` (e.g. ":SIZE") in `body`
-// with `val`, writing the result to `output`. A whole-token match means
-// the character right after the match isn't alphanumeric/underscore, so
-// substituting :X doesn't also corrupt :XY.
-static void substitute_param(const char *body, const char *param, const char *val, char *output, size_t out_size) {
-    output[0] = '\0';
-    if (strlen(param) == 0) {
-        snprintf(output, out_size, "%s", body);
-        return;
-    }
-
-    const char *pos = body;
-    const char *match;
-    size_t param_len = strlen(param);
-
-    while ((match = strstr(pos, param)) != NULL) {
-        // Require a full token match so :X doesn't also match inside :XY.
-        char after = match[param_len];
-        if (isalnum((unsigned char)after) || after == '_') {
-            strncat(output, pos, (match - pos) + 1);
-            pos = match + 1;
-            continue;
-        }
-        strncat(output, pos, match - pos);
-        strcat(output, val);
-        pos = match + param_len;
-    }
-    strcat(output, pos);
 }
 
 // --- EXPRESSION EVALUATION (numbers, :variables, + - * / (), comparisons) ---
@@ -271,34 +265,81 @@ void eval_logo(LogoApp *app, const char *code) {
 
         // 1. PROCEDURE DEFINITION: TO <NAME> [:PARAM ...] ... END
         if (strcasecmp(token, "TO") == 0) {
-            if (app->proc_count >= MAX_PROCEDURES) break;
+            char name_buf[32] = {0};
 
-            Procedure *proc = &app->procedures[app->proc_count];
-            memset(proc, 0, sizeof(Procedure));
-
-            // Read Procedure Name
-            if (sscanf(ptr, "%31s%n", proc->name, &read_bytes) == 1) {
+            if (sscanf(ptr, "%31s%n", name_buf, &read_bytes) == 1) {
                 ptr += read_bytes;
                 ptr = skip_whitespace(ptr);
 
+                // Redefining an existing procedure overwrites it in place
+                // (so fixing and re-typing a TO just works); otherwise
+                // claim the next free slot if there's room.
+                Procedure *proc = find_procedure(app, name_buf);
+                if (proc == NULL && app->proc_count < MAX_PROCEDURES) {
+                    proc = &app->procedures[app->proc_count++];
+                }
+                if (proc != NULL) {
+                    memset(proc, 0, sizeof(Procedure));
+                    snprintf(proc->name, sizeof(proc->name), "%s", name_buf);
+                }
+
                 // Zero or more parameters (each starts with ':')
-                while (*ptr == ':' && proc->param_count < MAX_PARAMS) {
-                    sscanf(ptr, "%31s%n", proc->param_names[proc->param_count], &read_bytes);
+                while (*ptr == ':' && (proc == NULL || proc->param_count < MAX_PARAMS)) {
+                    char param_buf[32];
+                    sscanf(ptr, "%31s%n", param_buf, &read_bytes);
                     ptr += read_bytes;
-                    proc->param_count++;
+                    if (proc != NULL) {
+                        snprintf(proc->param_names[proc->param_count], sizeof(proc->param_names[0]), "%s", param_buf);
+                        proc->param_count++;
+                    }
                     ptr = skip_whitespace(ptr);
                 }
 
                 // Extract body until END
                 const char *end_ptr = strcasestr(ptr, "END");
                 if (end_ptr != NULL) {
-                    size_t body_len = end_ptr - ptr;
-                    if (body_len < sizeof(proc->body)) {
-                        strncpy(proc->body, ptr, body_len);
-                        proc->body[body_len] = '\0';
+                    if (proc != NULL) {
+                        size_t body_len = end_ptr - ptr;
+                        if (body_len < sizeof(proc->body)) {
+                            strncpy(proc->body, ptr, body_len);
+                            proc->body[body_len] = '\0';
+                        }
+                    } else {
+                        append_output(app, "Too many procedures defined, TO ignored\n");
                     }
                     ptr = end_ptr + 3; // Advance past "END"
-                    app->proc_count++;
+                }
+            }
+        }
+        // 1b. PROCEDURE DELETION: ERASE "name
+        else if (strcasecmp(token, "ERASE") == 0) {
+            char name_buf[64] = {0};
+            if (sscanf(ptr, "%63s%n", name_buf, &read_bytes) == 1 && name_buf[0] == '"') {
+                ptr += read_bytes;
+                Procedure *proc = find_procedure(app, name_buf + 1);
+                if (proc != NULL) {
+                    int index = (int)(proc - app->procedures);
+                    for (int i = index; i < app->proc_count - 1; i++) {
+                        app->procedures[i] = app->procedures[i + 1];
+                    }
+                    app->proc_count--;
+                }
+            }
+        }
+        // 1c. LOAD "path — read a file and run it as Logo source
+        else if (strcasecmp(token, "LOAD") == 0) {
+            char path_buf[256] = {0};
+            if (sscanf(ptr, "%255s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+                ptr += read_bytes;
+
+                char *contents = NULL;
+                GError *error = NULL;
+                if (g_file_get_contents(path_buf + 1, &contents, NULL, &error)) {
+                    eval_logo(app, contents);
+                    g_free(contents);
+                } else {
+                    append_output(app, "LOAD: could not read file\n");
+                    g_error_free(error);
                 }
             }
         }
@@ -443,22 +484,32 @@ void eval_logo(LogoApp *app, const char *code) {
         else {
             Procedure *proc = find_procedure(app, token);
             if (proc != NULL) {
-                // Read one positional argument per declared parameter, and
-                // substitute each into the body in turn.
-                char bound_body[2048];
-                snprintf(bound_body, sizeof(bound_body), "%s", proc->body);
-
+                // Evaluate each argument in the *caller's* scope, before
+                // pushing the callee's new one.
+                double arg_vals[MAX_PARAMS];
                 for (int p = 0; p < proc->param_count; p++) {
-                    double arg_val = parse_expr(app, &ptr);
-                    char val_str[32];
-                    snprintf(val_str, sizeof(val_str), "%g", arg_val);
-
-                    char next_body[2048];
-                    substitute_param(bound_body, proc->param_names[p], val_str, next_body, sizeof(next_body));
-                    snprintf(bound_body, sizeof(bound_body), "%s", next_body);
+                    arg_vals[p] = parse_expr(app, &ptr);
                 }
 
-                eval_logo(app, bound_body);
+                if (app->scope_depth >= MAX_SCOPE_DEPTH) {
+                    append_output(app, "Recursion too deep, call ignored\n");
+                } else {
+                    // Bind parameters as locals in a fresh scope so they
+                    // shadow same-named variables from outer calls or
+                    // globals, then run the unmodified procedure body.
+                    Scope *scope = &app->scopes[app->scope_depth];
+                    scope->count = proc->param_count;
+                    for (int p = 0; p < proc->param_count; p++) {
+                        // param_names are stored with their leading ':'; strip it.
+                        snprintf(scope->vars[p].name, sizeof(scope->vars[p].name), "%s", proc->param_names[p] + 1);
+                        scope->vars[p].value = arg_vals[p];
+                    }
+                    app->scope_depth++;
+
+                    eval_logo(app, proc->body);
+
+                    app->scope_depth--;
+                }
             }
         }
     }

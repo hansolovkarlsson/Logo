@@ -1,0 +1,5 @@
+TO square :size
+  REPEAT 4 [FD :size RT 90]
+END
+
+square 60

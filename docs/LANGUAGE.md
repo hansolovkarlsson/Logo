@@ -42,7 +42,7 @@ accepted:
 
 Division by zero evaluates to `0` rather than crashing or erroring.
 
-## Variables
+## Variables & scoping
 
 ```
 MAKE "size 100
@@ -50,12 +50,32 @@ FD :size
 MAKE "size :size + 10
 ```
 
-- `MAKE "name expr` sets a variable (creates it if it doesn't exist yet).
+- `MAKE "name expr` sets a variable, creating it if it doesn't already
+  exist.
 - `:name` reads a variable's value inside any expression.
-- Variables are **global** — there is no per-procedure local scope. A
-  variable set inside a procedure is visible everywhere afterward.
 - All variables are numeric (`double`). There is no string/word variable
   type yet.
+
+Procedure parameters are **local, dynamically-scoped** variables. Calling a
+procedure pushes a fresh scope binding its parameters to the (already
+evaluated) argument values; that scope is popped when the call returns.
+`:name` and `MAKE "name` search the active call's scope first, then any
+outer calls on the stack, then the globals — so:
+
+- A parameter shadows a same-named global or outer-call variable for the
+  duration of that call.
+- `MAKE "n ...` inside a procedure with a parameter `:n` reassigns that
+  parameter (it's a real variable now, not a text substitution) — it does
+  not create an unrelated global.
+- Recursive calls each get their own independent scope, so `:n` in one
+  call of a recursive procedure never sees another call's `:n`.
+- This is *dynamic* scoping, matching classic Logo: a procedure with no
+  parameter of its own named `x` can still see and, via `MAKE`, mutate an
+  outer call's local `x` if one is active. Only when no matching binding
+  exists anywhere on the call stack does `MAKE` fall back to creating a
+  global.
+- Recursion is capped at 200 nested calls; going deeper prints "Recursion
+  too deep, call ignored" instead of crashing.
 
 ## Procedures
 
@@ -71,13 +91,11 @@ rect 100 40
   don't use the literal word `END` elsewhere in a procedure body.
 - Up to 8 parameters are supported per procedure, bound positionally: the
   first argument at the call site fills the first declared parameter, and
-  so on.
-- Parameter binding is implemented as literal text substitution: the
-  procedure body has every occurrence of `:param` replaced with the
-  corresponding argument's value (as text), one parameter at a time, before
-  the body is evaluated. This means parameters can't currently be
-  dynamically scoped/shadowed the way a true call-by-value binding would be
-  — see `ROADMAP.md`.
+  so on. Arguments are evaluated in the *caller's* scope, before the
+  callee's own scope is pushed.
+- Defining a `TO` with a name that already exists **overwrites** the
+  existing procedure in place — handy for fixing a typo and re-running the
+  definition. `ERASE "name` removes a procedure entirely.
 - Procedures can call other procedures, including recursively.
 
 ## Conditionals
@@ -135,6 +153,24 @@ PRINT :size
   bracketed list of words or a quoted string containing spaces.
 - `PRINT <expr>` evaluates and prints a numeric expression.
 
+## Files
+
+```
+LOAD "/Users/you/scripts/star.logo
+```
+
+- `LOAD "path` reads a file and runs its contents as Logo source, exactly
+  as if it had been typed into the REPL — including `TO` definitions,
+  which is the main use case (write/edit a script externally, `LOAD` it,
+  test, repeat).
+- The path is a single whitespace-delimited word, same as `PRINT "word` and
+  `MAKE "name` — a path containing spaces won't parse correctly typed this
+  way. Use **File → Open…** in the menu bar instead for paths with spaces,
+  since that goes through a native file picker rather than this text
+  syntax.
+- If the file can't be read, prints "LOAD: could not read file" rather
+  than crashing.
+
 ## Interface
 
 - Commands are typed into the entry box at the bottom of the REPL pane.
@@ -147,15 +183,16 @@ PRINT :size
   most Logo REPLs handle it.
 - Shift+Enter always inserts a newline without submitting, regardless of
   whether the input is complete.
+- The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
+  a file via a native dialog and runs it the same way `LOAD` does.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
   Text Size, applied to both the history pane and the entry box.
 
 ## Known limitations (intentional, tracked in `ROADMAP.md`)
 
-- No string/word data type — everything numeric except `PRINT "word` and
-  `MAKE "name` literals.
+- No string/word data type — everything numeric except `PRINT "word`,
+  `MAKE "name`, and `LOAD "path` literals.
 - No lists/arrays.
-- Variables are global; no local scoping in procedures.
 - No boolean `AND`/`OR`/`NOT`.
 - No pen color, background color, or multiple turtles.
 - Malformed input generally fails silently (no error messages surfaced to

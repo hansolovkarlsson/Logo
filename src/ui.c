@@ -80,6 +80,66 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
     return TRUE; // consume the keypress, don't insert a newline
 }
 
+// --- FILE MENU ---
+
+// Finishes the async GtkFileDialog started by action_open_file: reads the
+// chosen file and runs it as Logo source, same as typing it into the REPL.
+static void on_file_open_response(GObject *source, GAsyncResult *result, gpointer user_data) {
+    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
+    LogoApp *app = (LogoApp *)user_data;
+
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_open_finish(dialog, result, &error);
+    if (file == NULL) {
+        if (error != NULL) g_error_free(error); // includes user cancellation
+        return;
+    }
+
+    char *contents = NULL;
+    gsize length = 0;
+    GError *read_error = NULL;
+    if (g_file_load_contents(file, NULL, &contents, &length, NULL, &read_error)) {
+        char *path = g_file_get_path(file);
+        append_output(app, "Loaded ");
+        append_output(app, path != NULL ? path : "file");
+        append_output(app, "\n");
+        g_free(path);
+
+        eval_logo(app, contents);
+        gtk_widget_queue_draw(app->drawing_area);
+        g_free(contents);
+    } else {
+        append_output(app, "Could not read file\n");
+        if (read_error != NULL) g_error_free(read_error);
+    }
+
+    g_object_unref(file);
+}
+
+// File > Open… — shows a native file picker, then hands off to
+// on_file_open_response once the user picks a file.
+static void action_open_file(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Open Logo Script");
+
+    GtkFileFilter *logo_filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(logo_filter, "Logo scripts");
+    gtk_file_filter_add_pattern(logo_filter, "*.logo");
+    gtk_file_filter_add_pattern(logo_filter, "*.txt");
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, logo_filter);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+    g_object_unref(logo_filter);
+    g_object_unref(filters);
+
+    gtk_file_dialog_open(dialog, GTK_WINDOW(app->window), NULL, on_file_open_response, app);
+    g_object_unref(dialog);
+}
+
 // --- TEXT SIZE MENU ---
 
 #define MIN_FONT_SIZE 8
@@ -130,6 +190,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->turtle = (Turtle){.x = 250, .y = 250, .angle = 0, .pen_down = 1};
 
     GtkWidget *window = gtk_application_window_new(app);
+    logo->window = window;
     gtk_window_set_title(GTK_WINDOW(window), "Logo Turtle Engine with Procedures");
     gtk_window_set_default_size(GTK_WINDOW(window), 1010, 500);
 
@@ -190,6 +251,12 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->font_size = DEFAULT_FONT_SIZE;
     apply_font_size(logo);
 
+    static GActionEntry file_actions[] = {
+        {.name = "open-file", .activate = action_open_file},
+    };
+    g_action_map_add_action_entries(G_ACTION_MAP(app), file_actions,
+                                     G_N_ELEMENTS(file_actions), logo);
+
     static GActionEntry text_size_actions[] = {
         {.name = "increase-text-size", .activate = action_increase_text_size},
         {.name = "decrease-text-size", .activate = action_decrease_text_size},
@@ -198,21 +265,30 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     g_action_map_add_action_entries(G_ACTION_MAP(app), text_size_actions,
                                      G_N_ELEMENTS(text_size_actions), logo);
 
+    const char *open_accels[] = {"<Primary>o", NULL};
     const char *increase_accels[] = {"<Primary>plus", "<Primary>equal", NULL};
     const char *decrease_accels[] = {"<Primary>minus", NULL};
     const char *reset_accels[] = {"<Primary>0", NULL};
+    gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
     gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);
     gtk_application_set_accels_for_action(app, "app.reset-text-size", reset_accels);
 
     GMenu *menu_bar = g_menu_new();
+
+    GMenu *file_menu = g_menu_new();
+    g_menu_append(file_menu, "Open\xe2\x80\xa6", "app.open-file");
+    g_menu_append_submenu(menu_bar, "File", G_MENU_MODEL(file_menu));
+    g_object_unref(file_menu);
+
     GMenu *view_menu = g_menu_new();
     g_menu_append(view_menu, "Increase Text Size", "app.increase-text-size");
     g_menu_append(view_menu, "Decrease Text Size", "app.decrease-text-size");
     g_menu_append(view_menu, "Reset Text Size", "app.reset-text-size");
     g_menu_append_submenu(menu_bar, "View", G_MENU_MODEL(view_menu));
-    gtk_application_set_menubar(app, G_MENU_MODEL(menu_bar));
     g_object_unref(view_menu);
+
+    gtk_application_set_menubar(app, G_MENU_MODEL(menu_bar));
     g_object_unref(menu_bar);
 
     gtk_window_present(GTK_WINDOW(window));

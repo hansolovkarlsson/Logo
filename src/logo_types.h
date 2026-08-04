@@ -15,6 +15,7 @@
 #define MAX_VARIABLES 100
 #define MAX_WHILE_ITERATIONS 1000000
 #define MAX_PARAMS 8
+#define MAX_SCOPE_DEPTH 200
 
 // One drawn segment of the turtle's trail.
 typedef struct {
@@ -36,11 +37,22 @@ typedef struct {
     char body[2048];
 } Procedure;
 
-// A global variable (MAKE "name value / :name).
+// A variable binding: a global (MAKE "name value / :name) or one entry in
+// a procedure call's local Scope.
 typedef struct {
     char name[32];
     double value;
 } Variable;
+
+// A local scope pushed for one procedure call: its parameters bound to
+// their argument values. :name lookups search the scope stack from the
+// innermost call outward before falling back to the globals, so a
+// parameter shadows any same-named variable from an outer call or global
+// — see the "Variables & scoping" section of docs/LANGUAGE.md.
+typedef struct {
+    Variable vars[MAX_PARAMS];
+    int count;
+} Scope;
 
 // All interpreter state plus the GTK widgets that display it.
 typedef struct {
@@ -51,9 +63,13 @@ typedef struct {
     Procedure procedures[MAX_PROCEDURES];
     int proc_count;
 
-    Variable variables[MAX_VARIABLES];
+    Variable variables[MAX_VARIABLES]; // globals
     int var_count;
 
+    Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call
+    int scope_depth;
+
+    GtkWidget *window;
     GtkWidget *drawing_area;
     GtkWidget *text_view;
     GtkWidget *entry;
