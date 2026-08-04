@@ -461,7 +461,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     GtkWidget *window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), "Logo Turtle Engine with Procedures");
-    gtk_window_set_default_size(GTK_WINDOW(window), 1550, 500);
+    gtk_window_set_default_size(GTK_WINDOW(window), 1010, 500);
 
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_window_set_child(GTK_WINDOW(window), paned);
@@ -475,7 +475,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     GtkWidget *repl_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
     gtk_widget_set_hexpand(repl_box, TRUE);
-    gtk_widget_set_size_request(repl_box, 1050, -1);
+    gtk_widget_set_size_request(repl_box, 500, -1);
 
     logo->text_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(logo->text_view), FALSE);
