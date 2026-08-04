@@ -46,10 +46,17 @@ REPEAT 4 [FD :size RT 90]
 IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 ```
 
+## Documentation
+
+- [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — full language reference for the
+  Logo dialect as implemented
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned features and known gaps
+
 ## Project structure
 
 ```
 src/main.c       the interpreter and GTK UI
+docs/            language reference and roadmap
 Makefile         make / make run / make clean
 build.sh         one-shot alternative build script
 scripts/         Homebrew/GTK setup helpers

@@ -1,0 +1,54 @@
+# Roadmap
+
+Planned work for the Logo interpreter, roughly in priority order within each
+section. Update this alongside `LANGUAGE.md` as items land — move a
+finished item's description into the language reference and delete it here
+rather than marking it "done" in place.
+
+## Language
+
+- [ ] `WHILE <condition> [block]` — condition-driven looping; today only
+  `REPEAT n` exists, so anything needing a dynamic exit condition needs a
+  manual counter-and-`IF` workaround.
+- [ ] Multi-parameter procedures (`TO name :a :b :c ... END`) — currently
+  capped at one parameter.
+- [ ] Proper local variable scoping for procedure parameters, replacing the
+  current text-substitution binding. Needed before recursion with
+  parameters gets tricky (shadowing, reentrancy).
+- [ ] Boolean `AND`, `OR`, `NOT` in conditions.
+- [ ] String/word variables and a real string type, distinct from numbers.
+- [ ] Lists (`[1 2 3]` as a first-class value, not just a code block) plus
+  basic list ops (`FIRST`, `BUTFIRST`, `LAST`, `COUNT`, ...).
+- [ ] `PRINT` of a full quoted string (with spaces) and of lists, not just a
+  single bare word.
+- [ ] Surface parse/runtime errors to the user (e.g. "unknown command",
+  unmatched brackets) instead of silently doing nothing.
+
+## Turtle & graphics
+
+- [ ] `SETXY x y`, `HOME`, `SETHEADING angle` for direct positioning.
+- [ ] Pen color (`SETPENCOLOR`) and background color (`SETBACKGROUND`).
+- [ ] Pen width control.
+- [ ] `ARC`/circle drawing primitive.
+- [ ] Multiple turtles / turtle identity (stretch — big change to the data
+  model).
+
+## Interface & workflow
+
+- [ ] Command history recall (up/down arrow in the entry box).
+- [ ] Save/load a script (a sequence of typed commands and procedure
+  definitions) to/from a file.
+- [ ] Export the canvas as an image (PNG).
+- [ ] Syntax highlighting or at least bracket-matching feedback in the
+  entry box.
+- [ ] Fix the View menu's accelerator modifier — `<Primary>` is currently
+  rendering as Control (⌃) in the native macOS menu instead of Command (⌘).
+
+## Robustness
+
+- [ ] Replace the fixed-size C buffers (`token[64]`, procedure `body[2048]`,
+  block bodies `[1024]`) with something that can't silently truncate long
+  input.
+- [ ] Basic automated tests for the interpreter core (`eval_logo`,
+  expression parser) independent of the GTK UI, so language changes can be
+  verified without manually clicking through the app.
