@@ -174,8 +174,9 @@ IF :greeting = [Hello there, friend!] [PRINT "matched]
   "List operators" below.
 - Whether set via `"word` or `[a list]`, the result is the same kind of
   value underneath — both are just a word (text) held in the variable.
-  There's no separate string or list type, and no concatenation or
-  substring operations — see `ROADMAP.md`.
+  There's no separate string or list type — see "List construction" below
+  for building one up at runtime, and `ROADMAP.md` for what's still
+  missing (substrings, true nested lists).
 - A word-typed variable used inside a numeric context (arithmetic, a
   `FORWARD`/`REPEAT`/etc. argument) just reads as `0` — words don't
   participate in arithmetic. `PRINT`, `MAKE`, `=`/`<>` comparisons, and the
@@ -210,10 +211,32 @@ IF FIRST :colors = "red [PRINT "yes]
   "name`, and both sides of `=`/`<>`. They do **not** work inside plain
   arithmetic (`FD FIRST :colors` won't move the turtle) — same scoping as
   words generally.
-- There's no way to build a list up piece by piece at runtime (no
-  "prepend an element" or list-concatenation operator) — only `FIRST`/
-  `BUTFIRST`/`LAST`/`COUNT` for reading one apart, and whatever you write
-  as a literal `[...]` — see `ROADMAP.md`.
+### List construction
+
+```
+PRINT WORD "hello "world        -> helloworld
+PRINT SENTENCE "a "b            -> a b
+PRINT SE [1 2] [3 4]            -> 1 2 3 4
+MAKE "colors [green blue]
+PRINT FPUT "red :colors         -> red green blue
+PRINT LPUT "purple :colors      -> green blue purple
+```
+
+- `WORD a b` concatenates two words directly with **no** space between
+  them — pure string concatenation.
+- `SENTENCE a b` (or `SE`) joins two words/lists into one flat list,
+  separated by a single space. `LIST a b` does the same thing: since
+  lists here are flat, single-space-joined text with no separate list
+  type (see above), there's no nested-vs-flattened distinction between
+  `SENTENCE` and `LIST` the way there is in a Logo with true nested
+  lists — see `ROADMAP.md`.
+- `FPUT thing list` prepends `thing` as a new first element; `LPUT thing
+  list` appends it as a new last element.
+- All four take exactly two arguments (nest calls for more: `WORD "a
+  WORD "b "c`), work anywhere a word-aware value is expected (`PRINT`,
+  `MAKE "name`, `=`/`<>`, and as arguments to `FIRST`/`BUTFIRST`/`LAST`/
+  `COUNT`/each other), and — like the list operators above — do **not**
+  work inside plain arithmetic.
 
 ## Procedures
 

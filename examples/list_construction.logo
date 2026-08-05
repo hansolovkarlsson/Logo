@@ -1,0 +1,18 @@
+PRINT WORD "hello "world
+PRINT SENTENCE "a "b
+PRINT SE [1 2] [3 4]
+PRINT LIST "x "y
+
+MAKE "colors [green blue]
+PRINT FPUT "red :colors
+PRINT LPUT "purple :colors
+
+MAKE "greeting WORD "hello "world
+PRINT :greeting
+
+PRINT FIRST FPUT "a [b c]
+
+MAKE "built [a]
+MAKE "built LPUT "b :built
+MAKE "built LPUT "c :built
+PRINT :built

@@ -7,12 +7,6 @@ rather than marking it "done" in place.
 
 ## Language
 
-- [ ] Building strings/lists at runtime: concatenation, joining two
-  variables, `FPUT`/`LPUT`/`LIST`-style construction. `MAKE "name [some
-  words]`/`"word` for literals and `FIRST`/`BUTFIRST`/`LAST`/`COUNT` for
-  reading a list apart both landed (see "Words & lists" in
-  `LANGUAGE.md`) — what's still missing is building one up from pieces
-  rather than writing it whole as a literal.
 - [ ] True nested lists (a list containing another list as an element,
   not just flat text) and list operators working inside plain arithmetic
   (`FD FIRST :colors`) — the current implementation represents a list as

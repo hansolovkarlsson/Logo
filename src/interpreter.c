@@ -311,6 +311,38 @@ static int list_count(const char *text) {
     return count;
 }
 
+// WORD: concatenate two words directly, with no separating space — pure
+// string concatenation (WORD "hello "world -> "helloworld").
+static void list_word(const char *a, const char *b, char *out, size_t out_size) {
+    snprintf(out, out_size, "%s%s", a, b);
+}
+
+// SENTENCE/SE and LIST: combine two list/word values into one flat list,
+// joined by a single space (and skipping the space if either side is
+// empty). Since a list here is already flat, single-space-joined text
+// with no separate list type (see the comment above), SENTENCE and
+// LIST-style construction are the same operation — there's no nested
+// element to distinguish them from each other.
+static void list_sentence(const char *a, const char *b, char *out, size_t out_size) {
+    if (a[0] == '\0') {
+        snprintf(out, out_size, "%s", b);
+    } else if (b[0] == '\0') {
+        snprintf(out, out_size, "%s", a);
+    } else {
+        snprintf(out, out_size, "%s %s", a, b);
+    }
+}
+
+// FPUT: prepend `thing` as a new first element of `list`.
+static void list_fput(const char *thing, const char *list, char *out, size_t out_size) {
+    list_sentence(thing, list, out, out_size);
+}
+
+// LPUT: append `thing` as a new last element of `list`.
+static void list_lput(const char *thing, const char *list, char *out, size_t out_size) {
+    list_sentence(list, thing, out, out_size);
+}
+
 // Parse the argument to FIRST/BUTFIRST/LAST/COUNT: a "word literal, a
 // [list] literal, a :word-typed variable, a nested FIRST/BUTFIRST/LAST
 // call, or (fallback) a numeric expression formatted as text — so
@@ -356,6 +388,34 @@ static void parse_list_text(LogoApp *app, const char **ptr, char *out, size_t ou
         char inner[1024];
         parse_list_text(app, ptr, inner, sizeof(inner));
         list_last(inner, out, out_size);
+        return;
+    }
+    if (consume_keyword(ptr, "FPUT")) {
+        char thing[1024], list[1024];
+        parse_list_text(app, ptr, thing, sizeof(thing));
+        parse_list_text(app, ptr, list, sizeof(list));
+        list_fput(thing, list, out, out_size);
+        return;
+    }
+    if (consume_keyword(ptr, "LPUT")) {
+        char thing[1024], list[1024];
+        parse_list_text(app, ptr, thing, sizeof(thing));
+        parse_list_text(app, ptr, list, sizeof(list));
+        list_lput(thing, list, out, out_size);
+        return;
+    }
+    if (consume_keyword(ptr, "WORD")) {
+        char a[1024], b[1024];
+        parse_list_text(app, ptr, a, sizeof(a));
+        parse_list_text(app, ptr, b, sizeof(b));
+        list_word(a, b, out, out_size);
+        return;
+    }
+    if (consume_keyword(ptr, "SENTENCE") || consume_keyword(ptr, "SE") || consume_keyword(ptr, "LIST")) {
+        char a[1024], b[1024];
+        parse_list_text(app, ptr, a, sizeof(a));
+        parse_list_text(app, ptr, b, sizeof(b));
+        list_sentence(a, b, out, out_size);
         return;
     }
 
@@ -517,6 +577,38 @@ static Operand parse_operand(LogoApp *app, const char **ptr) {
         parse_list_text(app, ptr, text, sizeof(text));
         result.number = list_count(text);
         result.is_word = FALSE;
+        return result;
+    }
+    if (consume_keyword(ptr, "FPUT")) {
+        char thing[1024], list[1024];
+        parse_list_text(app, ptr, thing, sizeof(thing));
+        parse_list_text(app, ptr, list, sizeof(list));
+        list_fput(thing, list, result.word, sizeof(result.word));
+        result.is_word = TRUE;
+        return result;
+    }
+    if (consume_keyword(ptr, "LPUT")) {
+        char thing[1024], list[1024];
+        parse_list_text(app, ptr, thing, sizeof(thing));
+        parse_list_text(app, ptr, list, sizeof(list));
+        list_lput(thing, list, result.word, sizeof(result.word));
+        result.is_word = TRUE;
+        return result;
+    }
+    if (consume_keyword(ptr, "WORD")) {
+        char a[1024], b[1024];
+        parse_list_text(app, ptr, a, sizeof(a));
+        parse_list_text(app, ptr, b, sizeof(b));
+        list_word(a, b, result.word, sizeof(result.word));
+        result.is_word = TRUE;
+        return result;
+    }
+    if (consume_keyword(ptr, "SENTENCE") || consume_keyword(ptr, "SE") || consume_keyword(ptr, "LIST")) {
+        char a[1024], b[1024];
+        parse_list_text(app, ptr, a, sizeof(a));
+        parse_list_text(app, ptr, b, sizeof(b));
+        list_sentence(a, b, result.word, sizeof(result.word));
+        result.is_word = TRUE;
         return result;
     }
 
@@ -929,6 +1021,30 @@ void eval_logo(LogoApp *app, const char *code) {
                     char text[1024];
                     parse_list_text(app, &ptr, text, sizeof(text));
                     set_var(app, varname + 1, (double)list_count(text));
+                } else if (consume_keyword(&ptr, "FPUT")) {
+                    char thing[1024], list[1024], word[512];
+                    parse_list_text(app, &ptr, thing, sizeof(thing));
+                    parse_list_text(app, &ptr, list, sizeof(list));
+                    list_fput(thing, list, word, sizeof(word));
+                    set_var_word(app, varname + 1, word);
+                } else if (consume_keyword(&ptr, "LPUT")) {
+                    char thing[1024], list[1024], word[512];
+                    parse_list_text(app, &ptr, thing, sizeof(thing));
+                    parse_list_text(app, &ptr, list, sizeof(list));
+                    list_lput(thing, list, word, sizeof(word));
+                    set_var_word(app, varname + 1, word);
+                } else if (consume_keyword(&ptr, "WORD")) {
+                    char a[1024], b[1024], word[512];
+                    parse_list_text(app, &ptr, a, sizeof(a));
+                    parse_list_text(app, &ptr, b, sizeof(b));
+                    list_word(a, b, word, sizeof(word));
+                    set_var_word(app, varname + 1, word);
+                } else if (consume_keyword(&ptr, "SENTENCE") || consume_keyword(&ptr, "SE") || consume_keyword(&ptr, "LIST")) {
+                    char a[1024], b[1024], word[512];
+                    parse_list_text(app, &ptr, a, sizeof(a));
+                    parse_list_text(app, &ptr, b, sizeof(b));
+                    list_sentence(a, b, word, sizeof(word));
+                    set_var_word(app, varname + 1, word);
                 } else if (*ptr == ':') {
                     // Copy another variable's value, preserving its type
                     // (word or number) — a bare :name only, so MAKE "a
@@ -1085,6 +1201,26 @@ void eval_logo(LogoApp *app, const char *code) {
                 char text[1024];
                 parse_list_text(app, &ptr, text, sizeof(text));
                 snprintf(line, sizeof(line), "%d", list_count(text));
+            } else if (consume_keyword(&ptr, "FPUT")) {
+                char thing[1024], list[1024];
+                parse_list_text(app, &ptr, thing, sizeof(thing));
+                parse_list_text(app, &ptr, list, sizeof(list));
+                list_fput(thing, list, line, sizeof(line));
+            } else if (consume_keyword(&ptr, "LPUT")) {
+                char thing[1024], list[1024];
+                parse_list_text(app, &ptr, thing, sizeof(thing));
+                parse_list_text(app, &ptr, list, sizeof(list));
+                list_lput(thing, list, line, sizeof(line));
+            } else if (consume_keyword(&ptr, "WORD")) {
+                char a[1024], b[1024];
+                parse_list_text(app, &ptr, a, sizeof(a));
+                parse_list_text(app, &ptr, b, sizeof(b));
+                list_word(a, b, line, sizeof(line));
+            } else if (consume_keyword(&ptr, "SENTENCE") || consume_keyword(&ptr, "SE") || consume_keyword(&ptr, "LIST")) {
+                char a[1024], b[1024];
+                parse_list_text(app, &ptr, a, sizeof(a));
+                parse_list_text(app, &ptr, b, sizeof(b));
+                list_sentence(a, b, line, sizeof(line));
             } else if (*ptr == ':') {
                 // A bare word-typed variable prints its text; anything
                 // else (numeric variable, or :name as part of a larger

@@ -342,6 +342,38 @@ TEST(test_make_a_colon_b_copies_word) {
     CHECK_STREQ(captured_output, "hello world\n");
 }
 
+// --- List construction (WORD, SENTENCE/SE/LIST, FPUT, LPUT) ---
+
+TEST(test_word_concatenates_with_no_space) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT WORD \"hello \"world");
+    CHECK_STREQ(captured_output, "helloworld\n");
+}
+
+TEST(test_sentence_joins_with_a_space) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT SENTENCE \"a \"b\nPRINT SE [1 2] [3 4]\nPRINT LIST \"x \"y");
+    CHECK_STREQ(captured_output, "a b\n1 2 3 4\nx y\n");
+}
+
+TEST(test_fput_prepends_and_lput_appends) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "MAKE \"colors [green blue]\n"
+        "PRINT FPUT \"red :colors\n"
+        "PRINT LPUT \"purple :colors");
+    CHECK_STREQ(captured_output, "red green blue\ngreen blue purple\n");
+}
+
+TEST(test_list_construction_via_make_and_nesting) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "MAKE \"greeting WORD \"hello \"world\n"
+        "PRINT :greeting\n"
+        "PRINT FIRST FPUT \"a [b c]");
+    CHECK_STREQ(captured_output, "helloworld\na\n");
+}
+
 // --- Errors ---
 
 TEST(test_unknown_command_reports_error) {
@@ -441,6 +473,11 @@ int main(void) {
     RUN(test_first_of_empty_list_is_empty);
     RUN(test_list_operator_in_comparison);
     RUN(test_make_a_colon_b_copies_word);
+
+    RUN(test_word_concatenates_with_no_space);
+    RUN(test_sentence_joins_with_a_space);
+    RUN(test_fput_prepends_and_lput_appends);
+    RUN(test_list_construction_via_make_and_nesting);
 
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);
