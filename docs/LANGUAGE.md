@@ -346,6 +346,11 @@ evaluates to `0`, same as always) — see `ROADMAP.md`.
   within a recalled multi-line block still works. Whatever you'd typed but
   not yet submitted is preserved and restored once you browse back down
   past the newest entry.
+- **Bracket matching**: whenever the cursor touches a `[` or `]` (on
+  either side of it), that bracket and its match are highlighted. A
+  bracket with no match — e.g. `REPEAT 4 [FD 10` with no closing `]` — is
+  flagged in a different color instead. This is in the entry box only,
+  not the history pane.
 - The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
   a file via a native dialog and runs it the same way `LOAD` does;
   **Save…** (⌘S), which does the same for `SAVE`; and **Export as PNG…**

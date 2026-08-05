@@ -88,6 +88,115 @@ static gboolean export_canvas_to_png(LogoApp *app, const char *path) {
     return status == CAIRO_STATUS_SUCCESS;
 }
 
+// --- BRACKET MATCHING (entry box) ---
+
+// Given `bracket` positioned exactly at an opening '[', find its
+// matching ']' (honoring nesting). Returns FALSE if unmatched.
+static gboolean find_matching_bracket_forward(const GtkTextIter *bracket, GtkTextIter *match) {
+    GtkTextIter iter = *bracket;
+    gtk_text_iter_forward_char(&iter); // step past the opening '['
+    int depth = 1;
+    while (!gtk_text_iter_is_end(&iter)) {
+        gunichar ch = gtk_text_iter_get_char(&iter);
+        if (ch == '[') {
+            depth++;
+        } else if (ch == ']') {
+            depth--;
+            if (depth == 0) {
+                *match = iter;
+                return TRUE;
+            }
+        }
+        gtk_text_iter_forward_char(&iter);
+    }
+    return FALSE;
+}
+
+// Given `bracket` positioned exactly at a closing ']', find its matching
+// '[' (honoring nesting). Returns FALSE if unmatched.
+static gboolean find_matching_bracket_backward(const GtkTextIter *bracket, GtkTextIter *match) {
+    GtkTextIter iter = *bracket;
+    int depth = 1;
+    while (!gtk_text_iter_is_start(&iter)) {
+        gtk_text_iter_backward_char(&iter);
+        gunichar ch = gtk_text_iter_get_char(&iter);
+        if (ch == ']') {
+            depth++;
+        } else if (ch == '[') {
+            depth--;
+            if (depth == 0) {
+                *match = iter;
+                return TRUE;
+            }
+        }
+    }
+    return FALSE;
+}
+
+// Re-highlights bracket matches around the cursor whenever it moves (by
+// typing, arrow keys, or a click) — fires on GtkTextBuffer's
+// "notify::cursor-position". Looks at the character immediately after
+// the cursor first, then immediately before, so the cursor only needs to
+// be touching a bracket on either side to trigger a match.
+static void update_bracket_match(GtkTextBuffer *buffer, GParamSpec *pspec, gpointer user_data) {
+    (void)pspec;
+    (void)user_data;
+
+    GtkTextTagTable *tags = gtk_text_buffer_get_tag_table(buffer);
+    GtkTextTag *match_tag = gtk_text_tag_table_lookup(tags, "bracket-match");
+    GtkTextTag *nomatch_tag = gtk_text_tag_table_lookup(tags, "bracket-nomatch");
+
+    GtkTextIter buf_start, buf_end;
+    gtk_text_buffer_get_bounds(buffer, &buf_start, &buf_end);
+    gtk_text_buffer_remove_tag(buffer, match_tag, &buf_start, &buf_end);
+    gtk_text_buffer_remove_tag(buffer, nomatch_tag, &buf_start, &buf_end);
+
+    GtkTextIter cursor;
+    gtk_text_buffer_get_iter_at_mark(buffer, &cursor, gtk_text_buffer_get_insert(buffer));
+
+    GtkTextIter before = cursor;
+    gboolean has_before = gtk_text_iter_backward_char(&before);
+
+    GtkTextIter bracket;
+    gboolean is_open = FALSE;
+    gboolean found = FALSE;
+
+    if (!gtk_text_iter_is_end(&cursor)) {
+        gunichar ch = gtk_text_iter_get_char(&cursor);
+        if (ch == '[' || ch == ']') {
+            bracket = cursor;
+            is_open = (ch == '[');
+            found = TRUE;
+        }
+    }
+    if (!found && has_before) {
+        gunichar ch = gtk_text_iter_get_char(&before);
+        if (ch == '[' || ch == ']') {
+            bracket = before;
+            is_open = (ch == '[');
+            found = TRUE;
+        }
+    }
+    if (!found) return;
+
+    GtkTextIter bracket_end = bracket;
+    gtk_text_iter_forward_char(&bracket_end);
+
+    GtkTextIter match;
+    gboolean matched = is_open
+        ? find_matching_bracket_forward(&bracket, &match)
+        : find_matching_bracket_backward(&bracket, &match);
+
+    if (matched) {
+        GtkTextIter match_end = match;
+        gtk_text_iter_forward_char(&match_end);
+        gtk_text_buffer_apply_tag(buffer, match_tag, &bracket, &bracket_end);
+        gtk_text_buffer_apply_tag(buffer, match_tag, &match, &match_end);
+    } else {
+        gtk_text_buffer_apply_tag(buffer, nomatch_tag, &bracket, &bracket_end);
+    }
+}
+
 // Record a submitted command in the history, skipping an exact repeat of
 // the last entry, and reset browsing back to the "live" position.
 static void history_push(LogoApp *app, const char *text) {
@@ -451,6 +560,18 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     GtkEventController *entry_key_controller = gtk_event_controller_key_new();
     g_signal_connect(entry_key_controller, "key-pressed", G_CALLBACK(on_entry_key_pressed), logo);
     gtk_widget_add_controller(logo->entry, entry_key_controller);
+
+    // Bracket matching: highlight the [ ] pair the cursor is touching, or
+    // flag a lone unmatched one. Semi-transparent so it reads fine in
+    // both light and dark themes.
+    GtkTextBuffer *entry_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(logo->entry));
+    GdkRGBA match_color;
+    gdk_rgba_parse(&match_color, "rgba(90,140,255,0.35)");
+    gtk_text_buffer_create_tag(entry_buffer, "bracket-match", "background-rgba", &match_color, NULL);
+    GdkRGBA nomatch_color;
+    gdk_rgba_parse(&nomatch_color, "rgba(255,80,80,0.35)");
+    gtk_text_buffer_create_tag(entry_buffer, "bracket-nomatch", "background-rgba", &nomatch_color, NULL);
+    g_signal_connect(entry_buffer, "notify::cursor-position", G_CALLBACK(update_bracket_match), logo);
 
     GtkWidget *entry_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(entry_scroll), logo->entry);

@@ -18,8 +18,9 @@ rather than marking it "done" in place.
 
 ## Interface & workflow
 
-- [ ] Syntax highlighting or at least bracket-matching feedback in the
-  entry box.
+- [ ] Full syntax highlighting in the entry box (keywords, numbers,
+  :variables, "words each colored) — bracket matching landed instead as
+  the smaller first step; see "Interface" in `LANGUAGE.md`.
 
 ## Robustness
 
