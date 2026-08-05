@@ -190,7 +190,7 @@ IF :greeting = [Hello there, friend!] [PRINT "matched]
   reference to its (immutable) elements, not a deep copy — cheap
   regardless of the list's size.
 
-### List operators
+### List operators (and substrings)
 
 ```
 MAKE "colors [red green blue]
@@ -204,6 +204,11 @@ PRINT COUNT [a [b c] d]        -> 3 (top-level elements only — [b c] counts as
 PRINT FIRST [[1 2] 3]          -> 1 2 (the sublist [1 2], printed — see Output below
                                         for why a list PRINT'ing as its own top-level
                                         value never shows its own brackets)
+
+PRINT FIRST "hello              -> h
+PRINT LAST "hello               -> o
+PRINT BUTFIRST "hello           -> ello
+PRINT COUNT "hello              -> 5
 ```
 
 - `FIRST`, `BUTFIRST`, and `LAST` take one word/list-ish argument. On a
@@ -214,11 +219,19 @@ PRINT FIRST [[1 2] 3]          -> 1 2 (the sublist [1 2], printed — see Output
   `COUNT` takes the same kind of argument and returns a **number** — how
   many top-level elements it has (a sublist element counts as one,
   regardless of its own length).
+- On a **word**, all four work the same way but one level deeper: a word
+  is a sequence of *characters*, not one atomic element, so `FIRST`/`LAST`
+  return a single-character word, `BUTFIRST` returns the rest as a word,
+  and `COUNT` returns its length. This is substrings — the only way to
+  pull characters out of a word, no separate substring syntax needed. A
+  bare **number**, unlike a word, stays atomic and does not decompose
+  into digits (`COUNT 12345` is `1`, not `5`) — consistent with treating
+  it as a one-element list, same as before nested lists existed.
 - The argument to any of these can be a `"word`, a `[bracketed list]`, a
   `:variable` holding either, a nested list operator call (`FIRST BUTFIRST
   :colors`), or a bare number (treated as a one-element list, so `COUNT 5`
-  is `1`). `FIRST`/`LAST`/`BUTFIRST` of an empty list (`[]`) is empty; `COUNT`
-  of one is `0`.
+  is `1`). `FIRST`/`LAST`/`BUTFIRST` of an empty list (`[]`) or an empty
+  word (`""`) is empty; `COUNT` of either is `0`.
 - All four work anywhere an argument is expected — `PRINT`, `MAKE "name`,
   both sides of `=`/`<>`, and plain arithmetic (`FD FIRST :colors`,
   `REPEAT COUNT :items [...]`) — coercing to a number the same way any
@@ -235,6 +248,7 @@ MAKE "colors [green blue]
 PRINT FPUT "red :colors         -> red green blue
 PRINT LPUT "purple :colors      -> green blue purple
 PRINT FPUT [1 2] [3 4]          -> [1 2] 3 4
+PRINT FPUT "a "bc                -> abc
 ```
 
 - `WORD a b` concatenates two words directly with **no** space between
@@ -255,6 +269,13 @@ PRINT FPUT [1 2] [3 4]          -> [1 2] 3 4
   list` appends it as a new last element. If `thing` is itself a list,
   this creates genuine nesting (`FPUT [1 2] [3 4]` is `[[1 2] 3 4]`,
   printing as `[1 2] 3 4`) rather than splicing it in.
+- If `list` is itself a **word**, `FPUT`/`LPUT` build a new word by
+  prepending/appending `thing`'s text as characters instead (`FPUT "a
+  "bc` is `"abc"`, not a list) — consistent with a word being a sequence
+  of characters (see "List operators (and substrings)" above). `thing`
+  being a list has no character-level meaning to merge in, so that's a
+  reported error instead (see Errors below) rather than silently
+  flattening it into text.
 - All four take exactly two arguments (nest calls for more: `WORD "a
   WORD "b "c`) and, like the list operators above, work anywhere an
   argument is expected — including plain arithmetic.
@@ -433,7 +454,9 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   iterations prints `WHILE: stopped after too many iterations`.
 - `WORD` prints `WORD: expected words, not a list` if given a list
   argument, rather than silently flattening its structure into text (see
-  "List construction" above).
+  "List construction" above). `FPUT`/`LPUT` print the analogous `FPUT:
+  can't add a list to a word` / `LPUT: can't add a list to a word` if
+  `thing` is a list and `list` is a word.
 - Every internal text buffer (procedure bodies, block bodies, words,
   variable values, file paths, REPL history entries) is fixed-size but
   generously sized for normal use; input that would overflow one is
@@ -490,9 +513,6 @@ unparseable expression just evaluates to `0`, same as always) — see
 
 ## Known limitations (intentional, tracked in `ROADMAP.md`)
 
-- No substrings — a word is an indivisible token; there's no way to pull
-  characters out of one the way `FIRST`/`BUTFIRST`/etc. pull elements out
-  of a list.
 - A word that doesn't start with a number, used where a number is
   expected, silently coerces to `0` rather than erroring — see "Errors"
   above.

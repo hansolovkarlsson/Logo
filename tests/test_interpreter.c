@@ -342,6 +342,63 @@ TEST(test_make_a_colon_b_copies_word) {
     CHECK_STREQ(captured_output, "hello world\n");
 }
 
+// --- Substrings (FIRST/LAST/BUTFIRST/COUNT on words) ---
+
+TEST(test_first_last_butfirst_count_on_a_word) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "PRINT FIRST \"hello\n"
+        "PRINT LAST \"hello\n"
+        "PRINT BUTFIRST \"hello\n"
+        "PRINT COUNT \"hello");
+    CHECK_STREQ(captured_output, "h\no\nello\n5\n");
+}
+
+TEST(test_substring_operators_on_empty_word) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "PRINT FIRST \"\n"
+        "PRINT LAST \"\n"
+        "PRINT BUTFIRST \"\n"
+        "PRINT COUNT \"");
+    CHECK_STREQ(captured_output, "\n\n\n0\n");
+}
+
+TEST(test_numbers_stay_atomic_for_substring_operators) {
+    // A NUMBER doesn't decompose into digits the way a WORD does into
+    // characters -- COUNT 12345 stays 1, same as before nested lists.
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT COUNT 12345\nPRINT FIRST 12345");
+    CHECK_STREQ(captured_output, "1\n12345\n");
+}
+
+TEST(test_substring_of_word_variable) {
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"greeting \"hello\nPRINT FIRST :greeting\nPRINT COUNT :greeting");
+    CHECK_STREQ(captured_output, "h\n5\n");
+}
+
+TEST(test_substring_operators_can_nest) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT BUTFIRST BUTFIRST \"hello");
+    CHECK_STREQ(captured_output, "llo\n");
+}
+
+TEST(test_fput_lput_on_word_builds_new_word) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT FPUT \"a \"bc\nPRINT LPUT \"d \"bc");
+    CHECK_STREQ(captured_output, "abc\nbcd\n");
+}
+
+TEST(test_fput_lput_list_onto_word_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT FPUT [1 2] \"bc");
+    CHECK_CONTAINS(captured_output, "FPUT: can't add a list to a word");
+    captured_output[0] = '\0';
+    eval_logo(&app, "PRINT LPUT [1 2] \"bc");
+    CHECK_CONTAINS(captured_output, "LPUT: can't add a list to a word");
+}
+
 // --- List construction (WORD, SENTENCE/SE/LIST, FPUT, LPUT) ---
 
 TEST(test_word_concatenates_with_no_space) {
@@ -852,6 +909,14 @@ int main(void) {
     RUN(test_first_of_empty_list_is_empty);
     RUN(test_list_operator_in_comparison);
     RUN(test_make_a_colon_b_copies_word);
+
+    RUN(test_first_last_butfirst_count_on_a_word);
+    RUN(test_substring_operators_on_empty_word);
+    RUN(test_numbers_stay_atomic_for_substring_operators);
+    RUN(test_substring_of_word_variable);
+    RUN(test_substring_operators_can_nest);
+    RUN(test_fput_lput_on_word_builds_new_word);
+    RUN(test_fput_lput_list_onto_word_reports_error);
 
     RUN(test_word_concatenates_with_no_space);
     RUN(test_sentence_joins_with_a_space);

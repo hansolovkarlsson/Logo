@@ -487,12 +487,29 @@ static Value list_wrap_pair(LogoApp *app, Value a, Value b) {
     return list_value(node_a);
 }
 
-// FPUT: prepend `thing` as a new first element of `list` (wrapping
-// `list` as a one-element list first if it isn't already a LIST value —
-// same convention FIRST/LAST/BUTFIRST/COUNT use for a bare word/number).
-// Just one new node: its `next` points straight at the existing chain,
-// which is never touched.
+// FPUT: prepend `thing` as a new first element of `list`. If `list` is a
+// word, this instead prepends `thing`'s text as new leading characters,
+// producing a new word (FPUT "a "bc -> "abc") — a word is a sequence of
+// characters, not one atomic element, matching how FIRST/LAST/BUTFIRST/
+// COUNT read it (see above); `thing` being a list itself has no
+// character-level meaning to splice in, so that's a reported error
+// instead. A bare number still wraps as a one-element list first, same
+// convention FIRST/LAST/BUTFIRST/COUNT use for one. Otherwise, just one
+// new node: its `next` points straight at the existing chain, which is
+// never touched.
 static Value list_fput(LogoApp *app, Value thing, Value list) {
+    if (list.type == VALUE_WORD) {
+        if (thing.type == VALUE_LIST) {
+            append_output(app, "FPUT: can't add a list to a word\n");
+            return word_value("");
+        }
+        char thing_text[512];
+        value_to_text(app, &thing, thing_text, sizeof(thing_text));
+        Value result = word_value("");
+        snprintf(result.word, sizeof(result.word), "%s%s", thing_text, list.word);
+        return result;
+    }
+
     int list_head = (list.type == VALUE_LIST) ? list.list_head : list_node_from_value(app, list);
     if (list.type != VALUE_LIST && list_head < 0) return list_pool_exhausted_error(app);
 
@@ -502,12 +519,25 @@ static Value list_fput(LogoApp *app, Value thing, Value list) {
     return list_value(new_node);
 }
 
-// LPUT: append `thing` as a new last element of `list` (same wrapping
-// convention as FPUT above). Unlike FPUT, appending means copying the
-// whole spine — an existing node's `next` can't be repointed without
-// corrupting whatever else already shares that chain — then attaching a
-// fresh node for `thing` at the tail.
+// LPUT: append `thing` as a new last element of `list` (same word/list/
+// number handling as FPUT above, just appending instead of prepending).
+// For a genuine list, appending means copying the whole spine — an
+// existing node's `next` can't be repointed without corrupting whatever
+// else already shares that chain — then attaching a fresh node for
+// `thing` at the tail.
 static Value list_lput(LogoApp *app, Value thing, Value list) {
+    if (list.type == VALUE_WORD) {
+        if (thing.type == VALUE_LIST) {
+            append_output(app, "LPUT: can't add a list to a word\n");
+            return word_value("");
+        }
+        char thing_text[512];
+        value_to_text(app, &thing, thing_text, sizeof(thing_text));
+        Value result = word_value("");
+        snprintf(result.word, sizeof(result.word), "%s%s", list.word, thing_text);
+        return result;
+    }
+
     int src_head = (list.type == VALUE_LIST) ? list.list_head : list_node_from_value(app, list);
     if (list.type != VALUE_LIST && src_head < 0) return list_pool_exhausted_error(app);
 
@@ -576,7 +606,14 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         if (arg.type == VALUE_LIST) {
             return list_value(arg.list_head < 0 ? -1 : app->list_pool[arg.list_head].next);
         }
-        return list_value(-1); // BUTFIRST of a one-element (bare word/number) list is empty
+        if (arg.type == VALUE_WORD) {
+            // A word is a sequence of characters, not one atomic element —
+            // BUTFIRST "hello is "ello", same substring semantics as real
+            // Logo (a list's BUTFIRST works on elements; a word's works on
+            // characters).
+            return word_value(arg.word[0] == '\0' ? "" : arg.word + 1);
+        }
+        return list_value(-1); // BUTFIRST of a bare number is empty
     }
     if (consume_keyword(ptr, "FIRST")) {
         Value arg = parse_factor(app, ptr);
@@ -584,7 +621,12 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             if (arg.list_head < 0) return word_value("");
             return list_node_to_value(&app->list_pool[arg.list_head]);
         }
-        return arg; // FIRST of a bare word/number is itself
+        if (arg.type == VALUE_WORD) {
+            if (arg.word[0] == '\0') return word_value("");
+            char ch[2] = {arg.word[0], '\0'};
+            return word_value(ch);
+        }
+        return arg; // FIRST of a bare number is itself
     }
     if (consume_keyword(ptr, "LAST")) {
         Value arg = parse_factor(app, ptr);
@@ -594,7 +636,13 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             while (app->list_pool[idx].next != -1) idx = app->list_pool[idx].next;
             return list_node_to_value(&app->list_pool[idx]);
         }
-        return arg; // LAST of a bare word/number is itself
+        if (arg.type == VALUE_WORD) {
+            size_t len = strlen(arg.word);
+            if (len == 0) return word_value("");
+            char ch[2] = {arg.word[len - 1], '\0'};
+            return word_value(ch);
+        }
+        return arg; // LAST of a bare number is itself
     }
     if (consume_keyword(ptr, "COUNT")) {
         Value arg = parse_factor(app, ptr);
@@ -603,7 +651,10 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
             return number_value(count);
         }
-        return number_value(1); // a bare word/number counts as a one-element list
+        if (arg.type == VALUE_WORD) {
+            return number_value((double)strlen(arg.word));
+        }
+        return number_value(1); // a bare number counts as a one-element list
     }
     if (consume_keyword(ptr, "FPUT")) {
         Value thing = parse_factor(app, ptr);

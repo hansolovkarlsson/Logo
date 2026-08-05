@@ -1,0 +1,22 @@
+; Substrings: FIRST/LAST/BUTFIRST/COUNT now work character-by-character
+; on a word, the same way they work element-by-element on a list.
+
+PRINT FIRST "hello
+PRINT LAST "hello
+PRINT BUTFIRST "hello
+PRINT COUNT "hello
+
+; Nests freely, same as list operators.
+PRINT BUTFIRST BUTFIRST "hello
+
+; A number stays atomic -- it doesn't decompose into digits.
+PRINT COUNT 12345
+PRINT FIRST 12345
+
+; FPUT/LPUT on a word build a new word instead of wrapping into a list.
+PRINT FPUT "a "bc
+PRINT LPUT "d "bc
+
+; Mixing structure (a list) into a word is refused rather than silently
+; flattened.
+PRINT FPUT [1 2] "bc
