@@ -433,6 +433,25 @@ static void value_to_text(LogoApp *app, const Value *v, char *out, size_t out_si
     }
 }
 
+// Like value_to_text, but always brackets a list value — for when the
+// rendered text is about to be *re-parsed* as Logo source rather than
+// shown to a person (MAP/FILTER/FOREACH/REDUCE substituting an element
+// into a template, which might itself be a sublist). PRINT/RUN want
+// value_to_text's "never bracket the top-level value" convention; this
+// is for the opposite case, where a substituted list needs to look like
+// literal [...] syntax so parse_factor's own `[` branch reconstructs it
+// as one value again, instead of spilling its elements as separate
+// tokens into the surrounding template.
+static void value_to_source_text(LogoApp *app, const Value *v, char *out, size_t out_size) {
+    if (v->type == VALUE_LIST) {
+        char inner[512];
+        list_elements_to_text(app, v->list_head, inner, sizeof(inner));
+        snprintf(out, out_size, "[%s]", inner);
+    } else {
+        value_to_text(app, v, out, out_size);
+    }
+}
+
 // Whether two values are "equal" the same way = already treats them:
 // plain numeric equality if both sides are numbers, otherwise a
 // case-insensitive text comparison — shared by parse_comparison's `=`/
@@ -493,6 +512,29 @@ static int list_node_copy(LogoApp *app, int src_idx) {
     return idx;
 }
 
+// Build `out` by copying `template_text` token by token, replacing any
+// token that's exactly `placeholder` with `replacement` — used by MAP/
+// FILTER/FOREACH/REDUCE's `[template with ? in it]` argument. Only a
+// *standalone* placeholder token is replaced (never part of a longer
+// word), same "only at a token boundary" rule comments/quoting already
+// use elsewhere in this file.
+static void substitute_placeholder(const char *template_text, const char *placeholder, const char *replacement, char *out, size_t out_size) {
+    out[0] = '\0';
+    const char *p = template_text;
+    gboolean first = TRUE;
+    while (*p) {
+        p = skip_whitespace(p);
+        if (!*p) break;
+        char token[512] = {0};
+        int n = 0;
+        if (sscanf(p, "%511s%n", token, &n) != 1 || n == 0) break;
+        if (!first) strncat(out, " ", out_size - strlen(out) - 1);
+        first = FALSE;
+        strncat(out, strcmp(token, placeholder) == 0 ? replacement : token, out_size - strlen(out) - 1);
+        p += n;
+    }
+}
+
 // Reported when a list-construction operator runs out of pool space —
 // same "loud error, not silent corruption" policy as every other fixed
 // buffer here.
@@ -502,6 +544,33 @@ static Value list_pool_exhausted_error(LogoApp *app) {
 }
 
 static Value parse_expr(LogoApp *app, const char **ptr);
+static double parse_condition(LogoApp *app, const char **ptr);
+
+// Substitute `element` for every "?" in `template_text`, then parse the
+// result as an expression — the operator form MAP/REDUCE share (FOREACH
+// is the same idea but runs the substituted text as a command via
+// eval_logo instead, since it's for side effects, not a value).
+static Value apply_template_expr(LogoApp *app, const char *template_text, Value element) {
+    char el_text[512], expr_text[512];
+    value_to_source_text(app, &element, el_text, sizeof(el_text));
+    substitute_placeholder(template_text, "?", el_text, expr_text, sizeof(expr_text));
+    const char *expr_ptr = expr_text;
+    return parse_expr(app, &expr_ptr);
+}
+
+// Same substitution as apply_template_expr, but parses the result as a
+// *condition* (comparisons, AND/OR/NOT) instead of a plain expression —
+// FILTER's template is a predicate (e.g. [? > 2]), and parse_expr alone
+// doesn't understand comparison operators at all: it would silently stop
+// at the leading number and ignore the rest, making every element look
+// truthy.
+static double apply_template_condition(LogoApp *app, const char *template_text, Value element) {
+    char el_text[512], expr_text[512];
+    value_to_source_text(app, &element, el_text, sizeof(el_text));
+    substitute_placeholder(template_text, "?", el_text, expr_text, sizeof(expr_text));
+    const char *expr_ptr = expr_text;
+    return parse_condition(app, &expr_ptr);
+}
 
 // Peek the next whitespace-delimited word without consuming it unless it
 // case-insensitively matches `keyword`, in which case `*ptr` is advanced
@@ -880,6 +949,72 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
     if (consume_keyword(ptr, "NUMBER?")) {
         Value arg = parse_factor(app, ptr);
         return number_value(arg.type == VALUE_NUMBER ? 1 : 0);
+    }
+    if (consume_keyword(ptr, "MAP")) {
+        Value template_val = parse_factor(app, ptr);
+        Value list_val = parse_factor(app, ptr);
+        char template_text[512];
+        value_to_text(app, &template_val, template_text, sizeof(template_text));
+
+        int iter_head = (list_val.type == VALUE_LIST) ? list_val.list_head : list_node_from_value(app, list_val);
+        int new_head = -1;
+        int *next_slot = &new_head;
+        for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+            Value result = apply_template_expr(app, template_text, list_node_to_value(&app->list_pool[idx]));
+            int node = list_node_from_value(app, result);
+            if (node < 0) return list_pool_exhausted_error(app);
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+        return list_value(new_head);
+    }
+    if (consume_keyword(ptr, "FILTER")) {
+        Value template_val = parse_factor(app, ptr);
+        Value list_val = parse_factor(app, ptr);
+        char template_text[512];
+        value_to_text(app, &template_val, template_text, sizeof(template_text));
+
+        int iter_head = (list_val.type == VALUE_LIST) ? list_val.list_head : list_node_from_value(app, list_val);
+        int new_head = -1;
+        int *next_slot = &new_head;
+        for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+            double keep = apply_template_condition(app, template_text, list_node_to_value(&app->list_pool[idx]));
+            if (keep != 0) {
+                // Keep the original element as-is, not the template's
+                // (boolean) result.
+                int node = list_node_copy(app, idx);
+                if (node < 0) return list_pool_exhausted_error(app);
+                *next_slot = node;
+                next_slot = &app->list_pool[node].next;
+            }
+        }
+        return list_value(new_head);
+    }
+    if (consume_keyword(ptr, "REDUCE")) {
+        // Folds left-to-right, seeding the accumulator with the list's
+        // own first element (no separate start-value argument) -- the
+        // template uses ?1 for the accumulator so far and ?2 for the
+        // current element, e.g. REDUCE [?1 + ?2] [1 2 3 4] sums to 10.
+        Value template_val = parse_factor(app, ptr);
+        Value list_val = parse_factor(app, ptr);
+        char template_text[512];
+        value_to_text(app, &template_val, template_text, sizeof(template_text));
+
+        int iter_head = (list_val.type == VALUE_LIST) ? list_val.list_head : list_node_from_value(app, list_val);
+        if (iter_head == -1) return number_value(0); // nothing to reduce
+
+        Value acc = list_node_to_value(&app->list_pool[iter_head]);
+        for (int idx = app->list_pool[iter_head].next; idx != -1; idx = app->list_pool[idx].next) {
+            char acc_text[512], el_text[512], after_1[512], expr_text[512];
+            Value el = list_node_to_value(&app->list_pool[idx]);
+            value_to_source_text(app, &acc, acc_text, sizeof(acc_text));
+            value_to_source_text(app, &el, el_text, sizeof(el_text));
+            substitute_placeholder(template_text, "?1", acc_text, after_1, sizeof(after_1));
+            substitute_placeholder(after_1, "?2", el_text, expr_text, sizeof(expr_text));
+            const char *expr_ptr = expr_text;
+            acc = parse_expr(app, &expr_ptr);
+        }
+        return acc;
     }
     if (consume_keyword(ptr, "FPUT")) {
         Value thing = parse_factor(app, ptr);
@@ -1594,6 +1729,25 @@ void eval_logo(LogoApp *app, const char *code) {
                 } else {
                     call_procedure(app, proc, arg_vals);
                 }
+            }
+        }
+        // 3g. FOREACH [template with ?] list — runs the template (as a
+        // command, for side effects — MAP/FILTER/REDUCE are the
+        // value-producing operator forms) once per element, substituting
+        // ? for that element each time.
+        else if (strcasecmp(token, "FOREACH") == 0) {
+            Value template_val = parse_expr(app, &ptr);
+            Value list_val = parse_expr(app, &ptr);
+            char template_text[512];
+            value_to_text(app, &template_val, template_text, sizeof(template_text));
+
+            int iter_head = (list_val.type == VALUE_LIST) ? list_val.list_head : list_node_from_value(app, list_val);
+            for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+                Value el = list_node_to_value(&app->list_pool[idx]);
+                char el_text[512], code_text[512];
+                value_to_source_text(app, &el, el_text, sizeof(el_text));
+                substitute_placeholder(template_text, "?", el_text, code_text, sizeof(code_text));
+                eval_logo(app, code_text);
             }
         }
         // 4. USER-DEFINED PROCEDURE CALL

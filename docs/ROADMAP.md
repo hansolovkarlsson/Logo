@@ -12,9 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `MAP`, `FOREACH`, `FILTER`, `REDUCE` — higher-order iteration over a
-  list, instead of hand-walking it with `FIRST`/`BUTFIRST` inside a `WHILE`.
-  Builds on `RUN`/`APPLY` above.
 - [ ] `LABEL`, `FILL` — draw text at the turtle's position, and flood-fill a
   closed region. Needs new Cairo drawing calls in `ui.c`, not just
   interpreter logic.

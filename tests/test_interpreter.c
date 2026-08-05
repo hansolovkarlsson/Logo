@@ -413,6 +413,53 @@ TEST(test_apply_unknown_procedure_reports_error) {
     CHECK_CONTAINS(captured_output, "APPLY: no such procedure");
 }
 
+// --- MAP, FOREACH, FILTER, REDUCE ---
+
+TEST(test_map_transforms_each_element) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT MAP [? * 2] [1 2 3]");
+    CHECK_STREQ(captured_output, "2 4 6\n");
+}
+
+TEST(test_map_on_a_bare_number) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT MAP [? + 1] 5");
+    CHECK_STREQ(captured_output, "6\n");
+}
+
+TEST(test_map_preserves_nested_list_elements) {
+    // A list-typed element must round-trip through the template with its
+    // brackets intact, or its tokens would spill into the surrounding
+    // expression instead of staying one value.
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT MAP [COUNT ?] [[1 2] [3 4 5]]");
+    CHECK_STREQ(captured_output, "2 3\n");
+}
+
+TEST(test_filter_keeps_matching_elements) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT FILTER [? > 2] [1 2 3 4]");
+    CHECK_STREQ(captured_output, "3 4\n");
+}
+
+TEST(test_reduce_folds_left_to_right) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT REDUCE [?1 + ?2] [1 2 3 4]");
+    CHECK_STREQ(captured_output, "10\n");
+}
+
+TEST(test_reduce_of_single_element_list_is_that_element) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT REDUCE [?1 + ?2] [5]");
+    CHECK_STREQ(captured_output, "5\n");
+}
+
+TEST(test_foreach_runs_template_per_element) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOREACH [PRINT ?] [1 2 3]");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
 // --- Conditionals & booleans ---
 
 TEST(test_if_ifelse_comparisons) {
@@ -1267,6 +1314,14 @@ int main(void) {
     RUN(test_apply_calls_procedure_with_list_args);
     RUN(test_apply_wrong_arg_count_reports_error);
     RUN(test_apply_unknown_procedure_reports_error);
+
+    RUN(test_map_transforms_each_element);
+    RUN(test_map_on_a_bare_number);
+    RUN(test_map_preserves_nested_list_elements);
+    RUN(test_filter_keeps_matching_elements);
+    RUN(test_reduce_folds_left_to_right);
+    RUN(test_reduce_of_single_element_list_is_that_element);
+    RUN(test_foreach_runs_template_per_element);
 
     RUN(test_if_ifelse_comparisons);
     RUN(test_boolean_and_or_not);

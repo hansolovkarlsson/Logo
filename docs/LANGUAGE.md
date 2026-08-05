@@ -486,6 +486,37 @@ APPLY "add2 [3 4]        -> 7
   level and a self-referential one is always a mistake in the program,
   never a legitimate technique.
 
+### Higher-order iteration: MAP, FOREACH, FILTER, REDUCE
+
+```
+PRINT MAP [? * 2] [1 2 3]         -> 2 4 6
+PRINT FILTER [? > 2] [1 2 3 4]    -> 3 4
+PRINT REDUCE [?1 + ?2] [1 2 3 4]  -> 10
+FOREACH [PRINT ?] [1 2 3]
+```
+
+- All four take a **template** — a `[bracketed expression]` with `?`
+  standing in for the current element (`?1`/`?2` for `REDUCE`'s
+  accumulator-so-far and current-element, since it needs two slots) —
+  and a list (a bare word/number is treated as a one-element list, same
+  convention as `FIRST`/`COUNT`/etc.). There's no procedure-name template
+  form (`MAP "double :list`) yet — that needs procedures to be able to
+  return a value first (`OUTPUT`/`STOP`, see `ROADMAP.md`).
+- `MAP` builds a new list by substituting `?` and evaluating the
+  template as an **expression** once per element. `FILTER` substitutes
+  and evaluates the template as a **condition** (so comparisons like
+  `? > 2` work, not just arithmetic) once per element, keeping the
+  *original* element — not the template's true/false result — whenever
+  it's true. `REDUCE` folds left to right, seeding the accumulator with
+  the list's own first element (no separate start-value argument).
+  `FOREACH` is the odd one out: it's a command, not an operator — it
+  *runs* the substituted template once per element for side effects
+  (like `PRINT`), producing no list of its own.
+- If an element is itself a list, it's substituted in *with* its
+  brackets (`MAP [COUNT ?] [[1 2] [3 4 5]]` is `2 3`) — otherwise its own
+  elements would spill out as separate tokens into the template instead
+  of staying one value.
+
 ## Conditionals
 
 ```

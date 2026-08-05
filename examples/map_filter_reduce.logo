@@ -1,0 +1,14 @@
+; MAP, FOREACH, FILTER, REDUCE: higher-order iteration over a list, in
+; place of hand-walking it with FIRST/BUTFIRST inside a WHILE. The
+; template is a bracketed expression with ? standing in for the current
+; element (?1/?2 for REDUCE's accumulator/element pair).
+
+PRINT MAP [? * 2] [1 2 3]
+PRINT FILTER [? > 2] [1 2 3 4]
+PRINT REDUCE [?1 + ?2] [1 2 3 4]
+
+FOREACH [PRINT ?] [1 2 3]
+
+; A list-typed element keeps its brackets when substituted, so this
+; works correctly instead of the sublist's tokens spilling out.
+PRINT MAP [COUNT ?] [[1 2] [3 4 5]]
