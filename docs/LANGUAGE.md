@@ -85,6 +85,7 @@ RT 90 FD 50
 | `WINDOW` | — | — | No canvas boundary at all (the default) |
 | `LABEL` | — | word/list | Draw text at the turtle's position, in its pen color |
 | `FILL` | — | — | Flood-fill the region containing the turtle, bounded by drawn lines, with its pen color |
+| `WAIT` | — | expr (seconds) | Pause before the next command, without freezing the window |
 
 `SETXY`/`HOME` draw a connecting line if the pen is down, same as
 `FORWARD` — they're a direct jump to a position, not a teleport. `CLEAR`
@@ -135,6 +136,22 @@ FILL
   boundary the next time the canvas redraws. This is a known,
   intentional simplification (see `ROADMAP.md`) — in practice it only
   matters if you keep drawing into an already-filled region afterward.
+
+```
+REPEAT 4 [FD 100 RT 90]
+WAIT 2
+CLEAR
+```
+
+- `WAIT expr` pauses for `expr` seconds (this interpreter's own unit
+  choice — real Logo counts 60ths of a second) before running the next
+  command, without freezing the window: it queues a redraw of whatever's
+  been drawn so far and keeps the GTK event loop responsive while it
+  waits, instead of one long blocking sleep. This matters most for a
+  script loaded all at once (`LOAD`, or pasting several lines together)
+  — typing commands one at a time already shows each one immediately,
+  but a whole file runs as a single unit, so without `WAIT`, a `CLEAR`
+  partway through would wipe earlier drawing before it was ever visible.
 
 ```
 ARC 360 80        (a full circle, radius 80)

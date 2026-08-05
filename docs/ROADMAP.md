@@ -12,20 +12,17 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `WAIT expr` — pause execution for `expr` before continuing, keeping
-  the GTK event loop responsive (so the canvas actually redraws mid-script
-  instead of visibly freezing until the whole program finishes). Directly
-  motivated by manually testing `LABEL`/`FILL`: a multi-step drawing that
-  `CLEAR`s partway through is otherwise impossible to see the intermediate
-  state of. A "wait for a keypress" variant would also solve this, but has
-  no real Logo precedent and needs actual interactive input handling
-  mid-script — start with the simpler time-based `WAIT`.
 - [ ] `OUTPUT`/`STOP` — let a `TO ... END` procedure return a value and be
   used inside an expression, the way `FIRST`/`WORD`/etc. already can.
   Changes the procedure-call convention — the biggest item on this list.
 - [ ] `CATCH`/`THROW` — structured error recovery, so a procedure can catch
   and handle a failure from something it called instead of an error just
   printing a message and unwinding.
+- [ ] A "wait for a keypress" pause, as an alternative to `WAIT`'s
+  time-based one — has no real Logo precedent and needs actual
+  interactive input handling mid-script (the entry box would need to feed
+  a keypress back into a running `eval_logo` call), a materially bigger
+  lift than `WAIT` was.
 
 ## Robustness
 

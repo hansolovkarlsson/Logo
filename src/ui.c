@@ -29,6 +29,15 @@ static void history_pane_output_sink(LogoApp *app, const char *text) {
     gtk_text_buffer_delete_mark(buffer, mark);
 }
 
+// The real request_redraw callback: queues a repaint of the turtle
+// canvas. Assigned to LogoApp.request_redraw in logo_activate; WAIT is
+// what calls this, so a script's drawing so far actually appears before
+// a long-running WAIT's pause, rather than staying invisible until the
+// whole script (which is what one LOADed file runs as) finishes.
+static void queue_canvas_redraw(LogoApp *app) {
+    gtk_widget_queue_draw(app->drawing_area);
+}
+
 // Flood-fills the region containing (x0, y0) in an ARGB32 pixel buffer
 // with fill_pixel, replacing every pixel reachable from there that
 // currently matches whatever color is already at (x0, y0) -- a plain
@@ -723,6 +732,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->bg_g = 1.0;
     logo->bg_b = 1.0;
     logo->output_sink = history_pane_output_sink;
+    logo->request_redraw = queue_canvas_redraw;
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;

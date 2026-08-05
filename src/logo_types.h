@@ -223,6 +223,14 @@ typedef struct LogoApp {
     // interpreter.c free of any GTK *display* dependency and lets the
     // interpreter core be tested headlessly (see tests/test_interpreter.c).
     void (*output_sink)(struct LogoApp *app, const char *text);
+
+    // Set by ui.c's logo_activate to gtk_widget_queue_draw the canvas;
+    // NULL in tests (there's no window to draw). WAIT calls this before
+    // draining events -- without it, nothing is actually queued for that
+    // draining to paint mid-script (a whole LOADed file runs as one
+    // eval_logo call, and the canvas only redraws once that returns, so
+    // WAIT alone wouldn't make any earlier drawing visible first).
+    void (*request_redraw)(struct LogoApp *app);
 } LogoApp;
 
 #endif // LOGO_TYPES_H

@@ -224,6 +224,22 @@ TEST(test_clear_erases_fills) {
     CHECK(app->fill_count == 0);
 }
 
+// --- WAIT ---
+
+TEST(test_wait_zero_or_negative_returns_immediately) {
+    LogoApp *app = new_app();
+    eval_logo(app, "WAIT 0\nWAIT -1\nPRINT \"done");
+    CHECK_STREQ(captured_output, "done\n");
+}
+
+TEST(test_wait_pauses_for_at_least_the_requested_duration) {
+    LogoApp *app = new_app();
+    gint64 start = g_get_monotonic_time();
+    eval_logo(app, "WAIT 0.02"); // kept short so the suite stays fast
+    gint64 elapsed = g_get_monotonic_time() - start;
+    CHECK(elapsed >= 20000); // microseconds; never faster than requested
+}
+
 // --- POS/HEADING (turtle state queries) ---
 
 TEST(test_pos_reads_back_turtle_position) {
@@ -1334,6 +1350,9 @@ int main(void) {
 
     RUN(test_fill_records_position_and_color);
     RUN(test_clear_erases_fills);
+
+    RUN(test_wait_zero_or_negative_returns_immediately);
+    RUN(test_wait_pauses_for_at_least_the_requested_duration);
 
     RUN(test_pos_reads_back_turtle_position);
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);

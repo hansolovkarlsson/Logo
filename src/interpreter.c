@@ -1703,6 +1703,36 @@ void eval_logo(LogoApp *app, const char *code) {
                 fill->b = t->pen_b;
             }
         }
+        // 3c'''''''. WAIT expr — pauses for expr seconds (this
+        // interpreter's own unit choice; real Logo's WAIT counts 60ths
+        // of a second) before continuing, without freezing the window:
+        // sleeps in small slices, draining the GLib main context's
+        // pending events between each one, rather than one long blocking
+        // sleep. Calls request_redraw first -- a whole LOADed file runs
+        // as one eval_logo call, and the canvas only actually redraws
+        // once that returns, so without explicitly queueing one here,
+        // there'd be nothing yet for the draining below to paint, and
+        // whatever was drawn before this WAIT would stay invisible until
+        // the entire script finished. request_redraw is a plain
+        // function-pointer callback (same pattern as output_sink) so
+        // this file still never calls GTK/Cairo directly; it's NULL
+        // (skipped) in the headless test binary, where there's no
+        // window to draw anyway.
+        else if (strcasecmp(token, "WAIT") == 0) {
+            double seconds = value_to_number(parse_expr(app, &ptr));
+            if (seconds > 0) {
+                if (app->request_redraw != NULL) {
+                    app->request_redraw(app);
+                }
+                gint64 end_time = g_get_monotonic_time() + (gint64)(seconds * G_USEC_PER_SEC);
+                while (g_get_monotonic_time() < end_time) {
+                    while (g_main_context_iteration(NULL, FALSE)) {
+                        // drain pending events without blocking
+                    }
+                    g_usleep(1000);
+                }
+            }
+        }
         // 3d. OUTPUT: PRINT <expr> — expr is any expression, word, or
         // list, exactly like MAKE's above (PRINT "word, PRINT [list of
         // words], PRINT FIRST :colors, PRINT 1 + 2, ...).

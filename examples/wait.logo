@@ -1,0 +1,20 @@
+; WAIT expr pauses for expr seconds, keeping the window responsive so
+; you can actually see intermediate drawing state -- e.g. before a
+; CLEAR wipes it.
+
+
+REPEAT 4 [FD 100 RT 90]
+PENUP
+SETXY 300 200
+PENDOWN
+SETPENCOLOR 255 200 0
+FILL
+WAIT 10
+
+CLEAR
+REPEAT 4 [FD 150 RT 90]
+PENUP
+SETXY 325 175
+PENDOWN
+SETPENCOLOR 0 150 255
+FILL
