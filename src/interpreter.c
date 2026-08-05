@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 // --- HELPER FUNCTIONS ---
 
@@ -145,6 +146,32 @@ static double clamp_range(double v, double lo, double hi) {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
+}
+
+// MOD: remainder with the same sign as the divisor (so MOD of a
+// negative number never comes out negative for a positive divisor) —
+// the more commonly expected "mod" outside of C's own fmod, which takes
+// the sign of the dividend instead.
+static double mod_result(double a, double b) {
+    if (b == 0) return 0;
+    double r = fmod(a, b);
+    if (r != 0 && ((r < 0) != (b < 0))) r += b;
+    return r;
+}
+
+// RANDOM n: a random integer in [0, n). Seeds the C library's RNG from
+// the current time on first use only — this is turtle-graphics
+// randomness (spirals, scattering, games), not anything needing a
+// cryptographic or reproducible sequence.
+static double random_below(double n) {
+    static gboolean seeded = FALSE;
+    if (!seeded) {
+        srand((unsigned int)time(NULL));
+        seeded = TRUE;
+    }
+    int limit = (int)n;
+    if (limit <= 0) return 0;
+    return rand() % limit;
 }
 
 #define MIN_PEN_WIDTH 0.5
@@ -617,6 +644,37 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
     if (**ptr == '+') {
         (*ptr)++;
         return number_value(value_to_number(parse_factor(app, ptr)));
+    }
+    if (consume_keyword(ptr, "MOD")) {
+        double a = value_to_number(parse_factor(app, ptr));
+        double b = value_to_number(parse_factor(app, ptr));
+        return number_value(mod_result(a, b));
+    }
+    if (consume_keyword(ptr, "POWER")) {
+        double a = value_to_number(parse_factor(app, ptr));
+        double b = value_to_number(parse_factor(app, ptr));
+        return number_value(pow(a, b));
+    }
+    if (consume_keyword(ptr, "SQRT")) {
+        return number_value(sqrt(value_to_number(parse_factor(app, ptr))));
+    }
+    if (consume_keyword(ptr, "SIN")) {
+        return number_value(sin(value_to_number(parse_factor(app, ptr)) * M_PI / 180.0));
+    }
+    if (consume_keyword(ptr, "COS")) {
+        return number_value(cos(value_to_number(parse_factor(app, ptr)) * M_PI / 180.0));
+    }
+    if (consume_keyword(ptr, "ARCTAN")) {
+        return number_value(atan(value_to_number(parse_factor(app, ptr))) * 180.0 / M_PI);
+    }
+    if (consume_keyword(ptr, "RANDOM")) {
+        return number_value(random_below(value_to_number(parse_factor(app, ptr))));
+    }
+    if (consume_keyword(ptr, "ROUND")) {
+        return number_value(round(value_to_number(parse_factor(app, ptr))));
+    }
+    if (consume_keyword(ptr, "ABS")) {
+        return number_value(fabs(value_to_number(parse_factor(app, ptr))));
     }
     if (**ptr == '"') {
         (*ptr)++;

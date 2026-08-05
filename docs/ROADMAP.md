@@ -12,8 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] Fuller arithmetic: `MOD`, `POWER`, `SQRT`, `SIN`, `COS`, `ARCTAN`,
-  `RANDOM`, `ROUND`, `ABS` — arithmetic currently stops at `+ − * /`.
 - [ ] Type/membership predicates: `MEMBER?`, `EMPTY?`, `WORD?`, `LIST?`,
   `NUMBER?` — no way right now to ask "is this a list?" or "is X in this
   list?" from inside a running program.

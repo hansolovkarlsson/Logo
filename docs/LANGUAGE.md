@@ -162,8 +162,22 @@ accepted:
 - Operators: `+ - * /`, standard precedence, unary `+`/`-`
 - Parentheses: `(1 + 2) * 3`
 - Variables: `:name` (see below)
+- Prefix arithmetic operators, all one argument except `MOD`/`POWER`
+  (two), binding like the list operators do (tighter than `* / + -`, so
+  `MOD 7 3 + 1` is `(MOD 7 3) + 1`):
+  - `MOD a b` — remainder, with the sign of `b` (so `MOD -7 3` is `2`,
+    not `-1` the way C's own `%`/`fmod` would give).
+  - `POWER a b` — `a` raised to the power `b`.
+  - `SQRT a`, `ABS a`, `ROUND a` — square root, absolute value, and
+    round-to-nearest-integer.
+  - `SIN a`, `COS a`, `ARCTAN a` — trig functions; `a`/the result are in
+    **degrees**, matching `RT`/`LT`/`HEADING`'s convention, not radians.
+  - `RANDOM n` — a random integer in `[0, n)`.
 
 Division by zero evaluates to `0` rather than crashing or erroring.
+`SQRT` of a negative number returns C's own `NaN` rather than a special
+error — it prints as `nan`, which is visibly broken rather than a
+plausible-looking wrong number, so nothing special was added on top.
 
 ## Variables & scoping
 
