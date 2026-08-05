@@ -1,0 +1,26 @@
+; HIDETURTLE/SHOWTURTLE toggle whether the turtle itself is drawn
+; (the trail still draws either way).
+
+HIDETURTLE
+FD 100
+SHOWTURTLE
+
+; WRAP: crossing the canvas edge wraps around to the other side
+; (pen lifts for that one jump -- no line drawn across the canvas).
+CLEAR
+WRAP
+SETXY 600 250
+PRINT POS
+
+; FENCE: the turtle stops right at the edge, drawing up to it, and
+; reports why.
+CLEAR
+FENCE
+SETXY 600 250
+PRINT POS
+
+; WINDOW: back to the default -- no boundary at all.
+CLEAR
+WINDOW
+SETXY 600 250
+PRINT POS

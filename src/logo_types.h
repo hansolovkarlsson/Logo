@@ -20,6 +20,16 @@
 #define MAX_TURTLES 10
 #define MAX_LIST_NODES 8192
 
+// What happens when a turtle's move would cross the canvas edge (see
+// WRAP/FENCE/WINDOW in interpreter.c). EDGE_WINDOW is the zero value —
+// deliberately, so it's the default: no boundary at all, matching the
+// interpreter's behavior before this existed.
+typedef enum {
+    EDGE_WINDOW,
+    EDGE_WRAP,
+    EDGE_FENCE,
+} EdgeMode;
+
 // One drawn segment of the turtle's trail, in the pen color/width active
 // when it was drawn (so a drawing can mix both across SETPENCOLOR and
 // SETPENWIDTH calls).
@@ -29,15 +39,16 @@ typedef struct {
     double width;
 } LineSegment;
 
-// The turtle's position, heading, pen state, and current pen color/width
+// The turtle's position, heading, pen state, current pen color/width
 // (color 0.0-1.0 per channel; set via SETPENCOLOR/SETPC and
-// SETPENWIDTH/SETPW).
+// SETPENWIDTH/SETPW), and whether it's drawn at all (SHOWTURTLE/HIDETURTLE).
 typedef struct {
     double x, y;
     double angle;
     int pen_down;
     double pen_r, pen_g, pen_b;
     double pen_width;
+    int visible;
 } Turtle;
 
 // A user-defined procedure (TO ... END).
@@ -137,6 +148,12 @@ typedef struct LogoApp {
     // Canvas background color (0.0-1.0 per channel; set via
     // SETBACKGROUND/SETBG). A canvas-wide property, not the turtle's.
     double bg_r, bg_g, bg_b;
+
+    // What happens when a turtle's move would cross the canvas edge (see
+    // WRAP/FENCE/WINDOW) — a single canvas-wide setting, not per-turtle.
+    // EDGE_WINDOW (the zero value, so it's the default) matches the
+    // interpreter's original behavior: no boundary at all.
+    EdgeMode edge_mode;
 
     // REPL command history (up/down arrow recall in the entry box).
     char history[MAX_HISTORY][8192];

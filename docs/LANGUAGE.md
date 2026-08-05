@@ -78,11 +78,37 @@ RT 90 FD 50
 | `SETPENWIDTH` | `SETPW` | expr (clamped 0.5-20) | Set the width new lines are drawn with |
 | `SETBACKGROUND` | `SETBG` | `r g b` (each 0-255) | Set the canvas's background color |
 | `CLEAR` | `CS` | — | Erase the canvas and reset the turtle's position/angle |
+| `HIDETURTLE` | `HT` | — | Stop drawing the turtle marker (the trail still draws) |
+| `SHOWTURTLE` | `ST` | — | Draw the turtle marker again |
+| `WRAP` | — | — | Crossing the canvas edge wraps around to the opposite side |
+| `FENCE` | — | — | Crossing the canvas edge stops the turtle right at it, with an error |
+| `WINDOW` | — | — | No canvas boundary at all (the default) |
 
 `SETXY`/`HOME` draw a connecting line if the pen is down, same as
 `FORWARD` — they're a direct jump to a position, not a teleport. `CLEAR`
 is the one that resets position without drawing, since it wipes the
 canvas first.
+
+```
+WRAP
+SETXY 600 250      (canvas is 500x500 -- wraps to 100 250, no line drawn)
+
+FENCE
+SETXY 600 250      (stops at 500 250, drawing up to the edge, and reports it)
+```
+
+- `WRAP`/`FENCE`/`WINDOW` choose what happens when a move (`FD`/`SETXY`/
+  etc.) would cross the 500x500 canvas edge — a single canvas-wide
+  setting, not per-turtle, and unaffected by `CLEAR` (same as pen color/
+  width). `WINDOW` is the default: no boundary at all, exactly as if
+  none of these three existed.
+- `WRAP` wraps the crossing coordinate around to the opposite edge. The
+  pen lifts for that one jump — no line is drawn from one edge to the
+  other — so wrapping doesn't paint a stray diagonal line across the
+  canvas.
+- `FENCE` stops the turtle right at the edge (clamping the position),
+  draws the line up to that point, and prints `FENCE: turtle stopped at
+  the canvas edge`.
 
 ```
 ARC 360 80        (a full circle, radius 80)

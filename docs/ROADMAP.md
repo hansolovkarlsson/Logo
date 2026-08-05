@@ -12,9 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `HIDETURTLE`/`SHOWTURTLE`, `WRAP`/`FENCE`/`WINDOW` — toggle turtle
-  visibility, and choose what happens when a turtle drives off the canvas
-  edge (wrap around, stop, or keep going off-screen).
 - [ ] `RUN`, `APPLY` — execute a stored list as code, or call a
   procedure/template with a list of arguments. The thing that makes a list
   double as a deferred program, not just data.

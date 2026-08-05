@@ -46,6 +46,8 @@ static void draw_scene(LogoApp *app, cairo_t *cr) {
     }
 
     for (int i = 0; i < app->turtle_count; i++) {
+        if (!app->turtles[i].visible) continue;
+
         cairo_save(cr);
         cairo_translate(cr, app->turtles[i].x, app->turtles[i].y);
         cairo_rotate(cr, app->turtles[i].angle * M_PI / 180.0);

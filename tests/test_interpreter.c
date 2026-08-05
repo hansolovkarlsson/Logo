@@ -243,6 +243,48 @@ TEST(test_tell_out_of_range_reports_error) {
     CHECK(app->current_turtle == 0); // unchanged
 }
 
+// --- Visibility & edge modes (HIDETURTLE/SHOWTURTLE, WRAP/FENCE/WINDOW) ---
+
+TEST(test_hideturtle_showturtle_toggles_visibility) {
+    LogoApp *app = new_app();
+    CHECK(app->turtles[0].visible == 1); // visible by default
+    eval_logo(app, "HIDETURTLE");
+    CHECK(app->turtles[0].visible == 0);
+    eval_logo(app, "SHOWTURTLE");
+    CHECK(app->turtles[0].visible == 1);
+}
+
+TEST(test_window_mode_is_default_and_allows_offscreen) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETXY 600 250"); // no edge mode set -- unchanged pre-existing behavior
+    CHECK_NEAR(app->turtles[0].x, 600.0);
+    CHECK_NEAR(app->turtles[0].y, 250.0);
+    CHECK(app->line_count == 1);
+}
+
+TEST(test_wrap_wraps_position_and_lifts_pen) {
+    LogoApp *app = new_app();
+    eval_logo(app, "WRAP SETXY 600 250");
+    CHECK_NEAR(app->turtles[0].x, 100.0); // 600 mod 500
+    CHECK_NEAR(app->turtles[0].y, 250.0);
+    CHECK(app->line_count == 0); // pen lifts across the wrap, no line recorded
+}
+
+TEST(test_fence_clamps_position_and_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FENCE SETXY 600 250");
+    CHECK_NEAR(app->turtles[0].x, 500.0); // clamped to the canvas edge
+    CHECK_NEAR(app->turtles[0].y, 250.0);
+    CHECK(app->line_count == 1); // drawn up to the clamped edge
+    CHECK_CONTAINS(captured_output, "FENCE: turtle stopped at the canvas edge");
+}
+
+TEST(test_window_command_resets_from_wrap_or_fence) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FENCE WINDOW SETXY 600 250");
+    CHECK_NEAR(app->turtles[0].x, 600.0); // WINDOW turned the fence back off
+}
+
 // --- Procedures & scoping ---
 
 TEST(test_procedure_definition_and_call) {
@@ -1147,6 +1189,12 @@ int main(void) {
     RUN(test_turtles_move_independently);
     RUN(test_clear_homes_every_turtle);
     RUN(test_tell_out_of_range_reports_error);
+
+    RUN(test_hideturtle_showturtle_toggles_visibility);
+    RUN(test_window_mode_is_default_and_allows_offscreen);
+    RUN(test_wrap_wraps_position_and_lifts_pen);
+    RUN(test_fence_clamps_position_and_reports_error);
+    RUN(test_window_command_resets_from_wrap_or_fence);
 
     RUN(test_procedure_definition_and_call);
     RUN(test_recursion_with_parameter);

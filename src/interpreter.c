@@ -181,17 +181,24 @@ static double random_below(double n) {
 #define HOME_X 250.0
 #define HOME_Y 250.0
 
+// The canvas's logical size for WRAP/FENCE boundary checks — matches
+// ui.c's drawing_area size request (500x500). WINDOW mode (the default)
+// ignores these entirely, same as before WRAP/FENCE/WINDOW existed.
+#define CANVAS_WIDTH 500.0
+#define CANVAS_HEIGHT 500.0
+
 // The turtle currently being controlled by FD/RT/SETXY/etc. — see TELL.
 static Turtle* current_turtle(LogoApp *app) {
     return &app->turtles[app->current_turtle];
 }
 
 // Reset `t` to the default turtle state: home position, heading 0, pen
-// down, default color/width.
+// down, default color/width, visible.
 void init_turtle(Turtle *t) {
     *t = (Turtle){
         .x = HOME_X, .y = HOME_Y, .angle = 0, .pen_down = 1,
         .pen_r = 0.1, .pen_g = 0.1, .pen_b = 0.1, .pen_width = 2.0,
+        .visible = 1,
     };
 }
 
@@ -209,10 +216,39 @@ static void record_line(LogoApp *app, double x1, double y1, double x2, double y2
     }
 }
 
+// Wrap a coordinate into [0, size) — used by WRAP mode.
+static double wrap_coord(double v, double size) {
+    double wrapped = fmod(v, size);
+    if (wrapped < 0) wrapped += size;
+    return wrapped;
+}
+
 // Move the current turtle directly to an absolute position, recording a
-// line segment along the way if the pen is down.
+// line segment along the way if the pen is down. Applies the current
+// edge mode (see WRAP/FENCE/WINDOW): WINDOW (the default) does nothing
+// extra here, same as before edge modes existed.
 static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
     Turtle *t = current_turtle(app);
+
+    if (app->edge_mode == EDGE_WRAP) {
+        double wrapped_x = wrap_coord(new_x, CANVAS_WIDTH);
+        double wrapped_y = wrap_coord(new_y, CANVAS_HEIGHT);
+        if (wrapped_x != new_x || wrapped_y != new_y) {
+            // The pen lifts across the wrap itself -- no line drawn for
+            // this jump, rather than a diagonal line teleporting across
+            // the canvas from one edge to the other.
+            t->x = wrapped_x;
+            t->y = wrapped_y;
+            return;
+        }
+    } else if (app->edge_mode == EDGE_FENCE) {
+        if (new_x < 0 || new_x > CANVAS_WIDTH || new_y < 0 || new_y > CANVAS_HEIGHT) {
+            new_x = clamp_range(new_x, 0, CANVAS_WIDTH);
+            new_y = clamp_range(new_y, 0, CANVAS_HEIGHT);
+            append_output(app, "FENCE: turtle stopped at the canvas edge\n");
+        }
+    }
+
     record_line(app, t->x, t->y, new_x, new_y);
     t->x = new_x;
     t->y = new_y;
@@ -1421,6 +1457,25 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         else if (strcasecmp(token, "PENDOWN") == 0 || strcasecmp(token, "PD") == 0) {
             current_turtle(app)->pen_down = 1;
+        }
+        else if (strcasecmp(token, "HIDETURTLE") == 0 || strcasecmp(token, "HT") == 0) {
+            current_turtle(app)->visible = 0;
+        }
+        else if (strcasecmp(token, "SHOWTURTLE") == 0 || strcasecmp(token, "ST") == 0) {
+            current_turtle(app)->visible = 1;
+        }
+        // 3c''''. WRAP/FENCE/WINDOW — what happens when a move would cross
+        // the canvas edge (see move_turtle_to). A single canvas-wide
+        // setting, not per-turtle; unaffected by CLEAR, same as pen
+        // color/width.
+        else if (strcasecmp(token, "WRAP") == 0) {
+            app->edge_mode = EDGE_WRAP;
+        }
+        else if (strcasecmp(token, "FENCE") == 0) {
+            app->edge_mode = EDGE_FENCE;
+        }
+        else if (strcasecmp(token, "WINDOW") == 0) {
+            app->edge_mode = EDGE_WINDOW;
         }
         // 3c'. SETPENCOLOR r g b — each channel 0-255, applies to lines drawn from now on
         else if (strcasecmp(token, "SETPENCOLOR") == 0 || strcasecmp(token, "SETPC") == 0) {
