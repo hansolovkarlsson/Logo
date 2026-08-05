@@ -175,6 +175,55 @@ TEST(test_setbackground_sets_canvas_color) {
     CHECK_NEAR(app->bg_b, 30.0 / 255.0);
 }
 
+// --- LABEL ---
+// Actual text rendering is Cairo, tested manually in the running app;
+// these check the data LABEL records for ui.c's draw_scene to draw.
+
+TEST(test_label_records_position_color_and_text) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETPENCOLOR 255 0 0\nFD 100\nLABEL \"hi");
+    CHECK(app->label_count == 1);
+    CHECK_NEAR(app->labels[0].x, 250.0);
+    CHECK_NEAR(app->labels[0].y, 150.0);
+    CHECK_NEAR(app->labels[0].r, 1.0);
+    CHECK_NEAR(app->labels[0].g, 0.0);
+    CHECK_NEAR(app->labels[0].b, 0.0);
+    CHECK_STREQ(app->labels[0].text, "hi");
+}
+
+TEST(test_label_accepts_a_list_argument) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LABEL [hello there]");
+    CHECK_STREQ(app->labels[0].text, "hello there");
+}
+
+TEST(test_clear_erases_labels) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LABEL \"hi\nCLEAR");
+    CHECK(app->label_count == 0);
+}
+
+// --- FILL ---
+// The actual flood-fill rasterizing is Cairo, in ui.c, tested manually
+// in the running app; these check the data FILL records for it.
+
+TEST(test_fill_records_position_and_color) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETPENCOLOR 0 200 0\nFD 50\nFILL");
+    CHECK(app->fill_count == 1);
+    CHECK_NEAR(app->fills[0].x, 250.0);
+    CHECK_NEAR(app->fills[0].y, 200.0);
+    CHECK_NEAR(app->fills[0].r, 0.0);
+    CHECK_NEAR(app->fills[0].g, 200.0 / 255.0);
+    CHECK_NEAR(app->fills[0].b, 0.0);
+}
+
+TEST(test_clear_erases_fills) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FILL\nCLEAR");
+    CHECK(app->fill_count == 0);
+}
+
 // --- POS/HEADING (turtle state queries) ---
 
 TEST(test_pos_reads_back_turtle_position) {
@@ -1278,6 +1327,13 @@ int main(void) {
     RUN(test_arc_draws_without_moving_the_turtle);
     RUN(test_setpencolor_and_width_stamp_the_segment);
     RUN(test_setbackground_sets_canvas_color);
+
+    RUN(test_label_records_position_color_and_text);
+    RUN(test_label_accepts_a_list_argument);
+    RUN(test_clear_erases_labels);
+
+    RUN(test_fill_records_position_and_color);
+    RUN(test_clear_erases_fills);
 
     RUN(test_pos_reads_back_turtle_position);
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);

@@ -10,6 +10,7 @@
 
 #include <ctype.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -28,21 +29,120 @@ static void history_pane_output_sink(LogoApp *app, const char *text) {
     gtk_text_buffer_delete_mark(buffer, mark);
 }
 
+// Flood-fills the region containing (x0, y0) in an ARGB32 pixel buffer
+// with fill_pixel, replacing every pixel reachable from there that
+// currently matches whatever color is already at (x0, y0) -- a plain
+// 4-directional flood fill, iterative (a heap-allocated stack, not
+// actual C recursion) so it can't blow the call stack on a large
+// region. Each pixel is marked (and so excluded from being pushed
+// again) the moment it's first reached, which bounds the stack at
+// exactly one entry per pixel.
+static void push_if_match(int *stack_x, int *stack_y, int *sp, unsigned char *data, int stride, int width, int height, int x, int y, uint32_t target_pixel, uint32_t fill_pixel) {
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    uint32_t *row = (uint32_t *)(data + y * stride);
+    if (row[x] != target_pixel) return;
+    row[x] = fill_pixel;
+    stack_x[*sp] = x;
+    stack_y[*sp] = y;
+    (*sp)++;
+}
+
+static void flood_fill_pixels(unsigned char *data, int stride, int width, int height, int x0, int y0, uint32_t fill_pixel) {
+    if (x0 < 0 || x0 >= width || y0 < 0 || y0 >= height) return;
+    uint32_t *row0 = (uint32_t *)(data + y0 * stride);
+    if (row0[x0] == fill_pixel) return; // already this color -- nothing to do
+    uint32_t target_pixel = row0[x0];
+
+    int capacity = width * height; // each pixel is pushed at most once
+    int *stack_x = g_malloc_n(capacity, sizeof(int));
+    int *stack_y = g_malloc_n(capacity, sizeof(int));
+    int sp = 0;
+
+    push_if_match(stack_x, stack_y, &sp, data, stride, width, height, x0, y0, target_pixel, fill_pixel);
+    while (sp > 0) {
+        sp--;
+        int x = stack_x[sp];
+        int y = stack_y[sp];
+        push_if_match(stack_x, stack_y, &sp, data, stride, width, height, x + 1, y, target_pixel, fill_pixel);
+        push_if_match(stack_x, stack_y, &sp, data, stride, width, height, x - 1, y, target_pixel, fill_pixel);
+        push_if_match(stack_x, stack_y, &sp, data, stride, width, height, x, y + 1, target_pixel, fill_pixel);
+        push_if_match(stack_x, stack_y, &sp, data, stride, width, height, x, y - 1, target_pixel, fill_pixel);
+    }
+
+    g_free(stack_x);
+    g_free(stack_y);
+}
+
+// Renders the background and every recorded line segment into an
+// offscreen raster surface, then flood-fills each pending FILL request
+// into it (see the FILL comment in interpreter.c: this recomputes from
+// *current* lines on every redraw, not a snapshot frozen at the moment
+// FILL was called), and composites the result onto `cr`. Only used when
+// there's at least one FILL pending -- the plain vector path below is
+// unchanged and just as cheap when there isn't.
+static void draw_background_and_lines_with_fills(LogoApp *app, cairo_t *cr) {
+    cairo_surface_t *offscreen = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
+    cairo_t *ocr = cairo_create(offscreen);
+
+    cairo_set_source_rgb(ocr, app->bg_r, app->bg_g, app->bg_b);
+    cairo_paint(ocr);
+    for (int i = 0; i < app->line_count; i++) {
+        cairo_set_source_rgb(ocr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
+        cairo_set_line_width(ocr, app->lines[i].width);
+        cairo_move_to(ocr, app->lines[i].x1, app->lines[i].y1);
+        cairo_line_to(ocr, app->lines[i].x2, app->lines[i].y2);
+        cairo_stroke(ocr);
+    }
+    cairo_destroy(ocr);
+
+    cairo_surface_flush(offscreen);
+    unsigned char *data = cairo_image_surface_get_data(offscreen);
+    int stride = cairo_image_surface_get_stride(offscreen);
+    int width = cairo_image_surface_get_width(offscreen);
+    int height = cairo_image_surface_get_height(offscreen);
+
+    for (int i = 0; i < app->fill_count; i++) {
+        // Pen colors are already clamped to [0, 1] when set (SETPENCOLOR);
+        // fully opaque, so ARGB32's premultiplication is a no-op here.
+        unsigned char r = (unsigned char)(app->fills[i].r * 255.0 + 0.5);
+        unsigned char g = (unsigned char)(app->fills[i].g * 255.0 + 0.5);
+        unsigned char b = (unsigned char)(app->fills[i].b * 255.0 + 0.5);
+        uint32_t fill_pixel = ((uint32_t)0xFF << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+        flood_fill_pixels(data, stride, width, height, (int)app->fills[i].x, (int)app->fills[i].y, fill_pixel);
+    }
+    cairo_surface_mark_dirty(offscreen);
+
+    cairo_set_source_surface(cr, offscreen, 0, 0);
+    cairo_paint(cr);
+    cairo_surface_destroy(offscreen);
+}
+
 // Paints the background, every recorded line segment, then every active
 // turtle as a triangle (see TELL — turtles[0..turtle_count-1] all exist
 // and are all drawn, not just the current one). Shared by the live
 // on-screen canvas (draw_cb) and PNG export (export_canvas_to_png), so
 // both render identically.
 static void draw_scene(LogoApp *app, cairo_t *cr) {
-    cairo_set_source_rgb(cr, app->bg_r, app->bg_g, app->bg_b);
-    cairo_paint(cr);
+    if (app->fill_count > 0) {
+        draw_background_and_lines_with_fills(app, cr);
+    } else {
+        cairo_set_source_rgb(cr, app->bg_r, app->bg_g, app->bg_b);
+        cairo_paint(cr);
 
-    for (int i = 0; i < app->line_count; i++) {
-        cairo_set_source_rgb(cr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
-        cairo_set_line_width(cr, app->lines[i].width);
-        cairo_move_to(cr, app->lines[i].x1, app->lines[i].y1);
-        cairo_line_to(cr, app->lines[i].x2, app->lines[i].y2);
-        cairo_stroke(cr);
+        for (int i = 0; i < app->line_count; i++) {
+            cairo_set_source_rgb(cr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
+            cairo_set_line_width(cr, app->lines[i].width);
+            cairo_move_to(cr, app->lines[i].x1, app->lines[i].y1);
+            cairo_line_to(cr, app->lines[i].x2, app->lines[i].y2);
+            cairo_stroke(cr);
+        }
+    }
+
+    cairo_set_font_size(cr, 14);
+    for (int i = 0; i < app->label_count; i++) {
+        cairo_set_source_rgb(cr, app->labels[i].r, app->labels[i].g, app->labels[i].b);
+        cairo_move_to(cr, app->labels[i].x, app->labels[i].y);
+        cairo_show_text(cr, app->labels[i].text);
     }
 
     for (int i = 0; i < app->turtle_count; i++) {

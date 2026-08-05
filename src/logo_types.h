@@ -10,7 +10,15 @@
 
 #include <gtk/gtk.h>
 
+// The canvas's logical size — matches ui.c's drawing_area size request.
+// Shared by interpreter.c (WRAP/FENCE boundary checks, FILL's fill
+// requests) and ui.c (the actual Cairo rendering/rasterizing).
+#define CANVAS_WIDTH 500.0
+#define CANVAS_HEIGHT 500.0
+
 #define MAX_LINES 10000
+#define MAX_LABELS 1000
+#define MAX_FILLS 500
 #define MAX_PROCEDURES 50
 #define MAX_VARIABLES 100
 #define MAX_WHILE_ITERATIONS 1000000
@@ -46,6 +54,26 @@ typedef struct {
     double r, g, b; // 0.0-1.0
     double width;
 } LineSegment;
+
+// One piece of text drawn via LABEL, at the turtle's position and pen
+// color at the time — plain data, no Cairo/GTK type, so interpreter.c
+// (which never touches GTK directly) can record these; ui.c's
+// draw_scene is what actually renders them.
+typedef struct {
+    double x, y;
+    double r, g, b;
+    char text[256];
+} Label;
+
+// A FILL command: flood-fill the region containing (x, y) — the
+// turtle's position when FILL was called — with color (r, g, b). Also
+// plain data; ui.c's draw_scene does the actual rasterizing/flood-fill
+// algorithm at draw time, using whatever lines currently exist (see the
+// FILL comment in interpreter.c for the tradeoff that implies).
+typedef struct {
+    double x, y;
+    double r, g, b;
+} FillRequest;
 
 // The turtle's position, heading, pen state, current pen color/width
 // (color 0.0-1.0 per channel; set via SETPENCOLOR/SETPC and
@@ -137,6 +165,12 @@ typedef struct LogoApp {
 
     LineSegment lines[MAX_LINES];
     int line_count;
+
+    Label labels[MAX_LABELS]; // see LABEL
+    int label_count;
+
+    FillRequest fills[MAX_FILLS]; // see FILL
+    int fill_count;
 
     Procedure procedures[MAX_PROCEDURES];
     int proc_count;

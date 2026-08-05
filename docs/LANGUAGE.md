@@ -83,6 +83,8 @@ RT 90 FD 50
 | `WRAP` | — | — | Crossing the canvas edge wraps around to the opposite side |
 | `FENCE` | — | — | Crossing the canvas edge stops the turtle right at it, with an error |
 | `WINDOW` | — | — | No canvas boundary at all (the default) |
+| `LABEL` | — | word/list | Draw text at the turtle's position, in its pen color |
+| `FILL` | — | — | Flood-fill the region containing the turtle, bounded by drawn lines, with its pen color |
 
 `SETXY`/`HOME` draw a connecting line if the pen is down, same as
 `FORWARD` — they're a direct jump to a position, not a teleport. `CLEAR`
@@ -109,6 +111,30 @@ SETXY 600 250      (stops at 500 250, drawing up to the edge, and reports it)
 - `FENCE` stops the turtle right at the edge (clamping the position),
   draws the line up to that point, and prints `FENCE: turtle stopped at
   the canvas edge`.
+
+```
+SETPENCOLOR 200 0 0
+LABEL "hello
+
+REPEAT 4 [FD 100 RT 90]
+PENUP SETXY 300 200 PENDOWN
+SETPENCOLOR 255 200 0
+FILL
+```
+
+- `LABEL text` draws `text` (a word or list, same as `PRINT`) at the
+  turtle's current position, in its current pen color. `CLEAR` erases
+  labels along with lines.
+- `FILL` flood-fills the region containing the turtle — bounded by
+  whatever lines are currently drawn — with its current pen color, the
+  same way a paint bucket tool works. `CLEAR` erases fills along with
+  lines.
+- `FILL`'s boundary is **recomputed on every redraw** from whatever
+  lines exist at that moment, rather than frozen the instant `FILL` was
+  called: a line drawn *after* a `FILL` can retroactively become a new
+  boundary the next time the canvas redraws. This is a known,
+  intentional simplification (see `ROADMAP.md`) — in practice it only
+  matters if you keep drawing into an already-filled region afterward.
 
 ```
 ARC 360 80        (a full circle, radius 80)

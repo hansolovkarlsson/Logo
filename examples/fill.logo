@@ -1,0 +1,19 @@
+; FILL flood-fills the region containing the turtle, bounded by
+; whatever lines are already drawn, with the turtle's current pen color.
+
+REPEAT 4 [FD 100 RT 90]
+PENUP
+SETXY 300 200
+PENDOWN
+SETPENCOLOR 255 200 0
+FILL
+
+; CLEAR erases fills along with lines/labels -- draw and fill a second,
+; larger square to confirm.
+CLEAR
+REPEAT 4 [FD 150 RT 90]
+PENUP
+SETXY 325 175
+PENDOWN
+SETPENCOLOR 0 150 255
+FILL

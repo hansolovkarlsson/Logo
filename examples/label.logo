@@ -1,0 +1,15 @@
+; LABEL draws text at the turtle's current position, in its current
+; pen color.
+
+SETPENCOLOR 200 0 0
+FD 100
+LABEL "hello
+
+RT 90 FD 100
+SETPENCOLOR 0 0 200
+LABEL [a list of words]
+
+CLEAR
+LABEL "still-here-before-clear
+CLEAR
+; the label above should be gone now

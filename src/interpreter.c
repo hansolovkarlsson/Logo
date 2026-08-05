@@ -181,12 +181,6 @@ static double random_below(double n) {
 #define HOME_X 250.0
 #define HOME_Y 250.0
 
-// The canvas's logical size for WRAP/FENCE boundary checks — matches
-// ui.c's drawing_area size request (500x500). WINDOW mode (the default)
-// ignores these entirely, same as before WRAP/FENCE/WINDOW existed.
-#define CANVAS_WIDTH 500.0
-#define CANVAS_HEIGHT 500.0
-
 // The turtle currently being controlled by FD/RT/SETXY/etc. — see TELL.
 static Turtle* current_turtle(LogoApp *app) {
     return &app->turtles[app->current_turtle];
@@ -1610,6 +1604,8 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
             app->line_count = 0;
+            app->label_count = 0;
+            app->fill_count = 0;
             for (int i = 0; i < app->turtle_count; i++) {
                 app->turtles[i].x = HOME_X;
                 app->turtles[i].y = HOME_Y;
@@ -1668,6 +1664,44 @@ void eval_logo(LogoApp *app, const char *code) {
             app->bg_r = clamp01(r / 255.0);
             app->bg_g = clamp01(g / 255.0);
             app->bg_b = clamp01(b / 255.0);
+        }
+        // 3c'''''. LABEL text — draws text at the turtle's current
+        // position, in its current pen color. Pure data (position,
+        // color, text) recorded here; ui.c's draw_scene does the actual
+        // Cairo text rendering, keeping this file free of any GTK/Cairo
+        // dependency, same as lines[] already works for FD/etc.
+        else if (strcasecmp(token, "LABEL") == 0) {
+            Value val = parse_expr(app, &ptr);
+            if (app->label_count < MAX_LABELS) {
+                Turtle *t = current_turtle(app);
+                Label *label = &app->labels[app->label_count++];
+                label->x = t->x;
+                label->y = t->y;
+                label->r = t->pen_r;
+                label->g = t->pen_g;
+                label->b = t->pen_b;
+                value_to_text(app, &val, label->text, sizeof(label->text));
+            }
+        }
+        // 3c''''''. FILL — flood-fills the region containing the turtle,
+        // bounded by whatever lines are currently drawn, with the
+        // turtle's current pen color. Same "record plain data, let ui.c
+        // do the actual Cairo/rasterizing work" split as LABEL — except
+        // ui.c recomputes the flood-fill from *current* lines on every
+        // redraw rather than freezing a snapshot at this exact moment,
+        // so a line drawn after this FILL can still retroactively become
+        // a new boundary the next time the canvas redraws. See
+        // docs/LANGUAGE.md for that tradeoff spelled out.
+        else if (strcasecmp(token, "FILL") == 0) {
+            if (app->fill_count < MAX_FILLS) {
+                Turtle *t = current_turtle(app);
+                FillRequest *fill = &app->fills[app->fill_count++];
+                fill->x = t->x;
+                fill->y = t->y;
+                fill->r = t->pen_r;
+                fill->g = t->pen_g;
+                fill->b = t->pen_b;
+            }
         }
         // 3d. OUTPUT: PRINT <expr> — expr is any expression, word, or
         // list, exactly like MAKE's above (PRINT "word, PRINT [list of

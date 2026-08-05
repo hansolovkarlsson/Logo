@@ -12,9 +12,14 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `LABEL`, `FILL` — draw text at the turtle's position, and flood-fill a
-  closed region. Needs new Cairo drawing calls in `ui.c`, not just
-  interpreter logic.
+- [ ] `WAIT expr` — pause execution for `expr` before continuing, keeping
+  the GTK event loop responsive (so the canvas actually redraws mid-script
+  instead of visibly freezing until the whole program finishes). Directly
+  motivated by manually testing `LABEL`/`FILL`: a multi-step drawing that
+  `CLEAR`s partway through is otherwise impossible to see the intermediate
+  state of. A "wait for a keypress" variant would also solve this, but has
+  no real Logo precedent and needs actual interactive input handling
+  mid-script — start with the simpler time-based `WAIT`.
 - [ ] `OUTPUT`/`STOP` — let a `TO ... END` procedure return a value and be
   used inside an expression, the way `FIRST`/`WORD`/etc. already can.
   Changes the procedure-call convention — the biggest item on this list.
@@ -27,6 +32,13 @@ scoped items first.
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).
+- [ ] `FILL` recomputes its flood-fill from whatever lines currently exist
+  on every redraw, rather than freezing a snapshot at the moment `FILL`
+  was called (see `LANGUAGE.md`'s Turtle commands section) — a deliberate
+  scope decision (the alternative needs a persisted raster layer in
+  `LogoApp`, freed/reset on `CLEAR`), not a bug, but worth fixing if it
+  ever causes a real drawing to look wrong after further lines are added
+  past an existing fill.
 - [ ] `eval_logo`'s 200-call recursion cap (`MAX_SCOPE_DEPTH`) is close to,
   but not confirmed over, a stack-safety edge under AddressSanitizer —
   found 2026-08-05 while stress-testing `RUN`/`APPLY`. `eval_logo` is one
