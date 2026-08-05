@@ -227,6 +227,7 @@ static Variable* find_or_create_var(LogoApp *app, const char *name) {
         snprintf(nv->name, sizeof(nv->name), "%s", name);
         return nv;
     }
+    append_output(app, "MAKE: too many variables defined, not set\n");
     return NULL;
 }
 
@@ -833,16 +834,30 @@ void eval_logo(LogoApp *app, const char *code) {
                     snprintf(proc->name, sizeof(proc->name), "%s", name_buf);
                 }
 
-                // Zero or more parameters (each starts with ':')
-                while (*ptr == ':' && (proc == NULL || proc->param_count < MAX_PARAMS)) {
+                // Zero or more parameters (each starts with ':'). Always
+                // consumes every :param token, even past MAX_PARAMS —
+                // otherwise excess ones would be left dangling right where
+                // the body is about to be captured from, corrupting it
+                // (see the "too many parameters" report below instead).
+                gboolean too_many_params = FALSE;
+                while (*ptr == ':') {
                     char param_buf[32];
                     sscanf(ptr, "%31s%n", param_buf, &read_bytes);
                     ptr += read_bytes;
                     if (proc != NULL) {
-                        snprintf(proc->param_names[proc->param_count], sizeof(proc->param_names[0]), "%s", param_buf);
-                        proc->param_count++;
+                        if (proc->param_count < MAX_PARAMS) {
+                            snprintf(proc->param_names[proc->param_count], sizeof(proc->param_names[0]), "%s", param_buf);
+                            proc->param_count++;
+                        } else {
+                            too_many_params = TRUE;
+                        }
                     }
                     ptr = skip_whitespace(ptr);
+                }
+                if (too_many_params) {
+                    append_output(app, "TO ");
+                    append_output(app, name_buf);
+                    append_output(app, ": too many parameters, extra parameters ignored\n");
                 }
 
                 // Extract body until END

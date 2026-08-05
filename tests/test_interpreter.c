@@ -754,6 +754,48 @@ TEST(test_too_many_procedures_reports_error) {
     CHECK(app.proc_count == 50);
 }
 
+// --- Table-exhaustion boundaries (variables, parameters) ---
+
+TEST(test_too_many_variables_reports_error) {
+    // MAX_VARIABLES is 100; define 100 distinct globals, then confirm a
+    // 101st (new) name is refused loudly rather than silently dropped --
+    // find_or_create_var used to return NULL with no error at all here,
+    // unlike the analogous MAX_PROCEDURES case above -- while an
+    // existing variable can still be updated.
+    LogoApp app = new_app();
+    char code[4096] = {0};
+    for (int i = 0; i < 100; i++) {
+        char one[24];
+        snprintf(one, sizeof(one), "MAKE \"v%d %d\n", i, i);
+        strncat(code, one, sizeof(code) - strlen(code) - 1);
+    }
+    eval_logo(&app, code);
+    CHECK(app.var_count == 100);
+
+    eval_logo(&app, "MAKE \"v100 999");
+    CHECK_CONTAINS(captured_output, "MAKE: too many variables defined, not set");
+    CHECK(app.var_count == 100); // refused, table unchanged
+
+    eval_logo(&app, "MAKE \"v0 42\nPRINT :v0");
+    CHECK_CONTAINS(captured_output, "42\n"); // updating an existing var still works
+}
+
+TEST(test_too_many_parameters_reports_error) {
+    // MAX_PARAMS is 8; a 9th declared parameter is dropped (with a loud
+    // error) rather than corrupting the body -- the previous behavior
+    // left the excess :param token dangling right where body capture
+    // was about to start, since the parameter loop simply stopped early
+    // instead of still consuming (and discarding) it.
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "TO addall :a :b :c :d :e :f :g :h :i\n"
+        "PRINT :a + :b + :c + :d + :e + :f + :g + :h\n"
+        "END\n"
+        "addall 1 2 3 4 5 6 7 8");
+    CHECK_CONTAINS(captured_output, "addall: too many parameters, extra parameters ignored");
+    CHECK_CONTAINS(captured_output, "36\n"); // 1+2+...+8, using the first 8 params
+}
+
 // --- Safety limits (recursion depth, WHILE iteration cap) ---
 
 TEST(test_recursion_depth_limit_reports_error) {
@@ -872,6 +914,9 @@ int main(void) {
     RUN(test_erase_without_quote_reports_error);
     RUN(test_erase_nonexistent_procedure_reports_error);
     RUN(test_too_many_procedures_reports_error);
+
+    RUN(test_too_many_variables_reports_error);
+    RUN(test_too_many_parameters_reports_error);
 
     RUN(test_recursion_depth_limit_reports_error);
     RUN(test_while_iteration_limit_reports_error);

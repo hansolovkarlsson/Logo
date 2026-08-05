@@ -422,6 +422,12 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   prints `ERASE: no such procedure "<name>` if the name isn't defined.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
+- `TO <name>: too many parameters, extra parameters ignored` if more than
+  8 (`MAX_PARAMS`) are declared — the procedure is still defined, using
+  only the first 8.
+- `MAKE: too many variables defined, not set` if the global variable
+  table (100 entries) is full and `MAKE "name` would need to create a
+  new one — an existing variable can still be updated either way.
 - Recursion past 200 nested calls prints `Recursion too deep, call
   ignored` (see Variables & scoping above); a `WHILE` past 1,000,000
   iterations prints `WHILE: stopped after too many iterations`.
