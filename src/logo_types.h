@@ -49,8 +49,9 @@ typedef struct {
 
 // A variable's value is either a number or a word (single-token string,
 // no spaces) — see the "Words" section of docs/LANGUAGE.md. Arithmetic
-// (parse_expr and everything built on it) only ever deals in numbers; a
-// word-typed variable read in a numeric context is just 0.
+// (parse_expr and everything built on it, in interpreter.c) coerces a
+// word by reading the number its text starts with, falling back to 0 if
+// it doesn't start with one at all.
 typedef enum {
     VALUE_NUMBER,
     VALUE_WORD,

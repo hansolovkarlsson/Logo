@@ -1,0 +1,17 @@
+MAKE "colors [100 50 200]
+
+FD FIRST :colors
+RT 90
+FD LAST :colors
+
+MAKE "x FIRST :colors + 1
+PRINT :x
+
+REPEAT COUNT :colors [RT 30 FD 10]
+
+MAKE "w LAST [1 2 3]
+SETPENWIDTH :w
+FD 20
+
+PRINT -FIRST :colors
+PRINT "hello + 1

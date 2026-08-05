@@ -177,11 +177,13 @@ IF :greeting = [Hello there, friend!] [PRINT "matched]
   There's no separate string or list type — see "List construction" below
   for building one up at runtime, and `ROADMAP.md` for what's still
   missing (substrings, true nested lists).
-- A word-typed variable used inside a numeric context (arithmetic, a
-  `FORWARD`/`REPEAT`/etc. argument) just reads as `0` — words don't
-  participate in arithmetic. `PRINT`, `MAKE`, `=`/`<>` comparisons, and the
-  list operators below are word-aware; every other numeric-expecting spot
-  in the language is not.
+- A word used inside a numeric context (arithmetic, a `FORWARD`/`REPEAT`/
+  etc. argument) coerces by reading the number its text starts with —
+  `FD FIRST [100 50]` moves forward `100` — falling back to `0` if it
+  doesn't start with one at all (`PRINT "hello + 1` is `1`). This applies
+  everywhere: every argument in the language (`PRINT`, `MAKE`, turtle
+  commands, `REPEAT`'s count, procedure-call arguments, comparisons, ...)
+  is parsed by the same word-aware expression evaluator.
 - `MAKE "a :b` copies `:b`'s value as-is, whether it's a word or a number
   (a bare `:name` only — `MAKE "a :b + 1` still evaluates numerically, same
   as any other compound expression).
@@ -207,10 +209,11 @@ IF FIRST :colors = "red [PRINT "yes]
   :colors`), or a bare number (treated as a one-element list, so `COUNT 5`
   is `1`). `FIRST`/`LAST`/`BUTFIRST` of an empty list (`[]`) is empty; `COUNT`
   of one is `0`.
-- All four work anywhere a word-aware value is expected: `PRINT`, `MAKE
-  "name`, and both sides of `=`/`<>`. They do **not** work inside plain
-  arithmetic (`FD FIRST :colors` won't move the turtle) — same scoping as
-  words generally.
+- All four work anywhere an argument is expected — `PRINT`, `MAKE "name`,
+  both sides of `=`/`<>`, and plain arithmetic (`FD FIRST :colors`,
+  `REPEAT COUNT :items [...]`) — coercing to a number the same way any
+  other word does when arithmetic touches it (see above).
+
 ### List construction
 
 ```
@@ -233,10 +236,8 @@ PRINT LPUT "purple :colors      -> green blue purple
 - `FPUT thing list` prepends `thing` as a new first element; `LPUT thing
   list` appends it as a new last element.
 - All four take exactly two arguments (nest calls for more: `WORD "a
-  WORD "b "c`), work anywhere a word-aware value is expected (`PRINT`,
-  `MAKE "name`, `=`/`<>`, and as arguments to `FIRST`/`BUTFIRST`/`LAST`/
-  `COUNT`/each other), and — like the list operators above — do **not**
-  work inside plain arithmetic.
+  WORD "b "c`) and, like the list operators above, work anywhere an
+  argument is expected — including plain arithmetic.
 
 ## Procedures
 
@@ -381,9 +382,11 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   `]`), or too long to fit the interpreter's internal buffer (4KB — see
   below). `IFELSE` additionally prints `IFELSE: expected two [ block ]s`
   if only one block is given (`IF` doesn't require a second block;
-  `IFELSE` does). A bracketed list literal (`PRINT [...]`, `MAKE "name
-  [...]`) that's unterminated or oversized is likewise rejected rather
-  than silently treated as ending at the input's end.
+  `IFELSE` does). A bracketed list literal used as a value anywhere
+  (`PRINT [...]`, `MAKE "name [...]`, an argument to `FIRST`/`FPUT`/etc.)
+  prints `[ list ]: missing closing ] or too long` if it's unterminated
+  or oversized, rather than silently treated as ending at the input's
+  end.
 - `MAKE`, `ERASE`, `LOAD`, and `SAVE` each print `<COMMAND>: expected a
   "name`/`"path` if the required quoted word is missing. `ERASE` also
   prints `ERASE: no such procedure "<name>` if the name isn't defined.
@@ -397,10 +400,11 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   generously sized for normal use; input that would overflow one is
   rejected with an error above rather than silently truncated.
 
-What's still silent: passing the wrong *kind* of value somewhere (a word
-where a number is expected reads as `0`; see Words above) and any parse
-error inside a numeric expression itself (an unparseable expression just
-evaluates to `0`, same as always) — see `ROADMAP.md`.
+What's still silent: a word that doesn't start with a number, used where
+a number is expected, reads as `0` rather than erroring (see Words
+above), and any parse error inside a numeric expression itself (an
+unparseable expression just evaluates to `0`, same as always) — see
+`ROADMAP.md`.
 
 ## Interface
 
@@ -443,12 +447,12 @@ evaluates to `0`, same as always) — see `ROADMAP.md`.
 
 ## Known limitations (intentional, tracked in `ROADMAP.md`)
 
-- No general string/list building — no concatenation, substrings, or a
-  way to construct a list piece by piece at runtime. `[...]` literals and
-  `FIRST`/`BUTFIRST`/`LAST`/`COUNT` for reading them are the whole of it.
-  See "Words & lists" above.
-- Passing a word where a number is expected (or vice versa) silently
-  coerces rather than erroring — see "Errors" above.
+- No substrings, and no true nested lists (a list containing another list
+  as an element) — a list is always flat, single-space-joined text. See
+  "Words & lists" above and `ROADMAP.md`.
+- A word that doesn't start with a number, used where a number is
+  expected, silently coerces to `0` rather than erroring — see "Errors"
+  above.
 - The multi-line input's completeness check only balances `[`/`]` and counts
   `TO`/`END` — it doesn't validate the syntax inside, so e.g. a stray `]`
   can make an otherwise-valid input submit early.

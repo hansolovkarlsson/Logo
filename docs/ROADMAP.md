@@ -8,14 +8,18 @@ rather than marking it "done" in place.
 ## Language
 
 - [ ] True nested lists (a list containing another list as an element,
-  not just flat text) and list operators working inside plain arithmetic
-  (`FD FIRST :colors`) — the current implementation represents a list as
-  the same flat, single-space-joined word/text value as everything else,
-  which is why it composes with `PRINT`/`MAKE`/`=` for free but doesn't
-  nest or reach into numeric contexts. Doing either properly is the
-  original "bigger change" this item used to describe: a real tagged
-  value type threaded through the expression evaluator (currently pure
-  `double`), not just the word-aware layer (`PRINT`/`MAKE`/comparisons).
+  not just flat text). The expression evaluator now threads a real
+  tagged Value (number-or-word) through arithmetic as well as
+  `PRINT`/`MAKE`/comparisons — see "Words & lists" in `LANGUAGE.md` — so
+  words and list operators already work everywhere an argument is
+  expected (`FD FIRST :colors`, `REPEAT COUNT :items [...]`, etc.).
+  What's still missing is a genuinely recursive value representation: a
+  list is still always flat, single-space-joined text, which is why
+  there's no nesting and `SENTENCE`/`LIST` are the same operation. That
+  representation change doesn't fit the current fixed-buffer, no-malloc
+  style — it needs either a tree of fixed-size nodes from a pool or
+  dynamic allocation somewhere, plus new parsing/printing for nested
+  `[...]` and updates to every list operator to recurse.
 
 ## Robustness
 

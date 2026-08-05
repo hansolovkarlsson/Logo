@@ -198,14 +198,6 @@ static Variable* find_or_create_var(LogoApp *app, const char *name) {
     return NULL;
 }
 
-// Look up a variable's numeric value; 0 if it's unbound or word-typed.
-// Used throughout arithmetic (parse_factor's :name case), which only
-// ever deals in numbers.
-static double get_var(LogoApp *app, const char *name) {
-    Variable *v = find_var(app, name);
-    return (v != NULL && v->type == VALUE_NUMBER) ? v->number : 0;
-}
-
 // Set a variable to a number (MAKE "name expr), creating it as a global
 // if it's not already bound in some active scope.
 static void set_var(LogoApp *app, const char *name, double value) {
@@ -226,14 +218,61 @@ static void set_var_word(LogoApp *app, const char *name, const char *word) {
     }
 }
 
-// --- EXPRESSION EVALUATION (numbers, :variables, + - * / (), comparisons) ---
+// --- EXPRESSION EVALUATION (numbers, words, lists, :variables, + - * / (), comparisons) ---
+//
+// A single Value type flows through the whole expression evaluator: every
+// argument-parsing entry point (parse_expr, used directly by PRINT, MAKE,
+// procedure-call arguments, every turtle command's numeric arguments, and
+// parse_comparison) returns one. That's what lets a word or list work
+// anywhere a number would, not just in PRINT/MAKE/comparisons specifically
+// — FD FIRST :colors, MAKE "x FIRST :list + 1, PRINT WORD "a "b, and so on.
 
-static double parse_expr(LogoApp *app, const char **ptr);
+typedef struct {
+    gboolean is_word;
+    double number;
+    char word[512];
+} Value;
+
+static Value number_value(double n) {
+    Value v = {0};
+    v.number = n;
+    return v;
+}
+
+static Value word_value(const char *w) {
+    Value v = {0};
+    v.is_word = TRUE;
+    snprintf(v.word, sizeof(v.word), "%s", w);
+    return v;
+}
+
+// Coerce a Value to a number for arithmetic: a number as-is; a word by
+// parsing its leading numeric text — so FIRST [100 50] behaves like the
+// number 100 in FD FIRST :colors — falling back to 0 if it doesn't start
+// with one at all (same "coerces rather than errors" rule as always).
+static double value_to_number(Value v) {
+    if (!v.is_word) return v.number;
+    char *end;
+    double n = strtod(v.word, &end);
+    return (end != v.word) ? n : 0;
+}
+
+// Render a Value as text: a word as-is, a number formatted the same way
+// PRINT shows it.
+static void value_to_text(const Value *v, char *out, size_t out_size) {
+    if (v->is_word) {
+        snprintf(out, out_size, "%s", v->word);
+    } else {
+        snprintf(out, out_size, "%g", v->number);
+    }
+}
+
+static Value parse_expr(LogoApp *app, const char **ptr);
 
 // Peek the next whitespace-delimited word without consuming it unless it
 // case-insensitively matches `keyword`, in which case `*ptr` is advanced
-// past it. Used to recognize the NOT/AND/OR/FIRST/BUTFIRST/LAST/COUNT
-// keywords.
+// past it. Used to recognize the NOT/AND/OR/FIRST/BUTFIRST/LAST/COUNT/
+// FPUT/LPUT/WORD/SENTENCE/SE/LIST keywords.
 static gboolean consume_keyword(const char **ptr, const char *keyword) {
     const char *lookahead = skip_whitespace(*ptr);
     char word[16] = {0};
@@ -245,12 +284,12 @@ static gboolean consume_keyword(const char **ptr, const char *keyword) {
     return FALSE;
 }
 
-// --- LIST OPERATORS (FIRST, BUTFIRST, LAST, COUNT) ---
+// --- LIST OPERATORS & CONSTRUCTION (FIRST, BUTFIRST, LAST, COUNT, FPUT, LPUT, WORD, SENTENCE/SE, LIST) ---
 //
 // A "list" here is exactly the same word/text value MAKE "name [...] and
 // PRINT [...] already produce (space-joined elements, no separate list
-// type) — these just tokenize that text. See the "Words & lists" section
-// of docs/LANGUAGE.md.
+// type) — these just tokenize and rebuild that text. See the "Words &
+// lists" section of docs/LANGUAGE.md.
 
 // FIRST of a list/word: the first whitespace-delimited element, or empty
 // if there isn't one.
@@ -312,7 +351,7 @@ static int list_count(const char *text) {
 }
 
 // WORD: concatenate two words directly, with no separating space — pure
-// string concatenation (WORD "hello "world -> "helloworld").
+// string concatenation (WORD "hello "world -> "helloworld).
 static void list_word(const char *a, const char *b, char *out, size_t out_size) {
     snprintf(out, out_size, "%s%s", a, b);
 }
@@ -343,122 +382,127 @@ static void list_lput(const char *thing, const char *list, char *out, size_t out
     list_sentence(list, thing, out, out_size);
 }
 
-// Parse the argument to FIRST/BUTFIRST/LAST/COUNT: a "word literal, a
-// [list] literal, a :word-typed variable, a nested FIRST/BUTFIRST/LAST
-// call, or (fallback) a numeric expression formatted as text — so
-// FIRST/COUNT/etc. of a bare number treats it as a one-element list.
-// Always succeeds; never leaves `*ptr` stuck.
-static void parse_list_text(LogoApp *app, const char **ptr, char *out, size_t out_size) {
-    *ptr = skip_whitespace(*ptr);
-
-    if (**ptr == '"') {
-        (*ptr)++;
-        size_t i = 0;
-        while (**ptr && !isspace((unsigned char)**ptr) && i < out_size - 1) {
-            out[i++] = **ptr;
-            (*ptr)++;
-        }
-        out[i] = '\0';
-        return;
-    }
-
-    if (**ptr == '[') {
-        const char *after = extract_word_list(*ptr, out, out_size);
-        if (after != NULL) {
-            *ptr = after;
-        } else {
-            out[0] = '\0';
-        }
-        return;
-    }
-
-    if (consume_keyword(ptr, "BUTFIRST")) {
-        char inner[1024];
-        parse_list_text(app, ptr, inner, sizeof(inner));
-        list_butfirst(inner, out, out_size);
-        return;
-    }
-    if (consume_keyword(ptr, "FIRST")) {
-        char inner[1024];
-        parse_list_text(app, ptr, inner, sizeof(inner));
-        list_first(inner, out, out_size);
-        return;
-    }
-    if (consume_keyword(ptr, "LAST")) {
-        char inner[1024];
-        parse_list_text(app, ptr, inner, sizeof(inner));
-        list_last(inner, out, out_size);
-        return;
-    }
-    if (consume_keyword(ptr, "FPUT")) {
-        char thing[1024], list[1024];
-        parse_list_text(app, ptr, thing, sizeof(thing));
-        parse_list_text(app, ptr, list, sizeof(list));
-        list_fput(thing, list, out, out_size);
-        return;
-    }
-    if (consume_keyword(ptr, "LPUT")) {
-        char thing[1024], list[1024];
-        parse_list_text(app, ptr, thing, sizeof(thing));
-        parse_list_text(app, ptr, list, sizeof(list));
-        list_lput(thing, list, out, out_size);
-        return;
-    }
-    if (consume_keyword(ptr, "WORD")) {
-        char a[1024], b[1024];
-        parse_list_text(app, ptr, a, sizeof(a));
-        parse_list_text(app, ptr, b, sizeof(b));
-        list_word(a, b, out, out_size);
-        return;
-    }
-    if (consume_keyword(ptr, "SENTENCE") || consume_keyword(ptr, "SE") || consume_keyword(ptr, "LIST")) {
-        char a[1024], b[1024];
-        parse_list_text(app, ptr, a, sizeof(a));
-        parse_list_text(app, ptr, b, sizeof(b));
-        list_sentence(a, b, out, out_size);
-        return;
-    }
-
-    if (**ptr == ':') {
-        const char *lookahead = *ptr + 1;
-        char name[32] = {0};
-        size_t i = 0;
-        while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
-            name[i] = lookahead[i];
-            i++;
-        }
-        name[i] = '\0';
-        Variable *v = find_var(app, name);
-        if (v != NULL && v->type == VALUE_WORD) {
-            *ptr = lookahead + i;
-            snprintf(out, out_size, "%s", v->word);
-            return;
-        }
-    }
-
-    double val = parse_expr(app, ptr);
-    snprintf(out, out_size, "%g", val);
-}
-
-// Parse a single value: a parenthesized expression, a unary +/-, a
-// :variable reference, or a numeric literal.
-static double parse_factor(LogoApp *app, const char **ptr) {
+// Parse a single value: a parenthesized expression, a unary +/-, a "word
+// literal, a [list] literal, a list operator/constructor (FIRST,
+// BUTFIRST, LAST, COUNT, FPUT, LPUT, WORD, SENTENCE/SE, LIST — each
+// taking the next factor(s) as its argument, so they bind tighter than
+// * / + - and nest freely: FIRST FPUT "a [b c]), a :variable (carrying
+// whichever type it holds), or a numeric literal.
+static Value parse_factor(LogoApp *app, const char **ptr) {
     *ptr = skip_whitespace(*ptr);
 
     if (**ptr == '(') {
         (*ptr)++;
-        double val = parse_expr(app, ptr);
+        Value val = parse_expr(app, ptr);
         *ptr = skip_whitespace(*ptr);
         if (**ptr == ')') (*ptr)++;
         return val;
     }
     if (**ptr == '-') {
         (*ptr)++;
-        return -parse_factor(app, ptr);
+        return number_value(-value_to_number(parse_factor(app, ptr)));
     }
     if (**ptr == '+') {
         (*ptr)++;
-        return parse_factor(app, ptr);
+        return number_value(value_to_number(parse_factor(app, ptr)));
+    }
+    if (**ptr == '"') {
+        (*ptr)++;
+        char word[512] = {0};
+        size_t i = 0;
+        while (**ptr && !isspace((unsigned char)**ptr) && i < sizeof(word) - 1) {
+            word[i++] = **ptr;
+            (*ptr)++;
+        }
+        word[i] = '\0';
+        return word_value(word);
+    }
+    if (**ptr == '[') {
+        char word[512] = {0};
+        const char *after = extract_word_list(*ptr, word, sizeof(word));
+        if (after != NULL) {
+            *ptr = after;
+            return word_value(word);
+        }
+        append_output(app, "[ list ]: missing closing ] or too long\n");
+        return word_value("");
+    }
+    if (consume_keyword(ptr, "BUTFIRST")) {
+        Value arg = parse_factor(app, ptr);
+        char text[512];
+        value_to_text(&arg, text, sizeof(text));
+        Value result = {0};
+        result.is_word = TRUE;
+        list_butfirst(text, result.word, sizeof(result.word));
+        return result;
+    }
+    if (consume_keyword(ptr, "FIRST")) {
+        Value arg = parse_factor(app, ptr);
+        char text[512];
+        value_to_text(&arg, text, sizeof(text));
+        Value result = {0};
+        result.is_word = TRUE;
+        list_first(text, result.word, sizeof(result.word));
+        return result;
+    }
+    if (consume_keyword(ptr, "LAST")) {
+        Value arg = parse_factor(app, ptr);
+        char text[512];
+        value_to_text(&arg, text, sizeof(text));
+        Value result = {0};
+        result.is_word = TRUE;
+        list_last(text, result.word, sizeof(result.word));
+        return result;
+    }
+    if (consume_keyword(ptr, "COUNT")) {
+        Value arg = parse_factor(app, ptr);
+        char text[512];
+        value_to_text(&arg, text, sizeof(text));
+        return number_value(list_count(text));
+    }
+    if (consume_keyword(ptr, "FPUT")) {
+        Value thing = parse_factor(app, ptr);
+        Value list = parse_factor(app, ptr);
+        char thing_text[512], list_text[512];
+        value_to_text(&thing, thing_text, sizeof(thing_text));
+        value_to_text(&list, list_text, sizeof(list_text));
+        Value result = {0};
+        result.is_word = TRUE;
+        list_fput(thing_text, list_text, result.word, sizeof(result.word));
+        return result;
+    }
+    if (consume_keyword(ptr, "LPUT")) {
+        Value thing = parse_factor(app, ptr);
+        Value list = parse_factor(app, ptr);
+        char thing_text[512], list_text[512];
+        value_to_text(&thing, thing_text, sizeof(thing_text));
+        value_to_text(&list, list_text, sizeof(list_text));
+        Value result = {0};
+        result.is_word = TRUE;
+        list_lput(thing_text, list_text, result.word, sizeof(result.word));
+        return result;
+    }
+    if (consume_keyword(ptr, "WORD")) {
+        Value a = parse_factor(app, ptr);
+        Value b = parse_factor(app, ptr);
+        char a_text[512], b_text[512];
+        value_to_text(&a, a_text, sizeof(a_text));
+        value_to_text(&b, b_text, sizeof(b_text));
+        Value result = {0};
+        result.is_word = TRUE;
+        list_word(a_text, b_text, result.word, sizeof(result.word));
+        return result;
+    }
+    if (consume_keyword(ptr, "SENTENCE") || consume_keyword(ptr, "SE") || consume_keyword(ptr, "LIST")) {
+        Value a = parse_factor(app, ptr);
+        Value b = parse_factor(app, ptr);
+        char a_text[512], b_text[512];
+        value_to_text(&a, a_text, sizeof(a_text));
+        value_to_text(&b, b_text, sizeof(b_text));
+        Value result = {0};
+        result.is_word = TRUE;
+        list_sentence(a_text, b_text, result.word, sizeof(result.word));
+        return result;
     }
     if (**ptr == ':') {
         (*ptr)++;
@@ -469,27 +513,33 @@ static double parse_factor(LogoApp *app, const char **ptr) {
             (*ptr)++;
         }
         name[i] = '\0';
-        return get_var(app, name);
+        Variable *v = find_var(app, name);
+        if (v != NULL && v->type == VALUE_WORD) {
+            return word_value(v->word);
+        }
+        return number_value(v != NULL ? v->number : 0);
     }
 
     char *end;
     double val = strtod(*ptr, &end);
     *ptr = end;
-    return val;
+    return number_value(val);
 }
 
-// Parse a sequence of factors joined by * and /.
-static double parse_term(LogoApp *app, const char **ptr) {
-    double val = parse_factor(app, ptr);
+// Parse a sequence of factors joined by * and /. Always numeric: * and /
+// coerce both sides via value_to_number, so the result is always a plain
+// number even if one side was a word.
+static Value parse_term(LogoApp *app, const char **ptr) {
+    Value val = parse_factor(app, ptr);
     for (;;) {
         *ptr = skip_whitespace(*ptr);
         if (**ptr == '*') {
             (*ptr)++;
-            val *= parse_factor(app, ptr);
+            val = number_value(value_to_number(val) * value_to_number(parse_factor(app, ptr)));
         } else if (**ptr == '/') {
             (*ptr)++;
-            double divisor = parse_factor(app, ptr);
-            val = (divisor != 0) ? val / divisor : 0;
+            double divisor = value_to_number(parse_factor(app, ptr));
+            val = number_value(divisor != 0 ? value_to_number(val) / divisor : 0);
         } else {
             break;
         }
@@ -498,17 +548,25 @@ static double parse_term(LogoApp *app, const char **ptr) {
 }
 
 // Parse a sequence of terms joined by + and -. This is the entry point
-// for any argument that expects a number.
-static double parse_expr(LogoApp *app, const char **ptr) {
-    double val = parse_term(app, ptr);
+// for any argument throughout eval_logo — FD's distance, MAKE's value,
+// PRINT's argument, procedure-call arguments, comparison operands, and
+// every other turtle-command argument. A single factor with no +/-
+// following it (a bare "word, [list], list operator/constructor, or
+// :word-typed variable) passes through unchanged, still carrying its
+// word-ness; + and - are always numeric and coerce both sides (see
+// value_to_number) — that coercion is what lets FD FIRST :colors work:
+// FIRST :colors alone stays a word, but the moment arithmetic touches it,
+// it reads as the number its text starts with (or 0 if it doesn't).
+static Value parse_expr(LogoApp *app, const char **ptr) {
+    Value val = parse_term(app, ptr);
     for (;;) {
         *ptr = skip_whitespace(*ptr);
         if (**ptr == '+') {
             (*ptr)++;
-            val += parse_term(app, ptr);
+            val = number_value(value_to_number(val) + value_to_number(parse_term(app, ptr)));
         } else if (**ptr == '-') {
             (*ptr)++;
-            val -= parse_term(app, ptr);
+            val = number_value(value_to_number(val) - value_to_number(parse_term(app, ptr)));
         } else {
             break;
         }
@@ -516,143 +574,12 @@ static double parse_expr(LogoApp *app, const char **ptr) {
     return val;
 }
 
-// One side of a comparison: a number or a word. Only parse_comparison
-// deals in this — arithmetic (parse_expr and below) stays pure-number.
-typedef struct {
-    gboolean is_word;
-    double number;
-    char word[512];
-} Operand;
-
-// Parse one comparison operand: a "word literal, a [multi-word] literal,
-// a :variable (carrying whichever type it holds), or a numeric expression.
-static Operand parse_operand(LogoApp *app, const char **ptr) {
-    *ptr = skip_whitespace(*ptr);
-    Operand result = {0};
-
-    if (**ptr == '"') {
-        (*ptr)++;
-        size_t i = 0;
-        while (**ptr && !isspace((unsigned char)**ptr) && i < sizeof(result.word) - 1) {
-            result.word[i++] = **ptr;
-            (*ptr)++;
-        }
-        result.word[i] = '\0';
-        result.is_word = TRUE;
-        return result;
-    }
-
-    if (**ptr == '[') {
-        const char *after = extract_word_list(*ptr, result.word, sizeof(result.word));
-        if (after != NULL) {
-            *ptr = after;
-            result.is_word = TRUE;
-            return result;
-        }
-    }
-
-    if (consume_keyword(ptr, "BUTFIRST")) {
-        char text[1024];
-        parse_list_text(app, ptr, text, sizeof(text));
-        list_butfirst(text, result.word, sizeof(result.word));
-        result.is_word = TRUE;
-        return result;
-    }
-    if (consume_keyword(ptr, "FIRST")) {
-        char text[1024];
-        parse_list_text(app, ptr, text, sizeof(text));
-        list_first(text, result.word, sizeof(result.word));
-        result.is_word = TRUE;
-        return result;
-    }
-    if (consume_keyword(ptr, "LAST")) {
-        char text[1024];
-        parse_list_text(app, ptr, text, sizeof(text));
-        list_last(text, result.word, sizeof(result.word));
-        result.is_word = TRUE;
-        return result;
-    }
-    if (consume_keyword(ptr, "COUNT")) {
-        char text[1024];
-        parse_list_text(app, ptr, text, sizeof(text));
-        result.number = list_count(text);
-        result.is_word = FALSE;
-        return result;
-    }
-    if (consume_keyword(ptr, "FPUT")) {
-        char thing[1024], list[1024];
-        parse_list_text(app, ptr, thing, sizeof(thing));
-        parse_list_text(app, ptr, list, sizeof(list));
-        list_fput(thing, list, result.word, sizeof(result.word));
-        result.is_word = TRUE;
-        return result;
-    }
-    if (consume_keyword(ptr, "LPUT")) {
-        char thing[1024], list[1024];
-        parse_list_text(app, ptr, thing, sizeof(thing));
-        parse_list_text(app, ptr, list, sizeof(list));
-        list_lput(thing, list, result.word, sizeof(result.word));
-        result.is_word = TRUE;
-        return result;
-    }
-    if (consume_keyword(ptr, "WORD")) {
-        char a[1024], b[1024];
-        parse_list_text(app, ptr, a, sizeof(a));
-        parse_list_text(app, ptr, b, sizeof(b));
-        list_word(a, b, result.word, sizeof(result.word));
-        result.is_word = TRUE;
-        return result;
-    }
-    if (consume_keyword(ptr, "SENTENCE") || consume_keyword(ptr, "SE") || consume_keyword(ptr, "LIST")) {
-        char a[1024], b[1024];
-        parse_list_text(app, ptr, a, sizeof(a));
-        parse_list_text(app, ptr, b, sizeof(b));
-        list_sentence(a, b, result.word, sizeof(result.word));
-        result.is_word = TRUE;
-        return result;
-    }
-
-    if (**ptr == ':') {
-        const char *lookahead = *ptr + 1;
-        char name[32] = {0};
-        size_t i = 0;
-        while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
-            name[i] = lookahead[i];
-            i++;
-        }
-        name[i] = '\0';
-
-        Variable *v = find_var(app, name);
-        if (v != NULL && v->type == VALUE_WORD) {
-            *ptr = lookahead + i;
-            snprintf(result.word, sizeof(result.word), "%s", v->word);
-            result.is_word = TRUE;
-            return result;
-        }
-        // Numeric variable (or unbound, which reads as 0): fall through
-        // to normal expression parsing, same as any other numeric term.
-    }
-
-    result.number = parse_expr(app, ptr);
-    return result;
-}
-
-// Render an operand as text for word comparison: a word as-is, a number
-// formatted the same way PRINT would show it.
-static void operand_to_text(const Operand *v, char *out, size_t out_size) {
-    if (v->is_word) {
-        snprintf(out, out_size, "%s", v->word);
-    } else {
-        snprintf(out, out_size, "%g", v->number);
-    }
-}
-
 // Parse a single relational comparison, e.g. :X > 10, :X = :Y, :X = "hi.
 // With no relational operator, falls back to the operand's truthiness
 // (non-zero number, or non-empty word = true). The base case for
 // parse_condition, below.
 static double parse_comparison(LogoApp *app, const char **ptr) {
-    Operand left = parse_operand(app, ptr);
+    Value left = parse_expr(app, ptr);
     *ptr = skip_whitespace(*ptr);
 
     if (**ptr == '<' || **ptr == '>' || **ptr == '=') {
@@ -663,14 +590,14 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
             op2 = **ptr;
             (*ptr)++;
         }
-        Operand right = parse_operand(app, ptr);
+        Value right = parse_expr(app, ptr);
 
         if (left.is_word || right.is_word) {
             // Words only support = and <>; a text comparison for the
             // rest wouldn't be meaningful, so they just report unequal.
             char left_text[512], right_text[512];
-            operand_to_text(&left, left_text, sizeof(left_text));
-            operand_to_text(&right, right_text, sizeof(right_text));
+            value_to_text(&left, left_text, sizeof(left_text));
+            value_to_text(&right, right_text, sizeof(right_text));
             int equal = strcasecmp(left_text, right_text) == 0;
             if (op1 == '=') return equal;
             if (op1 == '<' && op2 == '>') return !equal;
@@ -866,7 +793,7 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         // 2. REPEAT LOOPS
         else if (strcasecmp(token, "REPEAT") == 0) {
-            int count = (int)parse_expr(app, &ptr);
+            int count = (int)value_to_number(parse_expr(app, &ptr));
             char block_body[4096];
             const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
 
@@ -912,35 +839,35 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         // 3. BASIC TURTLE COMMANDS
         else if (strcasecmp(token, "FORWARD") == 0 || strcasecmp(token, "FD") == 0) {
-            double val = parse_expr(app, &ptr);
+            double val = value_to_number(parse_expr(app, &ptr));
             move_turtle_forward(app, val);
         }
         else if (strcasecmp(token, "BACK") == 0 || strcasecmp(token, "BK") == 0) {
-            double val = parse_expr(app, &ptr);
+            double val = value_to_number(parse_expr(app, &ptr));
             move_turtle_forward(app, -val);
         }
         else if (strcasecmp(token, "RIGHT") == 0 || strcasecmp(token, "RT") == 0) {
-            double val = parse_expr(app, &ptr);
+            double val = value_to_number(parse_expr(app, &ptr));
             current_turtle(app)->angle += val;
         }
         else if (strcasecmp(token, "LEFT") == 0 || strcasecmp(token, "LT") == 0) {
-            double val = parse_expr(app, &ptr);
+            double val = value_to_number(parse_expr(app, &ptr));
             current_turtle(app)->angle -= val;
         }
         else if (strcasecmp(token, "SETXY") == 0) {
-            double x = parse_expr(app, &ptr);
-            double y = parse_expr(app, &ptr);
+            double x = value_to_number(parse_expr(app, &ptr));
+            double y = value_to_number(parse_expr(app, &ptr));
             move_turtle_to(app, x, y);
         }
         else if (strcasecmp(token, "SETHEADING") == 0 || strcasecmp(token, "SETH") == 0) {
-            current_turtle(app)->angle = parse_expr(app, &ptr);
+            current_turtle(app)->angle = value_to_number(parse_expr(app, &ptr));
         }
         // 3a'. ARC angle radius — draws a circle of `radius` centered ON
         // the turtle, starting at its current heading and sweeping
         // through `angle` degrees. The turtle itself doesn't move.
         else if (strcasecmp(token, "ARC") == 0) {
-            double angle_deg = parse_expr(app, &ptr);
-            double radius = parse_expr(app, &ptr);
+            double angle_deg = value_to_number(parse_expr(app, &ptr));
+            double radius = value_to_number(parse_expr(app, &ptr));
 
             double center_x = current_turtle(app)->x;
             double center_y = current_turtle(app)->y;
@@ -960,7 +887,7 @@ void eval_logo(LogoApp *app, const char *code) {
         // 3a''. TELL n — switch which turtle FD/RT/etc. control, creating
         // it (at the default state) the first time it's addressed.
         else if (strcasecmp(token, "TELL") == 0) {
-            int index = (int)parse_expr(app, &ptr);
+            int index = (int)value_to_number(parse_expr(app, &ptr));
             if (index < 0 || index >= MAX_TURTLES) {
                 char msg[64];
                 snprintf(msg, sizeof(msg), "TELL: turtle index must be 0-%d\n", MAX_TURTLES - 1);
@@ -975,102 +902,19 @@ void eval_logo(LogoApp *app, const char *code) {
                 app->current_turtle = index;
             }
         }
-        // 3b. VARIABLES: MAKE "name expr   or   MAKE "name "word
+        // 3b. VARIABLES: MAKE "name expr — expr is any expression, word,
+        // or list, so this one call handles MAKE "name "word, MAKE "name
+        // [some words], MAKE "name :other, and every list operator/
+        // constructor, in addition to plain numeric expressions.
         else if (strcasecmp(token, "MAKE") == 0) {
             char varname[64] = {0};
             if (sscanf(ptr, "%63s%n", varname, &read_bytes) == 1 && varname[0] == '"') {
                 ptr += read_bytes;
-                ptr = skip_whitespace(ptr);
-
-                if (*ptr == '"') {
-                    ptr++;
-                    char word[512] = {0};
-                    size_t i = 0;
-                    while (*ptr && !isspace((unsigned char)*ptr) && i < sizeof(word) - 1) {
-                        word[i++] = *ptr++;
-                    }
-                    word[i] = '\0';
-                    set_var_word(app, varname + 1, word);
-                } else if (*ptr == '[') {
-                    // MAKE "name [some words] — a multi-word string, unlike
-                    // MAKE "name "word which is a single token.
-                    char word[512] = {0};
-                    const char *after = extract_word_list(ptr, word, sizeof(word));
-                    if (after != NULL) {
-                        ptr = after;
-                        set_var_word(app, varname + 1, word);
-                    } else {
-                        append_output(app, "MAKE: expected [ words ]\n");
-                    }
-                } else if (consume_keyword(&ptr, "BUTFIRST")) {
-                    char text[1024], word[512];
-                    parse_list_text(app, &ptr, text, sizeof(text));
-                    list_butfirst(text, word, sizeof(word));
-                    set_var_word(app, varname + 1, word);
-                } else if (consume_keyword(&ptr, "FIRST")) {
-                    char text[1024], word[512];
-                    parse_list_text(app, &ptr, text, sizeof(text));
-                    list_first(text, word, sizeof(word));
-                    set_var_word(app, varname + 1, word);
-                } else if (consume_keyword(&ptr, "LAST")) {
-                    char text[1024], word[512];
-                    parse_list_text(app, &ptr, text, sizeof(text));
-                    list_last(text, word, sizeof(word));
-                    set_var_word(app, varname + 1, word);
-                } else if (consume_keyword(&ptr, "COUNT")) {
-                    char text[1024];
-                    parse_list_text(app, &ptr, text, sizeof(text));
-                    set_var(app, varname + 1, (double)list_count(text));
-                } else if (consume_keyword(&ptr, "FPUT")) {
-                    char thing[1024], list[1024], word[512];
-                    parse_list_text(app, &ptr, thing, sizeof(thing));
-                    parse_list_text(app, &ptr, list, sizeof(list));
-                    list_fput(thing, list, word, sizeof(word));
-                    set_var_word(app, varname + 1, word);
-                } else if (consume_keyword(&ptr, "LPUT")) {
-                    char thing[1024], list[1024], word[512];
-                    parse_list_text(app, &ptr, thing, sizeof(thing));
-                    parse_list_text(app, &ptr, list, sizeof(list));
-                    list_lput(thing, list, word, sizeof(word));
-                    set_var_word(app, varname + 1, word);
-                } else if (consume_keyword(&ptr, "WORD")) {
-                    char a[1024], b[1024], word[512];
-                    parse_list_text(app, &ptr, a, sizeof(a));
-                    parse_list_text(app, &ptr, b, sizeof(b));
-                    list_word(a, b, word, sizeof(word));
-                    set_var_word(app, varname + 1, word);
-                } else if (consume_keyword(&ptr, "SENTENCE") || consume_keyword(&ptr, "SE") || consume_keyword(&ptr, "LIST")) {
-                    char a[1024], b[1024], word[512];
-                    parse_list_text(app, &ptr, a, sizeof(a));
-                    parse_list_text(app, &ptr, b, sizeof(b));
-                    list_sentence(a, b, word, sizeof(word));
-                    set_var_word(app, varname + 1, word);
-                } else if (*ptr == ':') {
-                    // Copy another variable's value, preserving its type
-                    // (word or number) — a bare :name only, so MAKE "a
-                    // :b + 1 still falls through to numeric evaluation.
-                    const char *lookahead = ptr + 1;
-                    char name[32] = {0};
-                    size_t i = 0;
-                    while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
-                        name[i] = lookahead[i];
-                        i++;
-                    }
-                    name[i] = '\0';
-                    const char *after_name = lookahead + i;
-                    gboolean sole_reference = (*after_name == '\0' || isspace((unsigned char)*after_name));
-
-                    Variable *src = sole_reference ? find_var(app, name) : NULL;
-                    if (src != NULL && src->type == VALUE_WORD) {
-                        ptr = after_name;
-                        set_var_word(app, varname + 1, src->word);
-                    } else {
-                        double val = parse_expr(app, &ptr);
-                        set_var(app, varname + 1, val);
-                    }
+                Value val = parse_expr(app, &ptr);
+                if (val.is_word) {
+                    set_var_word(app, varname + 1, val.word);
                 } else {
-                    double val = parse_expr(app, &ptr);
-                    set_var(app, varname + 1, val);
+                    set_var(app, varname + 1, val.number);
                 }
             } else {
                 append_output(app, "MAKE: expected a \"name\n");
@@ -1139,9 +983,9 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         // 3c'. SETPENCOLOR r g b — each channel 0-255, applies to lines drawn from now on
         else if (strcasecmp(token, "SETPENCOLOR") == 0 || strcasecmp(token, "SETPC") == 0) {
-            double r = parse_expr(app, &ptr);
-            double g = parse_expr(app, &ptr);
-            double b = parse_expr(app, &ptr);
+            double r = value_to_number(parse_expr(app, &ptr));
+            double g = value_to_number(parse_expr(app, &ptr));
+            double b = value_to_number(parse_expr(app, &ptr));
             Turtle *t = current_turtle(app);
             t->pen_r = clamp01(r / 255.0);
             t->pen_g = clamp01(g / 255.0);
@@ -1149,120 +993,39 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         // 3c''a. SETPENWIDTH width — clamped to [0.5, 20], applies to lines drawn from now on
         else if (strcasecmp(token, "SETPENWIDTH") == 0 || strcasecmp(token, "SETPW") == 0) {
-            double width = parse_expr(app, &ptr);
+            double width = value_to_number(parse_expr(app, &ptr));
             current_turtle(app)->pen_width = clamp_range(width, MIN_PEN_WIDTH, MAX_PEN_WIDTH);
         }
         // 3c''. SETBACKGROUND r g b — each channel 0-255, the canvas's background color
         else if (strcasecmp(token, "SETBACKGROUND") == 0 || strcasecmp(token, "SETBG") == 0) {
-            double r = parse_expr(app, &ptr);
-            double g = parse_expr(app, &ptr);
-            double b = parse_expr(app, &ptr);
+            double r = value_to_number(parse_expr(app, &ptr));
+            double g = value_to_number(parse_expr(app, &ptr));
+            double b = value_to_number(parse_expr(app, &ptr));
             app->bg_r = clamp01(r / 255.0);
             app->bg_g = clamp01(g / 255.0);
             app->bg_b = clamp01(b / 255.0);
         }
-        // 3d. OUTPUT: PRINT "word   PRINT [list of words]   or   PRINT <expr>
+        // 3d. OUTPUT: PRINT <expr> — expr is any expression, word, or
+        // list, exactly like MAKE's above (PRINT "word, PRINT [list of
+        // words], PRINT FIRST :colors, PRINT 1 + 2, ...).
         else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {
-            ptr = skip_whitespace(ptr);
-            char line[512] = {0};
-            gboolean skip_output = FALSE;
-
-            if (*ptr == '"') {
-                ptr++;
-                size_t i = 0;
-                while (*ptr && !isspace((unsigned char)*ptr) && i < sizeof(line) - 1) {
-                    line[i++] = *ptr++;
-                }
-                line[i] = '\0';
-            } else if (*ptr == '[') {
-                // A bracketed list literal prints as its words, single-
-                // spaced — it's not evaluated as code the way REPEAT/IF
-                // blocks are.
-                const char *after = extract_word_list(ptr, line, sizeof(line));
-                if (after != NULL) {
-                    ptr = after;
-                } else {
-                    append_output(app, "PRINT: expected [ words ]\n");
-                    skip_output = TRUE;
-                }
-            } else if (consume_keyword(&ptr, "BUTFIRST")) {
-                char text[1024];
-                parse_list_text(app, &ptr, text, sizeof(text));
-                list_butfirst(text, line, sizeof(line));
-            } else if (consume_keyword(&ptr, "FIRST")) {
-                char text[1024];
-                parse_list_text(app, &ptr, text, sizeof(text));
-                list_first(text, line, sizeof(line));
-            } else if (consume_keyword(&ptr, "LAST")) {
-                char text[1024];
-                parse_list_text(app, &ptr, text, sizeof(text));
-                list_last(text, line, sizeof(line));
-            } else if (consume_keyword(&ptr, "COUNT")) {
-                char text[1024];
-                parse_list_text(app, &ptr, text, sizeof(text));
-                snprintf(line, sizeof(line), "%d", list_count(text));
-            } else if (consume_keyword(&ptr, "FPUT")) {
-                char thing[1024], list[1024];
-                parse_list_text(app, &ptr, thing, sizeof(thing));
-                parse_list_text(app, &ptr, list, sizeof(list));
-                list_fput(thing, list, line, sizeof(line));
-            } else if (consume_keyword(&ptr, "LPUT")) {
-                char thing[1024], list[1024];
-                parse_list_text(app, &ptr, thing, sizeof(thing));
-                parse_list_text(app, &ptr, list, sizeof(list));
-                list_lput(thing, list, line, sizeof(line));
-            } else if (consume_keyword(&ptr, "WORD")) {
-                char a[1024], b[1024];
-                parse_list_text(app, &ptr, a, sizeof(a));
-                parse_list_text(app, &ptr, b, sizeof(b));
-                list_word(a, b, line, sizeof(line));
-            } else if (consume_keyword(&ptr, "SENTENCE") || consume_keyword(&ptr, "SE") || consume_keyword(&ptr, "LIST")) {
-                char a[1024], b[1024];
-                parse_list_text(app, &ptr, a, sizeof(a));
-                parse_list_text(app, &ptr, b, sizeof(b));
-                list_sentence(a, b, line, sizeof(line));
-            } else if (*ptr == ':') {
-                // A bare word-typed variable prints its text; anything
-                // else (numeric variable, or :name as part of a larger
-                // expression) falls through to normal numeric evaluation.
-                const char *lookahead = ptr + 1;
-                char name[32] = {0};
-                size_t i = 0;
-                while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
-                    name[i] = lookahead[i];
-                    i++;
-                }
-                name[i] = '\0';
-                const char *after_name = lookahead + i;
-                gboolean sole_reference = (*after_name == '\0' || isspace((unsigned char)*after_name));
-
-                Variable *v = sole_reference ? find_var(app, name) : NULL;
-                if (v != NULL && v->type == VALUE_WORD) {
-                    snprintf(line, sizeof(line), "%s", v->word);
-                    ptr = after_name;
-                } else {
-                    double val = parse_expr(app, &ptr);
-                    snprintf(line, sizeof(line), "%g", val);
-                }
-            } else {
-                double val = parse_expr(app, &ptr);
-                snprintf(line, sizeof(line), "%g", val);
-            }
-
-            if (!skip_output) {
-                append_output(app, line);
-                append_output(app, "\n");
-            }
+            Value val = parse_expr(app, &ptr);
+            char line[512];
+            value_to_text(&val, line, sizeof(line));
+            append_output(app, line);
+            append_output(app, "\n");
         }
         // 4. USER-DEFINED PROCEDURE CALL
         else {
             Procedure *proc = find_procedure(app, token);
             if (proc != NULL) {
                 // Evaluate each argument in the *caller's* scope, before
-                // pushing the callee's new one.
+                // pushing the callee's new one. Parameters stay purely
+                // numeric (a word argument coerces the same as anywhere
+                // else arithmetic touches one — see value_to_number).
                 double arg_vals[MAX_PARAMS];
                 for (int p = 0; p < proc->param_count; p++) {
-                    arg_vals[p] = parse_expr(app, &ptr);
+                    arg_vals[p] = value_to_number(parse_expr(app, &ptr));
                 }
 
                 if (app->scope_depth >= MAX_SCOPE_DEPTH) {

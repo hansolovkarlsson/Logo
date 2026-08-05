@@ -374,6 +374,48 @@ TEST(test_list_construction_via_make_and_nesting) {
     CHECK_STREQ(captured_output, "helloworld\na\n");
 }
 
+// --- Words/lists in numeric contexts ---
+
+TEST(test_forward_with_list_operator_argument) {
+    LogoApp app = new_app();
+    eval_logo(&app, "FD FIRST [100 50]");
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 150.0); // moved 100, same as FD 100
+}
+
+TEST(test_repeat_count_from_list_operator) {
+    LogoApp app = new_app();
+    eval_logo(&app, "REPEAT FIRST [3 9] [FD 10 RT 90]");
+    CHECK(app.line_count == 3);
+}
+
+TEST(test_make_arithmetic_with_word_variable) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "MAKE \"colors [100 50]\n"
+        "MAKE \"x FIRST :colors + 1\n"
+        "PRINT :x");
+    CHECK_STREQ(captured_output, "101\n");
+}
+
+TEST(test_non_numeric_word_coerces_to_zero_in_arithmetic) {
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"greeting \"hello\nPRINT :greeting + 1");
+    CHECK_STREQ(captured_output, "1\n");
+}
+
+TEST(test_unary_minus_on_list_operator) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT -FIRST [5 6]");
+    CHECK_STREQ(captured_output, "-5\n");
+}
+
+TEST(test_setpenwidth_from_word_typed_variable) {
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"w LAST [1 2 3]\nSETPENWIDTH :w\nFD 10");
+    CHECK_NEAR(app.lines[0].width, 3.0);
+}
+
 // --- Errors ---
 
 TEST(test_unknown_command_reports_error) {
@@ -478,6 +520,13 @@ int main(void) {
     RUN(test_sentence_joins_with_a_space);
     RUN(test_fput_prepends_and_lput_appends);
     RUN(test_list_construction_via_make_and_nesting);
+
+    RUN(test_forward_with_list_operator_argument);
+    RUN(test_repeat_count_from_list_operator);
+    RUN(test_make_arithmetic_with_word_variable);
+    RUN(test_non_numeric_word_coerces_to_zero_in_arithmetic);
+    RUN(test_unary_minus_on_list_operator);
+    RUN(test_setpenwidth_from_word_typed_variable);
 
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);
