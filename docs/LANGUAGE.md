@@ -26,6 +26,7 @@ whenever a language feature changes.
 | `SETXY` | — | `x y` | Jump directly to an absolute position, drawing if pen is down; heading unchanged |
 | `SETHEADING` | `SETH` | expr | Set the turtle's absolute heading (no movement) |
 | `HOME` | — | — | `SETXY` back to the start position and `SETHEADING 0`, drawing if pen is down |
+| `ARC` | — | `angle radius` | Draw a circle/arc of `radius` centered on the turtle; the turtle doesn't move |
 | `PENUP` | `PU` | — | Stop drawing while moving |
 | `PENDOWN` | `PD` | — | Resume drawing while moving |
 | `SETPENCOLOR` | `SETPC` | `r g b` (each 0-255) | Set the color new lines are drawn in |
@@ -37,6 +38,21 @@ whenever a language feature changes.
 `FORWARD` — they're a direct jump to a position, not a teleport. `CLEAR`
 is the one that resets position without drawing, since it wipes the
 canvas first.
+
+```
+ARC 360 80        (a full circle, radius 80)
+RT 45 ARC 90 40    (a quarter arc, offset by the turtle's heading)
+```
+
+- `ARC angle radius` draws part (or all, at `angle` 360) of a circle
+  centered *at the turtle's current position*, starting from its current
+  heading and sweeping clockwise through `angle` degrees. Unlike every
+  other drawing command, the turtle itself doesn't move or turn — only
+  the arc is drawn, as if a phantom copy of the turtle traced it.
+- There's no native arc primitive to draw with, so it's approximated as
+  a fan of short straight segments (one per 5 degrees, at least 8 — so a
+  360-degree circle is 72 segments). Each segment respects pen color/
+  width/up-down exactly like any other drawn line.
 
 All commands are case-insensitive (`fd 100` and `FD 100` are equivalent).
 

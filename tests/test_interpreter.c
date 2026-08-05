@@ -111,6 +111,21 @@ TEST(test_home_returns_and_resets_heading) {
     CHECK(app.line_count == 2); // the SETXY jump, then HOME's jump back
 }
 
+TEST(test_arc_draws_without_moving_the_turtle) {
+    LogoApp app = new_app();
+    eval_logo(&app, "ARC 90 100");
+    // The turtle stays exactly where it was, heading unchanged.
+    CHECK_NEAR(app.turtle.x, 250.0);
+    CHECK_NEAR(app.turtle.y, 250.0);
+    CHECK_NEAR(app.turtle.angle, 0.0);
+    // A 90-degree arc at 5 degrees/segment is 18 segments.
+    CHECK(app.line_count == 18);
+    // The arc starts exactly where FD 100 would have landed: radius 100
+    // north of center, since heading 0 points up (north).
+    CHECK_NEAR(app.lines[0].x1, 250.0);
+    CHECK_NEAR(app.lines[0].y1, 150.0);
+}
+
 TEST(test_setpencolor_and_width_stamp_the_segment) {
     LogoApp app = new_app();
     eval_logo(&app, "SETPENCOLOR 255 0 0 SETPENWIDTH 5 FD 50");
@@ -241,6 +256,7 @@ int main(void) {
     RUN(test_repeat_square_returns_to_start);
     RUN(test_setxy_draws_direct_line);
     RUN(test_home_returns_and_resets_heading);
+    RUN(test_arc_draws_without_moving_the_turtle);
     RUN(test_setpencolor_and_width_stamp_the_segment);
     RUN(test_setbackground_sets_canvas_color);
 

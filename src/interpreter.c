@@ -69,18 +69,23 @@ static double clamp_range(double v, double lo, double hi) {
 #define HOME_X 250.0
 #define HOME_Y 250.0
 
-// Move the turtle directly to an absolute position, recording a line
-// segment (in the turtle's current pen color/width) if the pen is down.
-static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
+// Record a line segment in the turtle's current pen color/width, if the
+// pen is down. Doesn't touch the turtle's position — used directly by
+// ARC, which draws around the turtle without moving it.
+static void record_line(LogoApp *app, double x1, double y1, double x2, double y2) {
     if (app->turtle.pen_down && app->line_count < MAX_LINES) {
         app->lines[app->line_count++] = (LineSegment){
-            .x1 = app->turtle.x, .y1 = app->turtle.y,
-            .x2 = new_x, .y2 = new_y,
+            .x1 = x1, .y1 = y1, .x2 = x2, .y2 = y2,
             .r = app->turtle.pen_r, .g = app->turtle.pen_g, .b = app->turtle.pen_b,
             .width = app->turtle.pen_width,
         };
     }
+}
 
+// Move the turtle directly to an absolute position, recording a line
+// segment along the way if the pen is down.
+static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
+    record_line(app, app->turtle.x, app->turtle.y, new_x, new_y);
     app->turtle.x = new_x;
     app->turtle.y = new_y;
 }
@@ -604,6 +609,28 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         else if (strcasecmp(token, "SETHEADING") == 0 || strcasecmp(token, "SETH") == 0) {
             app->turtle.angle = parse_expr(app, &ptr);
+        }
+        // 3a'. ARC angle radius — draws a circle of `radius` centered ON
+        // the turtle, starting at its current heading and sweeping
+        // through `angle` degrees. The turtle itself doesn't move.
+        else if (strcasecmp(token, "ARC") == 0) {
+            double angle_deg = parse_expr(app, &ptr);
+            double radius = parse_expr(app, &ptr);
+
+            double center_x = app->turtle.x;
+            double center_y = app->turtle.y;
+            double start_heading = app->turtle.angle;
+
+            int segments = (int)clamp_range(fabs(angle_deg) / 5.0, 8, 360);
+            double step = angle_deg / segments;
+
+            for (int i = 0; i < segments; i++) {
+                double rad0 = (start_heading + step * i - 90.0) * M_PI / 180.0;
+                double rad1 = (start_heading + step * (i + 1) - 90.0) * M_PI / 180.0;
+                record_line(app,
+                            center_x + radius * cos(rad0), center_y + radius * sin(rad0),
+                            center_x + radius * cos(rad1), center_y + radius * sin(rad1));
+            }
         }
         // 3b. VARIABLES: MAKE "name expr   or   MAKE "name "word
         else if (strcasecmp(token, "MAKE") == 0) {
