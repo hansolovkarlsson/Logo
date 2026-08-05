@@ -7,15 +7,21 @@ rather than marking it "done" in place.
 
 ## Language
 
-- [ ] String operations: concatenation, substrings, character access.
-  `MAKE "name [some words]` now holds multi-word text (see "Words" in
-  `LANGUAGE.md`), but there's still no way to build a string out of
-  pieces at runtime (e.g. joining two variables) or take one apart.
-- [ ] Lists as a first-class, storable, manipulable value (`MAKE "mylist
-  [1 2 3]`, `FIRST`, `BUTFIRST`, `LAST`, `COUNT`, ...) — a bigger change,
-  since it means the expression evaluator (currently pure `double`)
-  needs a real tagged value type threaded through arithmetic itself, not
-  just variables/`PRINT`/`=` the way words are handled now.
+- [ ] Building strings/lists at runtime: concatenation, joining two
+  variables, `FPUT`/`LPUT`/`LIST`-style construction. `MAKE "name [some
+  words]`/`"word` for literals and `FIRST`/`BUTFIRST`/`LAST`/`COUNT` for
+  reading a list apart both landed (see "Words & lists" in
+  `LANGUAGE.md`) — what's still missing is building one up from pieces
+  rather than writing it whole as a literal.
+- [ ] True nested lists (a list containing another list as an element,
+  not just flat text) and list operators working inside plain arithmetic
+  (`FD FIRST :colors`) — the current implementation represents a list as
+  the same flat, single-space-joined word/text value as everything else,
+  which is why it composes with `PRINT`/`MAKE`/`=` for free but doesn't
+  nest or reach into numeric contexts. Doing either properly is the
+  original "bigger change" this item used to describe: a real tagged
+  value type threaded through the expression evaluator (currently pure
+  `double`), not just the word-aware layer (`PRINT`/`MAKE`/comparisons).
 
 ## Robustness
 

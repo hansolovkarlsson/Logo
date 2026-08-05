@@ -1,0 +1,16 @@
+MAKE "colors [red green blue purple]
+
+PRINT FIRST :colors
+PRINT LAST :colors
+PRINT BUTFIRST :colors
+PRINT COUNT :colors
+
+MAKE "head FIRST :colors
+MAKE "rest BUTFIRST :colors
+PRINT :head
+PRINT :rest
+
+IF FIRST :colors = "red [PRINT "starts-with-red]
+IF COUNT :colors = 4 [PRINT "has-four-colors]
+
+PRINT FIRST BUTFIRST :colors

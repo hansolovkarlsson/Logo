@@ -213,6 +213,7 @@ static gboolean is_known_keyword(const char *token) {
         "SETPENCOLOR", "SETPC", "SETPENWIDTH", "SETPW",
         "SETBACKGROUND", "SETBG", "CLEAR", "CS",
         "PRINT", "PR",
+        "FIRST", "BUTFIRST", "LAST", "COUNT",
         NULL,
     };
     for (int i = 0; keywords[i] != NULL; i++) {

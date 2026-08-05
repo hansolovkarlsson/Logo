@@ -282,6 +282,66 @@ TEST(test_print_list_joins_words_with_single_spaces) {
     CHECK_STREQ(captured_output, "hello there friend\n");
 }
 
+// --- List operators (FIRST, BUTFIRST, LAST, COUNT) ---
+
+TEST(test_first_last_butfirst_count_via_print) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "PRINT FIRST [1 2 3]\n"
+        "PRINT LAST [1 2 3]\n"
+        "PRINT BUTFIRST [1 2 3]\n"
+        "PRINT COUNT [1 2 3]");
+    CHECK_STREQ(captured_output, "1\n3\n2 3\n3\n");
+}
+
+TEST(test_list_operators_via_make) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "MAKE \"mylist [red green blue]\n"
+        "MAKE \"head FIRST :mylist\n"
+        "MAKE \"tail BUTFIRST :mylist\n"
+        "MAKE \"n COUNT :mylist\n"
+        "PRINT :head\n"
+        "PRINT :tail\n"
+        "PRINT :n");
+    CHECK_STREQ(captured_output, "red\ngreen blue\n3\n");
+}
+
+TEST(test_nested_list_operators) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT FIRST BUTFIRST [1 2 3]");
+    CHECK_STREQ(captured_output, "2\n");
+}
+
+TEST(test_count_of_bare_number_is_one) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT COUNT 5");
+    CHECK_STREQ(captured_output, "1\n");
+}
+
+TEST(test_first_of_empty_list_is_empty) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT FIRST []\nPRINT COUNT []");
+    CHECK_STREQ(captured_output, "\n0\n");
+}
+
+TEST(test_list_operator_in_comparison) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "MAKE \"mylist [1 2 3]\n"
+        "IF FIRST :mylist = 1 [PRINT \"matched]\n"
+        "IF COUNT :mylist = 3 [PRINT \"also-matched]");
+    CHECK_STREQ(captured_output, "matched\nalso-matched\n");
+}
+
+TEST(test_make_a_colon_b_copies_word) {
+    // The "MAKE "a :b of a word" limitation is now fixed as part of
+    // adding list operators (both went through the same MAKE rewrite).
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"a [hello world]\nMAKE \"b :a\nPRINT :b");
+    CHECK_STREQ(captured_output, "hello world\n");
+}
+
 // --- Errors ---
 
 TEST(test_unknown_command_reports_error) {
@@ -332,6 +392,14 @@ int main(void) {
     RUN(test_make_multiword_string_from_bracket_list);
     RUN(test_multiword_string_comparison);
     RUN(test_print_list_joins_words_with_single_spaces);
+
+    RUN(test_first_last_butfirst_count_via_print);
+    RUN(test_list_operators_via_make);
+    RUN(test_nested_list_operators);
+    RUN(test_count_of_bare_number_is_one);
+    RUN(test_first_of_empty_list_is_empty);
+    RUN(test_list_operator_in_comparison);
+    RUN(test_make_a_colon_b_copies_word);
 
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);

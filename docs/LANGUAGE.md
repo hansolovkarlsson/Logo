@@ -127,7 +127,7 @@ MAKE "size :size + 10
 - `MAKE "name expr` sets a variable to a number, creating it if it doesn't
   already exist.
 - `:name` reads a variable's value inside any expression.
-- Variables are either numbers or **words** — see "Words" below.
+- Variables are either numbers or **words** — see "Words & lists" below.
 
 Procedure parameters are **local, dynamically-scoped** variables. Calling a
 procedure pushes a fresh scope binding its parameters to the (already
@@ -150,7 +150,7 @@ outer calls on the stack, then the globals — so:
 - Recursion is capped at 200 nested calls; going deeper prints "Recursion
   too deep, call ignored" instead of crashing.
 
-## Words
+## Words & lists
 
 ```
 MAKE "name "World
@@ -169,22 +169,51 @@ IF :greeting = [Hello there, friend!] [PRINT "matched]
   regardless of the original whitespace between them (so `[hello   world]`
   and `[hello world]` produce the same value). This is the same bracketed
   syntax `PRINT [...]` uses (see Output below) — it's a value here instead
-  of being printed immediately.
+  of being printed immediately, and it's also how you write a **list**:
+  `[1 2 3]` is just a word whose text happens to look like numbers — see
+  "List operators" below.
 - Whether set via `"word` or `[a list]`, the result is the same kind of
-  value — both are just a word (text) held in the variable. There's no
-  separate "string" type, no concatenation, and no substring operations;
-  a word/list literal is a single opaque piece of text you can set,
-  print, and compare, not take apart — see `ROADMAP.md`.
+  value underneath — both are just a word (text) held in the variable.
+  There's no separate string or list type, and no concatenation or
+  substring operations — see `ROADMAP.md`.
 - A word-typed variable used inside a numeric context (arithmetic, a
   `FORWARD`/`REPEAT`/etc. argument) just reads as `0` — words don't
-  participate in arithmetic. `PRINT` and `=`/`<>` comparisons are word-aware
-  (see Output and Conditionals below, and note `=`/`<>` also accept a
-  `[bracketed list]` directly as an operand, not just a variable); every
-  other numeric-expecting spot in the language is not.
-- `MAKE "a :b` where `:b` is a word does **not** copy the word — it falls
-  back to that same numeric-context behavior (copies `0`). To copy a word,
-  assign it again as a literal (`MAKE "a "sameword` or `MAKE "a [some
-  words]`).
+  participate in arithmetic. `PRINT`, `MAKE`, `=`/`<>` comparisons, and the
+  list operators below are word-aware; every other numeric-expecting spot
+  in the language is not.
+- `MAKE "a :b` copies `:b`'s value as-is, whether it's a word or a number
+  (a bare `:name` only — `MAKE "a :b + 1` still evaluates numerically, same
+  as any other compound expression).
+
+### List operators
+
+```
+MAKE "colors [red green blue]
+PRINT FIRST :colors            -> red
+PRINT LAST :colors             -> blue
+PRINT BUTFIRST :colors         -> green blue
+PRINT COUNT :colors            -> 3
+IF FIRST :colors = "red [PRINT "yes]
+```
+
+- `FIRST`, `BUTFIRST`, and `LAST` take one word/list-ish argument and
+  return a word: the first element, everything after the first element,
+  or the last element, respectively (splitting on whitespace). `COUNT`
+  takes the same kind of argument and returns a **number** — how many
+  elements it has.
+- The argument to any of these can be a `"word`, a `[bracketed list]`, a
+  `:variable` holding either, a nested list operator call (`FIRST BUTFIRST
+  :colors`), or a bare number (treated as a one-element list, so `COUNT 5`
+  is `1`). `FIRST`/`LAST`/`BUTFIRST` of an empty list (`[]`) is empty; `COUNT`
+  of one is `0`.
+- All four work anywhere a word-aware value is expected: `PRINT`, `MAKE
+  "name`, and both sides of `=`/`<>`. They do **not** work inside plain
+  arithmetic (`FD FIRST :colors` won't move the turtle) — same scoping as
+  words generally.
+- There's no way to build a list up piece by piece at runtime (no
+  "prepend an element" or list-concatenation operator) — only `FIRST`/
+  `BUTFIRST`/`LAST`/`COUNT` for reading one apart, and whatever you write
+  as a literal `[...]` — see `ROADMAP.md`.
 
 ## Procedures
 
@@ -381,13 +410,10 @@ evaluates to `0`, same as always) — see `ROADMAP.md`.
 
 ## Known limitations (intentional, tracked in `ROADMAP.md`)
 
-- No general string type (concatenation, substrings, multi-word text in a
-  variable) — only single-token words, and only `PRINT`/`=`/`<>` are
-  word-aware. See "Words" above.
-- No lists/arrays as a storable, manipulable value — `PRINT [...]` prints
-  a bracketed list's words directly but there's no `FIRST`/`BUTFIRST`/
-  `LAST`/`COUNT`, and a list can't be assigned to a variable.
-- No multiple turtles.
+- No general string/list building — no concatenation, substrings, or a
+  way to construct a list piece by piece at runtime. `[...]` literals and
+  `FIRST`/`BUTFIRST`/`LAST`/`COUNT` for reading them are the whole of it.
+  See "Words & lists" above.
 - Passing a word where a number is expected (or vice versa) silently
   coerces rather than erroring — see "Errors" above.
 - The multi-line input's completeness check only balances `[`/`]` and counts

@@ -219,6 +219,156 @@ static void set_var_word(LogoApp *app, const char *name, const char *word) {
 
 static double parse_expr(LogoApp *app, const char **ptr);
 
+// Peek the next whitespace-delimited word without consuming it unless it
+// case-insensitively matches `keyword`, in which case `*ptr` is advanced
+// past it. Used to recognize the NOT/AND/OR/FIRST/BUTFIRST/LAST/COUNT
+// keywords.
+static gboolean consume_keyword(const char **ptr, const char *keyword) {
+    const char *lookahead = skip_whitespace(*ptr);
+    char word[16] = {0};
+    int n = 0;
+    if (sscanf(lookahead, "%15s%n", word, &n) == 1 && strcasecmp(word, keyword) == 0) {
+        *ptr = lookahead + n;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// --- LIST OPERATORS (FIRST, BUTFIRST, LAST, COUNT) ---
+//
+// A "list" here is exactly the same word/text value MAKE "name [...] and
+// PRINT [...] already produce (space-joined elements, no separate list
+// type) — these just tokenize that text. See the "Words & lists" section
+// of docs/LANGUAGE.md.
+
+// FIRST of a list/word: the first whitespace-delimited element, or empty
+// if there isn't one.
+static void list_first(const char *text, char *out, size_t out_size) {
+    const char *p = skip_whitespace(text);
+    char word[128] = {0};
+    int n = 0;
+    if (sscanf(p, "%127s%n", word, &n) != 1 || n == 0) {
+        out[0] = '\0';
+        return;
+    }
+    snprintf(out, out_size, "%s", word);
+}
+
+// LAST of a list/word: the final whitespace-delimited element.
+static void list_last(const char *text, char *out, size_t out_size) {
+    out[0] = '\0';
+    const char *p = text;
+    while (*p) {
+        p = skip_whitespace(p);
+        if (*p == '\0') break;
+        char word[128] = {0};
+        int n = 0;
+        if (sscanf(p, "%127s%n", word, &n) != 1 || n == 0) break;
+        snprintf(out, out_size, "%s", word);
+        p += n;
+    }
+}
+
+// BUTFIRST of a list/word: every element after the first, still
+// single-space-joined (the input is assumed already normalized that way,
+// since it always comes from a word value or a nested list operator).
+static void list_butfirst(const char *text, char *out, size_t out_size) {
+    const char *p = skip_whitespace(text);
+    char first[128] = {0};
+    int n = 0;
+    if (sscanf(p, "%127s%n", first, &n) != 1 || n == 0) {
+        out[0] = '\0';
+        return;
+    }
+    p = skip_whitespace(p + n);
+    snprintf(out, out_size, "%s", p);
+}
+
+// COUNT of a list/word: the number of whitespace-delimited elements.
+static int list_count(const char *text) {
+    int count = 0;
+    const char *p = text;
+    while (*p) {
+        p = skip_whitespace(p);
+        if (*p == '\0') break;
+        char word[128] = {0};
+        int n = 0;
+        if (sscanf(p, "%127s%n", word, &n) != 1 || n == 0) break;
+        count++;
+        p += n;
+    }
+    return count;
+}
+
+// Parse the argument to FIRST/BUTFIRST/LAST/COUNT: a "word literal, a
+// [list] literal, a :word-typed variable, a nested FIRST/BUTFIRST/LAST
+// call, or (fallback) a numeric expression formatted as text — so
+// FIRST/COUNT/etc. of a bare number treats it as a one-element list.
+// Always succeeds; never leaves `*ptr` stuck.
+static void parse_list_text(LogoApp *app, const char **ptr, char *out, size_t out_size) {
+    *ptr = skip_whitespace(*ptr);
+
+    if (**ptr == '"') {
+        (*ptr)++;
+        size_t i = 0;
+        while (**ptr && !isspace((unsigned char)**ptr) && i < out_size - 1) {
+            out[i++] = **ptr;
+            (*ptr)++;
+        }
+        out[i] = '\0';
+        return;
+    }
+
+    if (**ptr == '[') {
+        const char *after = extract_word_list(*ptr, out, out_size);
+        if (after != NULL) {
+            *ptr = after;
+        } else {
+            out[0] = '\0';
+        }
+        return;
+    }
+
+    if (consume_keyword(ptr, "BUTFIRST")) {
+        char inner[256];
+        parse_list_text(app, ptr, inner, sizeof(inner));
+        list_butfirst(inner, out, out_size);
+        return;
+    }
+    if (consume_keyword(ptr, "FIRST")) {
+        char inner[256];
+        parse_list_text(app, ptr, inner, sizeof(inner));
+        list_first(inner, out, out_size);
+        return;
+    }
+    if (consume_keyword(ptr, "LAST")) {
+        char inner[256];
+        parse_list_text(app, ptr, inner, sizeof(inner));
+        list_last(inner, out, out_size);
+        return;
+    }
+
+    if (**ptr == ':') {
+        const char *lookahead = *ptr + 1;
+        char name[32] = {0};
+        size_t i = 0;
+        while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
+            name[i] = lookahead[i];
+            i++;
+        }
+        name[i] = '\0';
+        Variable *v = find_var(app, name);
+        if (v != NULL && v->type == VALUE_WORD) {
+            *ptr = lookahead + i;
+            snprintf(out, out_size, "%s", v->word);
+            return;
+        }
+    }
+
+    double val = parse_expr(app, ptr);
+    snprintf(out, out_size, "%g", val);
+}
+
 // Parse a single value: a parenthesized expression, a unary +/-, a
 // :variable reference, or a numeric literal.
 static double parse_factor(LogoApp *app, const char **ptr) {
@@ -330,6 +480,35 @@ static Operand parse_operand(LogoApp *app, const char **ptr) {
         }
     }
 
+    if (consume_keyword(ptr, "BUTFIRST")) {
+        char text[256];
+        parse_list_text(app, ptr, text, sizeof(text));
+        list_butfirst(text, result.word, sizeof(result.word));
+        result.is_word = TRUE;
+        return result;
+    }
+    if (consume_keyword(ptr, "FIRST")) {
+        char text[256];
+        parse_list_text(app, ptr, text, sizeof(text));
+        list_first(text, result.word, sizeof(result.word));
+        result.is_word = TRUE;
+        return result;
+    }
+    if (consume_keyword(ptr, "LAST")) {
+        char text[256];
+        parse_list_text(app, ptr, text, sizeof(text));
+        list_last(text, result.word, sizeof(result.word));
+        result.is_word = TRUE;
+        return result;
+    }
+    if (consume_keyword(ptr, "COUNT")) {
+        char text[256];
+        parse_list_text(app, ptr, text, sizeof(text));
+        result.number = list_count(text);
+        result.is_word = FALSE;
+        return result;
+    }
+
     if (**ptr == ':') {
         const char *lookahead = *ptr + 1;
         char name[32] = {0};
@@ -404,20 +583,6 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
     }
 
     return left.is_word ? (left.word[0] != '\0') : (left.number != 0);
-}
-
-// Peek the next whitespace-delimited word without consuming it unless it
-// case-insensitively matches `keyword`, in which case `*ptr` is advanced
-// past it. Used to recognize the NOT/AND/OR keywords.
-static gboolean consume_keyword(const char **ptr, const char *keyword) {
-    const char *lookahead = skip_whitespace(*ptr);
-    char word[8] = {0};
-    int n = 0;
-    if (sscanf(lookahead, "%7s%n", word, &n) == 1 && strcasecmp(word, keyword) == 0) {
-        *ptr = lookahead + n;
-        return TRUE;
-    }
-    return FALSE;
 }
 
 // NOT <bool> | comparison — NOT binds tighter than AND/OR and can nest
@@ -730,6 +895,48 @@ void eval_logo(LogoApp *app, const char *code) {
                     } else {
                         append_output(app, "MAKE: expected [ words ]\n");
                     }
+                } else if (consume_keyword(&ptr, "BUTFIRST")) {
+                    char text[256], word[128];
+                    parse_list_text(app, &ptr, text, sizeof(text));
+                    list_butfirst(text, word, sizeof(word));
+                    set_var_word(app, varname + 1, word);
+                } else if (consume_keyword(&ptr, "FIRST")) {
+                    char text[256], word[128];
+                    parse_list_text(app, &ptr, text, sizeof(text));
+                    list_first(text, word, sizeof(word));
+                    set_var_word(app, varname + 1, word);
+                } else if (consume_keyword(&ptr, "LAST")) {
+                    char text[256], word[128];
+                    parse_list_text(app, &ptr, text, sizeof(text));
+                    list_last(text, word, sizeof(word));
+                    set_var_word(app, varname + 1, word);
+                } else if (consume_keyword(&ptr, "COUNT")) {
+                    char text[256];
+                    parse_list_text(app, &ptr, text, sizeof(text));
+                    set_var(app, varname + 1, (double)list_count(text));
+                } else if (*ptr == ':') {
+                    // Copy another variable's value, preserving its type
+                    // (word or number) — a bare :name only, so MAKE "a
+                    // :b + 1 still falls through to numeric evaluation.
+                    const char *lookahead = ptr + 1;
+                    char name[32] = {0};
+                    size_t i = 0;
+                    while (lookahead[i] && (isalnum((unsigned char)lookahead[i]) || lookahead[i] == '_') && i < sizeof(name) - 1) {
+                        name[i] = lookahead[i];
+                        i++;
+                    }
+                    name[i] = '\0';
+                    const char *after_name = lookahead + i;
+                    gboolean sole_reference = (*after_name == '\0' || isspace((unsigned char)*after_name));
+
+                    Variable *src = sole_reference ? find_var(app, name) : NULL;
+                    if (src != NULL && src->type == VALUE_WORD) {
+                        ptr = after_name;
+                        set_var_word(app, varname + 1, src->word);
+                    } else {
+                        double val = parse_expr(app, &ptr);
+                        set_var(app, varname + 1, val);
+                    }
                 } else {
                     double val = parse_expr(app, &ptr);
                     set_var(app, varname + 1, val);
@@ -841,6 +1048,22 @@ void eval_logo(LogoApp *app, const char *code) {
                 // blocks are.
                 const char *after = extract_word_list(ptr, line, sizeof(line));
                 if (after != NULL) ptr = after;
+            } else if (consume_keyword(&ptr, "BUTFIRST")) {
+                char text[256];
+                parse_list_text(app, &ptr, text, sizeof(text));
+                list_butfirst(text, line, sizeof(line));
+            } else if (consume_keyword(&ptr, "FIRST")) {
+                char text[256];
+                parse_list_text(app, &ptr, text, sizeof(text));
+                list_first(text, line, sizeof(line));
+            } else if (consume_keyword(&ptr, "LAST")) {
+                char text[256];
+                parse_list_text(app, &ptr, text, sizeof(text));
+                list_last(text, line, sizeof(line));
+            } else if (consume_keyword(&ptr, "COUNT")) {
+                char text[256];
+                parse_list_text(app, &ptr, text, sizeof(text));
+                snprintf(line, sizeof(line), "%d", list_count(text));
             } else if (*ptr == ':') {
                 // A bare word-typed variable prints its text; anything
                 // else (numeric variable, or :name as part of a larger
