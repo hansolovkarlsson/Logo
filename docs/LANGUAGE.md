@@ -364,6 +364,13 @@ evaluates to `0`, same as always) — see `ROADMAP.md`.
   bracket with no match — e.g. `REPEAT 4 [FD 10` with no closing `]` — is
   flagged in a different color instead. This is in the entry box only,
   not the history pane.
+- **Syntax highlighting**: as you type, commands (built-in ones like
+  `REPEAT`/`FD`/`MAKE`, and calls to your own `TO`/`END` procedures) are
+  colored one way, numbers another, `:variables` another, and `"word`
+  literals another. Re-evaluated on every keystroke against the current
+  set of defined procedures — this is a separate, lightweight scan, not
+  the real interpreter, so it only classifies text for coloring and
+  doesn't validate it. Also entry-box only.
 - The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
   a file via a native dialog and runs it the same way `LOAD` does;
   **Save…** (⌘S), which does the same for `SAVE`; and **Export as PNG…**

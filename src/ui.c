@@ -8,6 +8,7 @@
 #include "ui.h"
 #include "interpreter.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -195,6 +196,104 @@ static void update_bracket_match(GtkTextBuffer *buffer, GParamSpec *pspec, gpoin
     } else {
         gtk_text_buffer_apply_tag(buffer, nomatch_tag, &bracket, &bracket_end);
     }
+}
+
+// --- SYNTAX HIGHLIGHTING (entry box) ---
+
+// Every command eval_logo recognizes, kept in sync with interpreter.c by
+// hand — there's no shared source of truth to generate this from without
+// exposing eval_logo's internal token dispatch.
+static gboolean is_known_keyword(const char *token) {
+    static const char *keywords[] = {
+        "TO", "END", "ERASE", "LOAD", "SAVE",
+        "REPEAT", "WHILE", "IF", "IFELSE", "ELSE", "AND", "OR", "NOT",
+        "FORWARD", "FD", "BACK", "BK", "RIGHT", "RT", "LEFT", "LT",
+        "SETXY", "SETHEADING", "SETH", "HOME", "ARC", "TELL",
+        "MAKE", "PENUP", "PU", "PENDOWN", "PD",
+        "SETPENCOLOR", "SETPC", "SETPENWIDTH", "SETPW",
+        "SETBACKGROUND", "SETBG", "CLEAR", "CS",
+        "PRINT", "PR",
+        NULL,
+    };
+    for (int i = 0; keywords[i] != NULL; i++) {
+        if (strcasecmp(token, keywords[i]) == 0) return TRUE;
+    }
+    return FALSE;
+}
+
+// True if `token` names one of app's currently-defined procedures, so
+// calls to your own TO/END definitions get keyword coloring too.
+static gboolean is_user_procedure(LogoApp *app, const char *token) {
+    for (int i = 0; i < app->proc_count; i++) {
+        if (strcasecmp(app->procedures[i].name, token) == 0) return TRUE;
+    }
+    return FALSE;
+}
+
+// Applies `tag` to the buffer range [tok_start, tok_end), given as byte
+// offsets from `text_start` into the whole-buffer text. Assumes ASCII
+// content (byte offset == character offset), same as the rest of the
+// interpreter's parsing.
+static void apply_syntax_tag(GtkTextBuffer *buffer, GtkTextTag *tag,
+                              const char *text_start, const char *tok_start, const char *tok_end) {
+    GtkTextIter start_iter, end_iter;
+    gtk_text_buffer_get_iter_at_offset(buffer, &start_iter, (int)(tok_start - text_start));
+    gtk_text_buffer_get_iter_at_offset(buffer, &end_iter, (int)(tok_end - text_start));
+    gtk_text_buffer_apply_tag(buffer, tag, &start_iter, &end_iter);
+}
+
+// Re-colors the whole entry buffer on every edit: keywords/procedure
+// calls, numbers, :variables, and "word literals each get their own
+// tag. A small hand-rolled scan, not eval_logo's real tokenizer — this
+// only needs to classify spans for coloring, not evaluate anything.
+static void update_syntax_highlighting(GtkTextBuffer *buffer, gpointer user_data) {
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkTextTagTable *tags = gtk_text_buffer_get_tag_table(buffer);
+    GtkTextTag *keyword_tag = gtk_text_tag_table_lookup(tags, "syntax-keyword");
+    GtkTextTag *number_tag = gtk_text_tag_table_lookup(tags, "syntax-number");
+    GtkTextTag *variable_tag = gtk_text_tag_table_lookup(tags, "syntax-variable");
+    GtkTextTag *word_tag = gtk_text_tag_table_lookup(tags, "syntax-word");
+
+    GtkTextIter buf_start, buf_end;
+    gtk_text_buffer_get_bounds(buffer, &buf_start, &buf_end);
+    gtk_text_buffer_remove_tag(buffer, keyword_tag, &buf_start, &buf_end);
+    gtk_text_buffer_remove_tag(buffer, number_tag, &buf_start, &buf_end);
+    gtk_text_buffer_remove_tag(buffer, variable_tag, &buf_start, &buf_end);
+    gtk_text_buffer_remove_tag(buffer, word_tag, &buf_start, &buf_end);
+
+    char *text = gtk_text_buffer_get_text(buffer, &buf_start, &buf_end, FALSE);
+    const char *p = text;
+
+    while (*p) {
+        if (*p == '"') {
+            const char *tok_start = p++;
+            while (*p && !isspace((unsigned char)*p)) p++;
+            apply_syntax_tag(buffer, word_tag, text, tok_start, p);
+        } else if (*p == ':') {
+            const char *tok_start = p++;
+            while (*p && (isalnum((unsigned char)*p) || *p == '_')) p++;
+            apply_syntax_tag(buffer, variable_tag, text, tok_start, p);
+        } else if (isdigit((unsigned char)*p) || (*p == '.' && isdigit((unsigned char)*(p + 1)))) {
+            const char *tok_start = p;
+            while (*p && (isdigit((unsigned char)*p) || *p == '.')) p++;
+            apply_syntax_tag(buffer, number_tag, text, tok_start, p);
+        } else if (isalpha((unsigned char)*p) || *p == '_') {
+            const char *tok_start = p;
+            while (*p && (isalnum((unsigned char)*p) || *p == '_')) p++;
+            char token[64] = {0};
+            size_t len = (size_t)(p - tok_start);
+            if (len >= sizeof(token)) len = sizeof(token) - 1;
+            memcpy(token, tok_start, len);
+            if (is_known_keyword(token) || is_user_procedure(app, token)) {
+                apply_syntax_tag(buffer, keyword_tag, text, tok_start, p);
+            }
+        } else {
+            p++; // whitespace, brackets, operators — left uncolored
+        }
+    }
+
+    g_free(text);
 }
 
 // Record a submitted command in the history, skipping an exact repeat of
@@ -572,6 +671,21 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     gdk_rgba_parse(&nomatch_color, "rgba(255,80,80,0.35)");
     gtk_text_buffer_create_tag(entry_buffer, "bracket-nomatch", "background-rgba", &nomatch_color, NULL);
     g_signal_connect(entry_buffer, "notify::cursor-position", G_CALLBACK(update_bracket_match), logo);
+
+    // Syntax highlighting: keywords/procedure calls, numbers, :variables,
+    // and "word literals each get their own foreground color. Chosen at
+    // medium lightness/high saturation so they hold reasonable contrast
+    // against both light and dark theme backgrounds.
+    GdkRGBA keyword_color, number_color, variable_color, word_color;
+    gdk_rgba_parse(&keyword_color, "#7C3AED");  // violet
+    gdk_rgba_parse(&number_color, "#059669");   // emerald
+    gdk_rgba_parse(&variable_color, "#D97706"); // amber
+    gdk_rgba_parse(&word_color, "#DC2626");     // red
+    gtk_text_buffer_create_tag(entry_buffer, "syntax-keyword", "foreground-rgba", &keyword_color, NULL);
+    gtk_text_buffer_create_tag(entry_buffer, "syntax-number", "foreground-rgba", &number_color, NULL);
+    gtk_text_buffer_create_tag(entry_buffer, "syntax-variable", "foreground-rgba", &variable_color, NULL);
+    gtk_text_buffer_create_tag(entry_buffer, "syntax-word", "foreground-rgba", &word_color, NULL);
+    g_signal_connect(entry_buffer, "changed", G_CALLBACK(update_syntax_highlighting), logo);
 
     GtkWidget *entry_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(entry_scroll), logo->entry);

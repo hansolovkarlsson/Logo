@@ -17,12 +17,6 @@ rather than marking it "done" in place.
   needs a real tagged value type threaded through arithmetic itself, not
   just variables/`PRINT`/`=` the way words are handled now.
 
-## Interface & workflow
-
-- [ ] Full syntax highlighting in the entry box (keywords, numbers,
-  :variables, "words each colored) — bracket matching landed instead as
-  the smaller first step; see "Interface" in `LANGUAGE.md`.
-
 ## Robustness
 
 - [ ] Replace the fixed-size C buffers (`token[64]`, procedure `body[2048]`,
