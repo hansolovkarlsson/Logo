@@ -12,9 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `CATCH`/`THROW` — structured error recovery, so a procedure can catch
-  and handle a failure from something it called instead of an error just
-  printing a message and unwinding.
 - [ ] A "wait for a keypress" pause, as an alternative to `WAIT`'s
   time-based one — has no real Logo precedent and needs actual
   interactive input handling mid-script (the entry box would need to feed

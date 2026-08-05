@@ -205,6 +205,22 @@ typedef struct LogoApp {
     char output_word[512];
     int output_list_head;
 
+    // Set by THROW; CATCH "tag [...] clears it only if the thrown tag
+    // matches its own. Deliberately a *separate* flag from
+    // stop_requested, and NOT cleared by call_procedure the way
+    // stop_requested is -- a THROW needs to unwind past any number of
+    // procedure-call boundaries to reach a matching CATCH (possibly
+    // several calls up), unlike STOP/OUTPUT, which always stop exactly
+    // one (the immediately enclosing call). eval_depth tracks real
+    // eval_logo call nesting (not scope_depth, which only counts
+    // procedure calls) so eval_logo can tell when it's back at the true
+    // outermost call and report an uncaught THROW instead of silently
+    // leaving the flag set forever (which would make every later
+    // top-level command a silent no-op).
+    gboolean throw_requested;
+    char throw_tag[64];
+    int eval_depth;
+
     // Backing storage for every list value in the program (see ListNode
     // above): a bump allocator, never reclaimed — same "generously sized,
     // loud error if exceeded" policy as every other fixed buffer here.

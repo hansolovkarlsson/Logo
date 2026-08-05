@@ -1,0 +1,46 @@
+; CATCH "tag [ block ] runs block, catching any THROW "tag inside it
+; (however deeply nested) instead of letting it propagate further.
+
+CATCH "err [
+  PRINT "before
+  THROW "err
+  PRINT "unreachable
+]
+PRINT "after
+
+; A THROW can unwind past any number of intervening procedure calls
+; to reach a matching CATCH further up.
+
+TO inner
+  PRINT "entering-inner
+  THROW "boom
+  PRINT "unreachable-inner
+END
+TO outer
+  inner
+  PRINT "unreachable-outer
+END
+CATCH "boom [outer]
+PRINT "after-boom
+
+; A THROW whose tag doesn't match a given CATCH just keeps
+; propagating past it, to whichever CATCH (if any) does match.
+
+CATCH "outer_tag [
+  CATCH "wrong_tag [
+    THROW "outer_tag
+    PRINT "unreachable1
+  ]
+  PRINT "unreachable2
+]
+PRINT "after-nested
+
+; If nothing throws, CATCH's block just runs normally.
+
+CATCH "never [PRINT [no throw here]]
+
+; An uncaught THROW is reported, rather than crashing or silently
+; swallowing the rest of the program -- later commands still work.
+
+THROW "nope
+PRINT [still works after an uncaught throw]

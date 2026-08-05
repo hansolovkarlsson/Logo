@@ -534,6 +534,50 @@ PRINT fact 5           -> 120
   level, `OUTPUT`/`STOP` print `OUTPUT: can only be used inside a
   procedure` / `STOP: can only be used inside a procedure`.
 
+### CATCH, THROW
+
+```
+CATCH "err [
+  PRINT "before
+  THROW "err
+  PRINT "unreachable
+]
+PRINT "after            -> before
+                            after
+
+TO inner
+  THROW "boom
+END
+TO outer
+  inner
+  PRINT "unreachable
+END
+CATCH "boom [outer]
+PRINT "after-boom        -> after-boom (nothing from inner/outer prints)
+```
+
+- `CATCH "tag [block]` runs `block`; if a `THROW "tag` (same tag, matched
+  case-insensitively like everything else) happens anywhere inside it —
+  including inside procedures it calls, however deeply nested — execution
+  jumps straight back to right after `CATCH`, skipping the rest of
+  `block` and every call frame in between. If `block` never throws,
+  `CATCH` just runs it normally and produces no other effect.
+- `THROW "tag` unwinds up through as many call frames (procedure calls,
+  `REPEAT`/`IF`/`WHILE` blocks) as it takes to reach the nearest enclosing
+  `CATCH` whose tag matches — skipping any `CATCH`es with a different tag
+  along the way, the way an exception skips a `catch` block for the wrong
+  type in other languages.
+- A `THROW` with no matching `CATCH` anywhere prints `THROW: no CATCH
+  found for "tag` and execution then resumes with whatever top-level
+  command comes next — the same recovery an unrecognized command already
+  gets, not a crash or a silently bricked interpreter.
+- `CATCH`/`THROW` are independent of `OUTPUT`/`STOP`: a `STOP` or
+  `OUTPUT` inside a `CATCH`'s block still only unwinds to its own
+  enclosing procedure call, same as if the `CATCH` weren't there; `CATCH`
+  doesn't intercept those.
+- `CATCH` prints `CATCH: expected [ block ]` if the bracketed block is
+  missing, unterminated, or too long, same as `REPEAT`/`IF`/`WHILE`.
+
 ### Deferred execution: RUN, APPLY
 
 ```
@@ -765,6 +809,11 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   if its list's element count doesn't match the procedure's parameter
   count. `RUN` prints `RUN: too deeply nested, ignored` for a
   self-referential `RUN` (see "Deferred execution" above).
+- `CATCH` prints `CATCH: expected [ block ]` if its bracketed block is
+  missing, unterminated, or too long. `THROW` with no matching `CATCH`
+  anywhere prints `THROW: no CATCH found for "tag` and execution recovers
+  at the next top-level command, rather than aborting the rest of the
+  running script (see "CATCH, THROW" above).
 - Every internal text buffer (procedure bodies, block bodies, words,
   variable values, file paths, REPL history entries) is fixed-size but
   generously sized for normal use; input that would overflow one is

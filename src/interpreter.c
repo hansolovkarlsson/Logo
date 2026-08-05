@@ -1323,16 +1323,44 @@ static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, 
 // Tokenize and execute one chunk of Logo source (a REPL line, a
 // procedure body, or a REPEAT/IF/WHILE block), recursing for nested
 // blocks and procedure calls. Stops dead as soon as OUTPUT/STOP sets
-// stop_requested — including partway through this exact call, if this
-// invocation *is* the one running the OUTPUT/STOP statement itself —
-// which is what lets it unwind up through however many nested
-// REPEAT/IF/WHILE eval_logo calls sit between there and the procedure
-// call the signal is actually meant to stop (call_procedure is what
-// catches it and clears the flag again).
+// stop_requested, or THROW sets throw_requested — including partway
+// through this exact call, if this invocation *is* the one running the
+// OUTPUT/STOP/THROW statement itself — which is what lets either unwind
+// up through however many nested REPEAT/IF/WHILE eval_logo calls sit
+// between there and wherever is actually meant to catch it
+// (call_procedure catches stop_requested at its own boundary; CATCH is
+// what catches throw_requested, if its tag matches).
+//
+// eval_depth tracks real call nesting (every eval_logo call, not just
+// procedure calls, unlike scope_depth) so that once it unwinds all the
+// way back to the genuine outermost call with throw_requested still
+// set — meaning nothing anywhere caught it — this reports the
+// "uncaught throw" error and clears the flag itself, rather than
+// leaving it set forever and silently turning every later top-level
+// command into a no-op.
 void eval_logo(LogoApp *app, const char *code) {
     const char *ptr = code;
+    app->eval_depth++;
 
     while (*ptr != '\0' && !app->stop_requested) {
+        if (app->throw_requested) {
+            // Only the true outermost eval_logo call (this script's own
+            // top level -- not some inner REPEAT/IF/WHILE block or
+            // nested procedure/CATCH call) recovers from an uncaught
+            // THROW here; any other frame just breaks immediately, the
+            // same as before, so the throw keeps unwinding up to
+            // whichever CATCH (or this outermost recovery) actually
+            // stops it. Recovering rather than only breaking is what
+            // lets the rest of a loaded script's top-level commands
+            // keep running after an uncaught THROW, instead of the
+            // report effectively aborting everything that follows it.
+            if (app->eval_depth > 1) break;
+            append_output(app, "THROW: no CATCH found for \"");
+            append_output(app, app->throw_tag);
+            append_output(app, "\n");
+            app->throw_requested = FALSE;
+        }
+
         ptr = skip_whitespace(ptr);
         if (*ptr == '\0') break;
 
@@ -1484,7 +1512,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 ptr = after_block;
                 for (int i = 0; i < count; i++) {
                     eval_logo(app, block_body);
-                    if (app->stop_requested) break; // OUTPUT/STOP inside the block escapes the loop
+                    if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
                 }
             } else {
                 append_output(app, "REPEAT: expected [ block ]\n");
@@ -1513,7 +1541,7 @@ void eval_logo(LogoApp *app, const char *code) {
                         break;
                     }
                     eval_logo(app, block_body);
-                    if (app->stop_requested) break; // OUTPUT/STOP inside the block escapes the loop
+                    if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
                     const char *cptr = cond_text;
                     cond = parse_condition(app, &cptr);
                     iterations++;
@@ -1667,6 +1695,42 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, "STOP: can only be used inside a procedure\n");
             } else {
                 app->stop_requested = TRUE;
+            }
+        }
+        // 3b'''. THROW tag / CATCH tag [instructions] — structured
+        // non-local exit, tag-matched rather than always stopping
+        // exactly one procedure call the way STOP/OUTPUT do: THROW can
+        // unwind past any number of nested procedure calls (and, unlike
+        // STOP/OUTPUT, isn't restricted to running inside one at all —
+        // both commonly run at the top level too) to reach whichever
+        // enclosing CATCH has a matching tag, reporting `THROW: no CATCH
+        // found for "tag` if none does. This only catches explicit
+        // THROWs the Logo program itself writes -- unlike real Logo's
+        // reserved "ERROR" tag, it doesn't intercept this interpreter's
+        // own error messages (see docs/LANGUAGE.md).
+        else if (strcasecmp(token, "THROW") == 0) {
+            Value tag_val = parse_expr(app, &ptr);
+            value_to_text(app, &tag_val, app->throw_tag, sizeof(app->throw_tag));
+            app->throw_requested = TRUE;
+        }
+        else if (strcasecmp(token, "CATCH") == 0) {
+            Value tag_val = parse_expr(app, &ptr);
+            char tag_text[64];
+            value_to_text(app, &tag_val, tag_text, sizeof(tag_text));
+
+            char block_body[4096];
+            const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
+            if (after_block != NULL) {
+                ptr = after_block;
+                eval_logo(app, block_body);
+                if (app->throw_requested && strcasecmp(app->throw_tag, tag_text) == 0) {
+                    app->throw_requested = FALSE; // this CATCH's tag matched -- caught
+                }
+                // A non-matching throw_requested is deliberately left set
+                // so it keeps propagating past this CATCH too, toward
+                // whichever ancestor CATCH (if any) does match.
+            } else {
+                append_output(app, "CATCH: expected [ block ]\n");
             }
         }
         // 3c. CONDITIONALS: IF <cond> [block] (ELSE [block])   or   IFELSE <cond> [block] [block]
@@ -1922,7 +1986,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 value_to_source_text(app, &el, el_text, sizeof(el_text));
                 substitute_placeholder(template_text, "?", el_text, code_text, sizeof(code_text));
                 eval_logo(app, code_text);
-                if (app->stop_requested) break; // OUTPUT/STOP inside the template escapes the loop
+                if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the template escapes the loop
             }
         }
         // 4. USER-DEFINED PROCEDURE CALL
@@ -1944,6 +2008,14 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, "\n");
             }
         }
+    }
+
+    app->eval_depth--;
+    if (app->eval_depth == 0 && app->throw_requested) {
+        append_output(app, "THROW: no CATCH found for \"");
+        append_output(app, app->throw_tag);
+        append_output(app, "\n");
+        app->throw_requested = FALSE;
     }
 }
 

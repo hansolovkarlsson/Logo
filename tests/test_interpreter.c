@@ -468,6 +468,71 @@ TEST(test_output_value_can_be_a_word_or_list) {
     CHECK_STREQ(captured_output, "hello\n1 2 3\n");
 }
 
+// --- CATCH, THROW ---
+
+TEST(test_catch_catches_a_matching_throw) {
+    LogoApp *app = new_app();
+    eval_logo(app, "CATCH \"err [PRINT \"before THROW \"err PRINT \"unreachable]\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\nafter\n");
+}
+
+TEST(test_catch_runs_normally_when_nothing_throws) {
+    LogoApp *app = new_app();
+    eval_logo(app, "CATCH \"tag [PRINT \"hi]\nPRINT \"after");
+    CHECK_STREQ(captured_output, "hi\nafter\n");
+}
+
+TEST(test_throw_propagates_past_nested_procedure_calls) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO inner\nTHROW \"boom\nPRINT \"unreachable-inner\nEND\n"
+        "TO outer\ninner\nPRINT \"unreachable-outer\nEND\n"
+        "CATCH \"boom [outer]\n"
+        "PRINT \"after");
+    CHECK_STREQ(captured_output, "after\n");
+}
+
+TEST(test_throw_with_non_matching_tag_keeps_propagating) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "CATCH \"outer_tag [\n"
+        "  CATCH \"wrong_tag [THROW \"outer_tag PRINT \"unreachable1]\n"
+        "  PRINT \"unreachable2\n"
+        "]\n"
+        "PRINT \"after");
+    CHECK_STREQ(captured_output, "after\n");
+}
+
+TEST(test_throw_without_catch_reports_error_and_recovers_to_top_level) {
+    LogoApp *app = new_app();
+    eval_logo(app, "THROW \"nope\nPRINT \"after");
+    CHECK_STREQ(captured_output, "THROW: no CATCH found for \"nope\nafter\n");
+}
+
+TEST(test_uncaught_throw_does_not_stick_around_for_next_command) {
+    LogoApp *app = new_app();
+    eval_logo(app, "THROW \"nope");
+    CHECK_CONTAINS(captured_output, "THROW: no CATCH found for \"nope");
+    captured_output[0] = '\0';
+    eval_logo(app, "PRINT \"stillworks");
+    CHECK_STREQ(captured_output, "stillworks\n");
+}
+
+TEST(test_stop_inside_catch_still_escapes_the_enclosing_procedure) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO myproc\nCATCH \"tag [PRINT \"in-catch STOP]\nPRINT \"unreachable\nEND\n"
+        "myproc\n"
+        "PRINT \"after");
+    CHECK_STREQ(captured_output, "in-catch\nafter\n");
+}
+
+TEST(test_catch_missing_block_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "CATCH \"tag");
+    CHECK_CONTAINS(captured_output, "CATCH: expected [ block ]");
+}
+
 TEST(test_local_scopes_a_variable_without_leaking_to_global) {
     LogoApp *app = new_app();
     eval_logo(app,
@@ -1457,6 +1522,14 @@ int main(void) {
     RUN(test_stop_outside_procedure_reports_error);
     RUN(test_recursive_procedure_using_output);
     RUN(test_output_value_can_be_a_word_or_list);
+    RUN(test_catch_catches_a_matching_throw);
+    RUN(test_catch_runs_normally_when_nothing_throws);
+    RUN(test_throw_propagates_past_nested_procedure_calls);
+    RUN(test_throw_with_non_matching_tag_keeps_propagating);
+    RUN(test_throw_without_catch_reports_error_and_recovers_to_top_level);
+    RUN(test_uncaught_throw_does_not_stick_around_for_next_command);
+    RUN(test_stop_inside_catch_still_escapes_the_enclosing_procedure);
+    RUN(test_catch_missing_block_reports_error);
 
     RUN(test_local_scopes_a_variable_without_leaking_to_global);
     RUN(test_local_initializes_to_zero);
