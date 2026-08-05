@@ -17,6 +17,7 @@
 #define MAX_PARAMS 8
 #define MAX_SCOPE_DEPTH 200
 #define MAX_HISTORY 200
+#define MAX_TURTLES 10
 
 // One drawn segment of the turtle's trail, in the pen color/width active
 // when it was drawn (so a drawing can mix both across SETPENCOLOR and
@@ -76,7 +77,15 @@ typedef struct {
 
 // All interpreter state plus the GTK widgets that display it.
 typedef struct LogoApp {
-    Turtle turtle;
+    // Multiple turtles: turtles[0..turtle_count-1] all exist and are all
+    // drawn; every FD/RT/SETXY/etc. command controls turtles[current_turtle]
+    // (see TELL). Only turtle 0 exists until TELL creates more, so a
+    // script that never uses TELL behaves exactly as if there were only
+    // ever one turtle.
+    Turtle turtles[MAX_TURTLES];
+    int turtle_count;
+    int current_turtle;
+
     LineSegment lines[MAX_LINES];
     int line_count;
 

@@ -69,33 +69,49 @@ static double clamp_range(double v, double lo, double hi) {
 #define HOME_X 250.0
 #define HOME_Y 250.0
 
-// Record a line segment in the turtle's current pen color/width, if the
-// pen is down. Doesn't touch the turtle's position — used directly by
+// The turtle currently being controlled by FD/RT/SETXY/etc. — see TELL.
+static Turtle* current_turtle(LogoApp *app) {
+    return &app->turtles[app->current_turtle];
+}
+
+// Reset `t` to the default turtle state: home position, heading 0, pen
+// down, default color/width.
+void init_turtle(Turtle *t) {
+    *t = (Turtle){
+        .x = HOME_X, .y = HOME_Y, .angle = 0, .pen_down = 1,
+        .pen_r = 0.1, .pen_g = 0.1, .pen_b = 0.1, .pen_width = 2.0,
+    };
+}
+
+// Record a line segment in the current turtle's pen color/width, if its
+// pen is down. Doesn't touch any turtle's position — used directly by
 // ARC, which draws around the turtle without moving it.
 static void record_line(LogoApp *app, double x1, double y1, double x2, double y2) {
-    if (app->turtle.pen_down && app->line_count < MAX_LINES) {
+    Turtle *t = current_turtle(app);
+    if (t->pen_down && app->line_count < MAX_LINES) {
         app->lines[app->line_count++] = (LineSegment){
             .x1 = x1, .y1 = y1, .x2 = x2, .y2 = y2,
-            .r = app->turtle.pen_r, .g = app->turtle.pen_g, .b = app->turtle.pen_b,
-            .width = app->turtle.pen_width,
+            .r = t->pen_r, .g = t->pen_g, .b = t->pen_b,
+            .width = t->pen_width,
         };
     }
 }
 
-// Move the turtle directly to an absolute position, recording a line
-// segment along the way if the pen is down.
+// Move the current turtle directly to an absolute position, recording a
+// line segment along the way if the pen is down.
 static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
-    record_line(app, app->turtle.x, app->turtle.y, new_x, new_y);
-    app->turtle.x = new_x;
-    app->turtle.y = new_y;
+    Turtle *t = current_turtle(app);
+    record_line(app, t->x, t->y, new_x, new_y);
+    t->x = new_x;
+    t->y = new_y;
 }
 
-// Move the turtle by `distance` along its current heading.
+// Move the current turtle by `distance` along its current heading.
 static void move_turtle_forward(LogoApp *app, double distance) {
-    double rad = (app->turtle.angle - 90.0) * M_PI / 180.0;
+    double rad = (current_turtle(app)->angle - 90.0) * M_PI / 180.0;
     move_turtle_to(app,
-                    app->turtle.x + distance * cos(rad),
-                    app->turtle.y + distance * sin(rad));
+                    current_turtle(app)->x + distance * cos(rad),
+                    current_turtle(app)->y + distance * sin(rad));
 }
 
 // Look up a user-defined procedure by name (case-insensitive).
@@ -596,11 +612,11 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         else if (strcasecmp(token, "RIGHT") == 0 || strcasecmp(token, "RT") == 0) {
             double val = parse_expr(app, &ptr);
-            app->turtle.angle += val;
+            current_turtle(app)->angle += val;
         }
         else if (strcasecmp(token, "LEFT") == 0 || strcasecmp(token, "LT") == 0) {
             double val = parse_expr(app, &ptr);
-            app->turtle.angle -= val;
+            current_turtle(app)->angle -= val;
         }
         else if (strcasecmp(token, "SETXY") == 0) {
             double x = parse_expr(app, &ptr);
@@ -608,7 +624,7 @@ void eval_logo(LogoApp *app, const char *code) {
             move_turtle_to(app, x, y);
         }
         else if (strcasecmp(token, "SETHEADING") == 0 || strcasecmp(token, "SETH") == 0) {
-            app->turtle.angle = parse_expr(app, &ptr);
+            current_turtle(app)->angle = parse_expr(app, &ptr);
         }
         // 3a'. ARC angle radius — draws a circle of `radius` centered ON
         // the turtle, starting at its current heading and sweeping
@@ -617,9 +633,9 @@ void eval_logo(LogoApp *app, const char *code) {
             double angle_deg = parse_expr(app, &ptr);
             double radius = parse_expr(app, &ptr);
 
-            double center_x = app->turtle.x;
-            double center_y = app->turtle.y;
-            double start_heading = app->turtle.angle;
+            double center_x = current_turtle(app)->x;
+            double center_y = current_turtle(app)->y;
+            double start_heading = current_turtle(app)->angle;
 
             int segments = (int)clamp_range(fabs(angle_deg) / 5.0, 8, 360);
             double step = angle_deg / segments;
@@ -630,6 +646,24 @@ void eval_logo(LogoApp *app, const char *code) {
                 record_line(app,
                             center_x + radius * cos(rad0), center_y + radius * sin(rad0),
                             center_x + radius * cos(rad1), center_y + radius * sin(rad1));
+            }
+        }
+        // 3a''. TELL n — switch which turtle FD/RT/etc. control, creating
+        // it (at the default state) the first time it's addressed.
+        else if (strcasecmp(token, "TELL") == 0) {
+            int index = (int)parse_expr(app, &ptr);
+            if (index < 0 || index >= MAX_TURTLES) {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "TELL: turtle index must be 0-%d\n", MAX_TURTLES - 1);
+                append_output(app, msg);
+            } else {
+                if (index >= app->turtle_count) {
+                    for (int i = app->turtle_count; i <= index; i++) {
+                        init_turtle(&app->turtles[i]);
+                    }
+                    app->turtle_count = index + 1;
+                }
+                app->current_turtle = index;
             }
         }
         // 3b. VARIABLES: MAKE "name expr   or   MAKE "name "word
@@ -701,33 +735,36 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
             app->line_count = 0;
-            app->turtle.x = HOME_X;
-            app->turtle.y = HOME_Y;
-            app->turtle.angle = 0;
+            for (int i = 0; i < app->turtle_count; i++) {
+                app->turtles[i].x = HOME_X;
+                app->turtles[i].y = HOME_Y;
+                app->turtles[i].angle = 0;
+            }
         }
         else if (strcasecmp(token, "HOME") == 0) {
             move_turtle_to(app, HOME_X, HOME_Y);
-            app->turtle.angle = 0;
+            current_turtle(app)->angle = 0;
         }
         else if (strcasecmp(token, "PENUP") == 0 || strcasecmp(token, "PU") == 0) {
-            app->turtle.pen_down = 0;
+            current_turtle(app)->pen_down = 0;
         }
         else if (strcasecmp(token, "PENDOWN") == 0 || strcasecmp(token, "PD") == 0) {
-            app->turtle.pen_down = 1;
+            current_turtle(app)->pen_down = 1;
         }
         // 3c'. SETPENCOLOR r g b — each channel 0-255, applies to lines drawn from now on
         else if (strcasecmp(token, "SETPENCOLOR") == 0 || strcasecmp(token, "SETPC") == 0) {
             double r = parse_expr(app, &ptr);
             double g = parse_expr(app, &ptr);
             double b = parse_expr(app, &ptr);
-            app->turtle.pen_r = clamp01(r / 255.0);
-            app->turtle.pen_g = clamp01(g / 255.0);
-            app->turtle.pen_b = clamp01(b / 255.0);
+            Turtle *t = current_turtle(app);
+            t->pen_r = clamp01(r / 255.0);
+            t->pen_g = clamp01(g / 255.0);
+            t->pen_b = clamp01(b / 255.0);
         }
         // 3c''a. SETPENWIDTH width — clamped to [0.5, 20], applies to lines drawn from now on
         else if (strcasecmp(token, "SETPENWIDTH") == 0 || strcasecmp(token, "SETPW") == 0) {
             double width = parse_expr(app, &ptr);
-            app->turtle.pen_width = clamp_range(width, MIN_PEN_WIDTH, MAX_PEN_WIDTH);
+            current_turtle(app)->pen_width = clamp_range(width, MIN_PEN_WIDTH, MAX_PEN_WIDTH);
         }
         // 3c''. SETBACKGROUND r g b — each channel 0-255, the canvas's background color
         else if (strcasecmp(token, "SETBACKGROUND") == 0 || strcasecmp(token, "SETBG") == 0) {

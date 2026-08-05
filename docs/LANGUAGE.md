@@ -6,14 +6,35 @@ whenever a language feature changes.
 
 ## Turtle model
 
-- The turtle starts at position `(250, 250)` facing angle `0`, pen down.
+- Turtle 0 starts at position `(250, 250)` facing angle `0`, pen down.
 - Angle `0` points up (north); `RIGHT`/`RT` increases the angle (clockwise),
   `LEFT`/`LT` decreases it.
-- `CLEAR`/`CS` erases all drawn lines and resets the turtle's position and
-  angle to the start (pen state, pen color, and background color are all
-  left unchanged).
-- There is currently one turtle and one canvas — no multiple turtles yet
-  (see `ROADMAP.md`).
+- `CLEAR`/`CS` erases all drawn lines and resets *every* turtle's position
+  and angle to the start (pen state, pen color, and background color are
+  all left unchanged).
+- There's one shared canvas, but multiple turtles — see "Multiple turtles"
+  below.
+
+## Multiple turtles
+
+```
+TELL 1
+FD 100
+TELL 0
+RT 90 FD 50
+```
+
+- Every drawing command (`FD`, `RT`, `SETXY`, `SETPENCOLOR`, `PENUP`,
+  `ARC`, ...) acts on the **current turtle**. `TELL n` switches which
+  turtle is current, creating it (at the default position/heading/pen
+  state) the first time it's addressed. Turtle indices run `0` to `9`.
+- A script that never calls `TELL` behaves exactly as if there were only
+  ever one turtle — turtle `0` is created automatically and is current by
+  default.
+- All existing turtles are drawn on the canvas at once, each as its own
+  triangle marker (all the same fixed green, regardless of pen color).
+- `TELL` with an index outside `0`-`9` prints an error and leaves the
+  current turtle unchanged.
 
 ## Turtle commands
 
@@ -27,6 +48,7 @@ whenever a language feature changes.
 | `SETHEADING` | `SETH` | expr | Set the turtle's absolute heading (no movement) |
 | `HOME` | — | — | `SETXY` back to the start position and `SETHEADING 0`, drawing if pen is down |
 | `ARC` | — | `angle radius` | Draw a circle/arc of `radius` centered on the turtle; the turtle doesn't move |
+| `TELL` | — | expr (0-9) | Switch which turtle subsequent commands control (see Multiple turtles) |
 | `PENUP` | `PU` | — | Stop drawing while moving |
 | `PENDOWN` | `PD` | — | Resume drawing while moving |
 | `SETPENCOLOR` | `SETPC` | `r g b` (each 0-255) | Set the color new lines are drawn in |

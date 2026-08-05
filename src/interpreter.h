@@ -27,4 +27,9 @@ void append_output(LogoApp *app, const char *text);
 // a newly g_malloc'd string the caller must g_free.
 char *serialize_procedures(LogoApp *app);
 
+// Reset `t` to the default turtle state: home position, heading 0, pen
+// down, default color/width. Used for turtle 0 at startup (ui.c) and any
+// turtle TELL creates on first use.
+void init_turtle(Turtle *t);
+
 #endif // INTERPRETER_H

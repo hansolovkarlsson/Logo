@@ -16,11 +16,6 @@ rather than marking it "done" in place.
   needs a real tagged value type threaded through arithmetic itself, not
   just variables/`PRINT`/`=` the way words are handled now.
 
-## Turtle & graphics
-
-- [ ] Multiple turtles / turtle identity (stretch — big change to the data
-  model).
-
 ## Interface & workflow
 
 - [ ] Syntax highlighting or at least bracket-matching feedback in the

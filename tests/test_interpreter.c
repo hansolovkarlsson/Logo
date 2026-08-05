@@ -24,20 +24,15 @@ static void capture_sink(LogoApp *app, const char *text) {
 }
 
 // A fresh interpreter, matching the defaults ui.c's logo_activate sets
-// (turtle at the canvas center, pen down, default color/width, white
+// (turtle 0 at the canvas center, pen down, default color/width, white
 // background) but with no GTK widgets — those fields stay NULL/zero and
 // are simply never touched by the interpreter core.
 static LogoApp new_app(void) {
     LogoApp app;
     memset(&app, 0, sizeof(app));
-    app.turtle.x = 250;
-    app.turtle.y = 250;
-    app.turtle.angle = 0;
-    app.turtle.pen_down = 1;
-    app.turtle.pen_r = 0.1;
-    app.turtle.pen_g = 0.1;
-    app.turtle.pen_b = 0.1;
-    app.turtle.pen_width = 2.0;
+    init_turtle(&app.turtles[0]);
+    app.turtle_count = 1;
+    app.current_turtle = 0;
     app.bg_r = app.bg_g = app.bg_b = 1.0;
     app.output_sink = capture_sink;
     return app;
@@ -70,8 +65,8 @@ static LogoApp new_app(void) {
 TEST(test_forward_moves_and_draws) {
     LogoApp app = new_app();
     eval_logo(&app, "FD 100");
-    CHECK_NEAR(app.turtle.x, 250.0);
-    CHECK_NEAR(app.turtle.y, 150.0); // angle 0 = up (north): y decreases
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 150.0); // angle 0 = up (north): y decreases
     CHECK(app.line_count == 1);
     CHECK_NEAR(app.lines[0].x1, 250.0);
     CHECK_NEAR(app.lines[0].y1, 250.0);
@@ -83,31 +78,31 @@ TEST(test_penup_moves_without_drawing) {
     LogoApp app = new_app();
     eval_logo(&app, "PENUP FD 100");
     CHECK(app.line_count == 0);
-    CHECK_NEAR(app.turtle.y, 150.0);
+    CHECK_NEAR(app.turtles[0].y, 150.0);
 }
 
 TEST(test_repeat_square_returns_to_start) {
     LogoApp app = new_app();
     eval_logo(&app, "REPEAT 4 [FD 100 RT 90]");
     CHECK(app.line_count == 4);
-    CHECK_NEAR(app.turtle.x, 250.0);
-    CHECK_NEAR(app.turtle.y, 250.0);
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 250.0);
 }
 
 TEST(test_setxy_draws_direct_line) {
     LogoApp app = new_app();
     eval_logo(&app, "SETXY 400 300");
     CHECK(app.line_count == 1);
-    CHECK_NEAR(app.turtle.x, 400.0);
-    CHECK_NEAR(app.turtle.y, 300.0);
+    CHECK_NEAR(app.turtles[0].x, 400.0);
+    CHECK_NEAR(app.turtles[0].y, 300.0);
 }
 
 TEST(test_home_returns_and_resets_heading) {
     LogoApp app = new_app();
     eval_logo(&app, "SETXY 400 300 SETHEADING 45 HOME");
-    CHECK_NEAR(app.turtle.x, 250.0);
-    CHECK_NEAR(app.turtle.y, 250.0);
-    CHECK_NEAR(app.turtle.angle, 0.0);
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 250.0);
+    CHECK_NEAR(app.turtles[0].angle, 0.0);
     CHECK(app.line_count == 2); // the SETXY jump, then HOME's jump back
 }
 
@@ -115,9 +110,9 @@ TEST(test_arc_draws_without_moving_the_turtle) {
     LogoApp app = new_app();
     eval_logo(&app, "ARC 90 100");
     // The turtle stays exactly where it was, heading unchanged.
-    CHECK_NEAR(app.turtle.x, 250.0);
-    CHECK_NEAR(app.turtle.y, 250.0);
-    CHECK_NEAR(app.turtle.angle, 0.0);
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 250.0);
+    CHECK_NEAR(app.turtles[0].angle, 0.0);
     // A 90-degree arc at 5 degrees/segment is 18 segments.
     CHECK(app.line_count == 18);
     // The arc starts exactly where FD 100 would have landed: radius 100
@@ -144,14 +139,56 @@ TEST(test_setbackground_sets_canvas_color) {
     CHECK_NEAR(app.bg_b, 30.0 / 255.0);
 }
 
+// --- Multiple turtles ---
+
+TEST(test_tell_creates_and_switches_turtles) {
+    LogoApp app = new_app();
+    eval_logo(&app, "TELL 1 FD 100");
+    CHECK(app.turtle_count == 2); // turtle 0 (default) + turtle 1
+    CHECK(app.current_turtle == 1);
+    // Turtle 1 moved; turtle 0 stayed put at the default home position.
+    CHECK_NEAR(app.turtles[1].y, 150.0);
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 250.0);
+}
+
+TEST(test_turtles_move_independently) {
+    LogoApp app = new_app();
+    eval_logo(&app, "FD 50\nTELL 1\nRT 90\nFD 80\nTELL 0\nFD 20");
+    // Turtle 0: two forward moves along its own heading (never turned).
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 250.0 - 50.0 - 20.0);
+    // Turtle 1: started fresh at home, turned, then moved.
+    CHECK_NEAR(app.turtles[1].x, 250.0 + 80.0);
+    CHECK_NEAR(app.turtles[1].y, 250.0);
+}
+
+TEST(test_clear_homes_every_turtle) {
+    LogoApp app = new_app();
+    eval_logo(&app, "TELL 1 FD 100 TELL 0 FD 50 CLEAR");
+    CHECK(app.line_count == 0);
+    for (int i = 0; i < app.turtle_count; i++) {
+        CHECK_NEAR(app.turtles[i].x, 250.0);
+        CHECK_NEAR(app.turtles[i].y, 250.0);
+        CHECK_NEAR(app.turtles[i].angle, 0.0);
+    }
+}
+
+TEST(test_tell_out_of_range_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "TELL 99");
+    CHECK_CONTAINS(captured_output, "TELL: turtle index must be");
+    CHECK(app.current_turtle == 0); // unchanged
+}
+
 // --- Procedures & scoping ---
 
 TEST(test_procedure_definition_and_call) {
     LogoApp app = new_app();
     eval_logo(&app, "TO square :size\nREPEAT 4 [FD :size RT 90]\nEND\nsquare 60");
     CHECK(app.line_count == 4);
-    CHECK_NEAR(app.turtle.x, 250.0);
-    CHECK_NEAR(app.turtle.y, 250.0);
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 250.0);
 }
 
 TEST(test_recursion_with_parameter) {
@@ -259,6 +296,11 @@ int main(void) {
     RUN(test_arc_draws_without_moving_the_turtle);
     RUN(test_setpencolor_and_width_stamp_the_segment);
     RUN(test_setbackground_sets_canvas_color);
+
+    RUN(test_tell_creates_and_switches_turtles);
+    RUN(test_turtles_move_independently);
+    RUN(test_clear_homes_every_turtle);
+    RUN(test_tell_out_of_range_reports_error);
 
     RUN(test_procedure_definition_and_call);
     RUN(test_recursion_with_parameter);
