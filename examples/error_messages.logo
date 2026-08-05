@@ -1,0 +1,9 @@
+FOOBAR 10
+MAKE x 5
+REPEAT 4 FD 10
+IF 1 = 1 PRINT "oops
+WHILE 1 = 2 FD 10
+ERASE "nonexistent
+LOAD "does/not/exist.logo
+
+PRINT "still-alive

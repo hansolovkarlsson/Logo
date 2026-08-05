@@ -264,6 +264,31 @@ SAVE "/Users/you/scripts/star.logo
 - If the file can't be read or written, prints "LOAD: could not read
   file" / "SAVE: could not write file" rather than crashing.
 
+## Errors
+
+Malformed input reports an error message to the history pane rather than
+silently doing nothing (or, in one case that's now fixed, crashing):
+
+- An unrecognized command prints `I don't know how to <NAME>`.
+- `TO` without a matching `END` prints `TO <name>: missing END` and stops
+  processing the rest of that input, rather than running the dangling body
+  as top-level commands.
+- `REPEAT`, `WHILE`, `IF`, and `IFELSE` each print `<COMMAND>: expected [
+  block ]` if the bracketed block is missing or malformed. `IFELSE`
+  additionally prints `IFELSE: expected two [ block ]s` if only one block
+  is given (`IF` doesn't require a second block; `IFELSE` does).
+- `MAKE`, `ERASE`, `LOAD`, and `SAVE` each print `<COMMAND>: expected a
+  "name`/`"path` if the required quoted word is missing. `ERASE` also
+  prints `ERASE: no such procedure "<name>` if the name isn't defined.
+- Recursion past 200 nested calls prints `Recursion too deep, call
+  ignored` (see Variables & scoping above); a `WHILE` past 1,000,000
+  iterations prints `WHILE: stopped after too many iterations`.
+
+What's still silent: passing the wrong *kind* of value somewhere (a word
+where a number is expected reads as `0`; see Words above) and any parse
+error inside a numeric expression itself (an unparseable expression just
+evaluates to `0`, same as always) — see `ROADMAP.md`.
+
 ## Interface
 
 - Commands are typed into the entry box at the bottom of the REPL pane.
@@ -300,8 +325,8 @@ SAVE "/Users/you/scripts/star.logo
   a bracketed list's words directly but there's no `FIRST`/`BUTFIRST`/
   `LAST`/`COUNT`, and a list can't be assigned to a variable.
 - No multiple turtles.
-- Malformed input generally fails silently (no error messages surfaced to
-  the user) rather than reporting a parse/runtime error.
+- Passing a word where a number is expected (or vice versa) silently
+  coerces rather than erroring — see "Errors" above.
 - The multi-line input's completeness check only balances `[`/`]` and counts
   `TO`/`END` — it doesn't validate the syntax inside, so e.g. a stray `]`
   can make an otherwise-valid input submit early.

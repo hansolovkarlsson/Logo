@@ -470,6 +470,11 @@ void eval_logo(LogoApp *app, const char *code) {
                         append_output(app, "Too many procedures defined, TO ignored\n");
                     }
                     ptr = end_ptr + 3; // Advance past "END"
+                } else {
+                    append_output(app, "TO ");
+                    append_output(app, name_buf);
+                    append_output(app, ": missing END\n");
+                    ptr += strlen(ptr); // stop, rather than running the dangling body as top-level commands
                 }
             }
         }
@@ -485,7 +490,13 @@ void eval_logo(LogoApp *app, const char *code) {
                         app->procedures[i] = app->procedures[i + 1];
                     }
                     app->proc_count--;
+                } else {
+                    append_output(app, "ERASE: no such procedure \"");
+                    append_output(app, name_buf + 1);
+                    append_output(app, "\n");
                 }
+            } else {
+                append_output(app, "ERASE: expected a \"name\n");
             }
         }
         // 1c. LOAD "path — read a file and run it as Logo source
@@ -503,6 +514,8 @@ void eval_logo(LogoApp *app, const char *code) {
                     append_output(app, "LOAD: could not read file\n");
                     g_error_free(error);
                 }
+            } else {
+                append_output(app, "LOAD: expected a \"path\n");
             }
         }
         // 1d. SAVE "path — write all defined procedures out as Logo source
@@ -522,18 +535,23 @@ void eval_logo(LogoApp *app, const char *code) {
                     g_error_free(error);
                 }
                 g_free(content);
+            } else {
+                append_output(app, "SAVE: expected a \"path\n");
             }
         }
         // 2. REPEAT LOOPS
         else if (strcasecmp(token, "REPEAT") == 0) {
             int count = (int)parse_expr(app, &ptr);
             char block_body[1024];
-            ptr = extract_block(ptr, block_body, sizeof(block_body));
+            const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
 
-            if (ptr != NULL) {
+            if (after_block != NULL) {
+                ptr = after_block;
                 for (int i = 0; i < count; i++) {
                     eval_logo(app, block_body);
                 }
+            } else {
+                append_output(app, "REPEAT: expected [ block ]\n");
             }
         }
         // 2b. WHILE LOOPS: WHILE <cond> [block]
@@ -563,6 +581,8 @@ void eval_logo(LogoApp *app, const char *code) {
                     cond = parse_condition(app, &cptr);
                     iterations++;
                 }
+            } else {
+                append_output(app, "WHILE: expected [ block ]\n");
             }
         }
         // 3. BASIC TURTLE COMMANDS
@@ -610,6 +630,8 @@ void eval_logo(LogoApp *app, const char *code) {
                     double val = parse_expr(app, &ptr);
                     set_var(app, varname + 1, val);
                 }
+            } else {
+                append_output(app, "MAKE: expected a \"name\n");
             }
         }
         // 3c. CONDITIONALS: IF <cond> [block] (ELSE [block])   or   IFELSE <cond> [block] [block]
@@ -643,11 +665,16 @@ void eval_logo(LogoApp *app, const char *code) {
                     }
                 }
 
-                if (cond != 0) {
+                if (strcasecmp(token, "IFELSE") == 0 && !has_false) {
+                    append_output(app, "IFELSE: expected two [ block ]s\n");
+                } else if (cond != 0) {
                     eval_logo(app, true_body);
                 } else if (has_false) {
                     eval_logo(app, false_body);
                 }
+            } else {
+                append_output(app, token);
+                append_output(app, ": expected [ block ]\n");
             }
         }
         else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
@@ -785,6 +812,10 @@ void eval_logo(LogoApp *app, const char *code) {
 
                     app->scope_depth--;
                 }
+            } else {
+                append_output(app, "I don't know how to ");
+                append_output(app, token);
+                append_output(app, "\n");
             }
         }
     }

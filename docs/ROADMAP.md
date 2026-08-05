@@ -15,8 +15,6 @@ rather than marking it "done" in place.
   since it means the expression evaluator (currently pure `double`)
   needs a real tagged value type threaded through arithmetic itself, not
   just variables/`PRINT`/`=` the way words are handled now.
-- [ ] Surface parse/runtime errors to the user (e.g. "unknown command",
-  unmatched brackets) instead of silently doing nothing.
 
 ## Turtle & graphics
 
