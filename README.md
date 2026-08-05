@@ -36,7 +36,8 @@ make run
 ```
 
 `make` alone builds `bin/logo` without launching it; `make clean` removes
-build artifacts.
+build artifacts; `make test` runs the headless interpreter test suite
+(no GTK window needed).
 
 ## Example
 
@@ -59,8 +60,9 @@ src/logo_types.h    shared structs (Turtle, Procedure, Variable, LogoApp)
 src/interpreter.h/c the Logo language core: eval_logo, expression parser
 src/ui.h/c          the GTK window: canvas, REPL entry, View menu
 src/main.c          entry point
+tests/              headless tests for the interpreter core (make test)
 docs/               language reference and roadmap
-Makefile            make / make run / make clean
+Makefile            make / make run / make test / make clean
 build.sh            one-shot alternative build script
 scripts/            Homebrew/GTK setup helpers
 archive/            earlier prototype iterations, kept for reference

@@ -394,17 +394,12 @@ static double parse_condition(LogoApp *app, const char **ptr) {
     return val;
 }
 
-// Append text to the history pane and scroll it into view.
+// Send text to app->output_sink (the real history pane in the GTK app;
+// a plain buffer in tests). A no-op if no sink is set.
 void append_output(LogoApp *app, const char *text) {
-    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->text_view));
-    GtkTextIter end;
-    gtk_text_buffer_get_end_iter(buffer, &end);
-    gtk_text_buffer_insert(buffer, &end, text, -1);
-
-    gtk_text_buffer_get_end_iter(buffer, &end);
-    GtkTextMark *mark = gtk_text_buffer_create_mark(buffer, NULL, &end, FALSE);
-    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(app->text_view), mark, 0.0, FALSE, 0, 0);
-    gtk_text_buffer_delete_mark(buffer, mark);
+    if (app->output_sink != NULL) {
+        app->output_sink(app, text);
+    }
 }
 
 // --- RECURSIVE INTERPRETER ---

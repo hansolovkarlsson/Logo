@@ -12,6 +12,21 @@
 #include <stdio.h>
 #include <string.h>
 
+// The real append_output sink: writes to the history pane's text buffer
+// and scrolls it into view. Assigned to LogoApp.output_sink in
+// logo_activate; interpreter.c never touches GTK widgets directly.
+static void history_pane_output_sink(LogoApp *app, const char *text) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->text_view));
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    gtk_text_buffer_insert(buffer, &end, text, -1);
+
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    GtkTextMark *mark = gtk_text_buffer_create_mark(buffer, NULL, &end, FALSE);
+    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(app->text_view), mark, 0.0, FALSE, 0, 0);
+    gtk_text_buffer_delete_mark(buffer, mark);
+}
+
 // Paints the background, every recorded line segment, then the turtle
 // itself as a triangle. Shared by the live on-screen canvas (draw_cb) and
 // PNG export (export_canvas_to_png), so both render identically.
@@ -394,6 +409,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->bg_r = 1.0;
     logo->bg_g = 1.0;
     logo->bg_b = 1.0;
+    logo->output_sink = history_pane_output_sink;
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;

@@ -75,7 +75,7 @@ typedef struct {
 } Scope;
 
 // All interpreter state plus the GTK widgets that display it.
-typedef struct {
+typedef struct LogoApp {
     Turtle turtle;
     LineSegment lines[MAX_LINES];
     int line_count;
@@ -106,6 +106,12 @@ typedef struct {
 
     GtkCssProvider *css_provider;
     int font_size;
+
+    // Where append_output sends text: the real history pane in ui.c's
+    // logo_activate, or a plain-buffer sink in tests, which keeps
+    // interpreter.c free of any GTK *display* dependency and lets the
+    // interpreter core be tested headlessly (see tests/test_interpreter.c).
+    void (*output_sink)(struct LogoApp *app, const char *text);
 } LogoApp;
 
 #endif // LOGO_TYPES_H

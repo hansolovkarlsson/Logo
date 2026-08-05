@@ -32,6 +32,6 @@ rather than marking it "done" in place.
 - [ ] Replace the fixed-size C buffers (`token[64]`, procedure `body[2048]`,
   block bodies `[1024]`) with something that can't silently truncate long
   input.
-- [ ] Basic automated tests for the interpreter core (`eval_logo`,
-  expression parser) independent of the GTK UI, so language changes can be
-  verified without manually clicking through the app.
+- [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
+  land (it currently covers turtle motion, procedures/scoping, `IF`/
+  `WHILE`/booleans, words, and the error-message paths — see `make test`).
