@@ -353,6 +353,35 @@ PRINT FPUT "a "bc                -> abc
   WORD "b "c`) and, like the list operators above, work anywhere an
   argument is expected — including plain arithmetic.
 
+### Type & membership predicates
+
+```
+PRINT WORD? "hi           -> 1
+PRINT LIST? [1 2]         -> 1
+PRINT NUMBER? 5           -> 1
+PRINT EMPTY? []           -> 1
+PRINT EMPTY? [1]          -> 0
+PRINT MEMBER? "b [a b c]  -> 1
+PRINT MEMBER? "ell "hello -> 1
+
+IF WORD? "hi [PRINT "yes]
+```
+
+- `WORD?`, `LIST?`, and `NUMBER?` each take one argument and report
+  (`1`/`0`) whether it's that kind of value — the only way to ask "what
+  kind of value is this?" from inside a running program.
+- `EMPTY?` reports whether a list (`[]`) or word (`""`) is empty; a
+  number is never "empty" (always `0`).
+- `MEMBER? thing container` reports whether `thing` is one of
+  `container`'s top-level elements (a list), or a substring of it (a
+  word — so `MEMBER? "ell "hello` is true, not just single-character
+  checks); a bare number `container` is treated as a one-element list,
+  same convention as `FIRST`/`COUNT`/etc.
+- Like every other operator here, all five return a plain number
+  (`1`/`0`) rather than a special boolean type — the same convention
+  `=`/`<`/etc. already use, so they work directly in `IF`/`WHILE` or
+  combined with `AND`/`OR`/`NOT`.
+
 ## Procedures
 
 ```

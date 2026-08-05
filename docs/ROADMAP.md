@@ -12,9 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] Type/membership predicates: `MEMBER?`, `EMPTY?`, `WORD?`, `LIST?`,
-  `NUMBER?` — no way right now to ask "is this a list?" or "is X in this
-  list?" from inside a running program.
 - [ ] `LOCAL "name` — a variable scoped to the current call without being a
   parameter; cheap on top of the scope stack parameters already use.
 - [ ] `HIDETURTLE`/`SHOWTURTLE`, `WRAP`/`FENCE`/`WINDOW` — toggle turtle

@@ -716,6 +716,62 @@ TEST(test_random_stays_in_range) {
     CHECK(checked == 200);
 }
 
+// --- Type/membership predicates (MEMBER?, EMPTY?, WORD?, LIST?, NUMBER?) ---
+
+TEST(test_word_list_number_predicates) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "PRINT WORD? \"hi\n"
+        "PRINT WORD? [1 2]\n"
+        "PRINT WORD? 5\n"
+        "PRINT LIST? [1 2]\n"
+        "PRINT LIST? \"hi\n"
+        "PRINT LIST? 5\n"
+        "PRINT NUMBER? 5\n"
+        "PRINT NUMBER? \"hi\n"
+        "PRINT NUMBER? [1 2]");
+    CHECK_STREQ(captured_output, "1\n0\n0\n1\n0\n0\n1\n0\n0\n");
+}
+
+TEST(test_empty_predicate) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "PRINT EMPTY? []\n"
+        "PRINT EMPTY? [1]\n"
+        "PRINT EMPTY? \"\n"
+        "PRINT EMPTY? \"a\n"
+        "PRINT EMPTY? 5");
+    CHECK_STREQ(captured_output, "1\n0\n1\n0\n0\n");
+}
+
+TEST(test_member_on_list_and_number) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "PRINT MEMBER? \"b [a b c]\n"
+        "PRINT MEMBER? \"z [a b c]\n"
+        "PRINT MEMBER? 2 [1 2 3]\n"
+        "PRINT MEMBER? 5 5\n"
+        "PRINT MEMBER? 5 6");
+    CHECK_STREQ(captured_output, "1\n0\n1\n1\n0\n");
+}
+
+TEST(test_member_on_word_is_substring) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT MEMBER? \"ell \"hello\nPRINT MEMBER? \"xyz \"hello");
+    CHECK_STREQ(captured_output, "1\n0\n");
+}
+
+TEST(test_predicates_usable_in_conditions) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "IF EMPTY? [] [PRINT \"a]\n"
+        "IF WORD? \"hi [PRINT \"b]\n"
+        "IF LIST? [1 2] [PRINT \"c]\n"
+        "IF MEMBER? \"x [x y z] [PRINT \"d]\n"
+        "IF NOT NUMBER? \"hi [PRINT \"e]");
+    CHECK_STREQ(captured_output, "a\nb\nc\nd\ne\n");
+}
+
 // --- Turtle command aliases & clamping ---
 
 TEST(test_back_moves_opposite_of_forward) {
@@ -1133,6 +1189,12 @@ int main(void) {
     RUN(test_round_to_nearest_integer);
     RUN(test_sin_cos_arctan_in_degrees);
     RUN(test_random_stays_in_range);
+
+    RUN(test_word_list_number_predicates);
+    RUN(test_empty_predicate);
+    RUN(test_member_on_list_and_number);
+    RUN(test_member_on_word_is_substring);
+    RUN(test_predicates_usable_in_conditions);
 
     RUN(test_back_moves_opposite_of_forward);
     RUN(test_left_turns_opposite_of_right);

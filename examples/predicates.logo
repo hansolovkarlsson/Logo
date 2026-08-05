@@ -1,0 +1,18 @@
+; Type/membership predicates: MEMBER?, EMPTY?, WORD?, LIST?, NUMBER?
+
+PRINT WORD? "hi
+PRINT LIST? [1 2]
+PRINT NUMBER? 5
+
+PRINT EMPTY? []
+PRINT EMPTY? [1]
+PRINT EMPTY? "
+
+PRINT MEMBER? "b [a b c]
+PRINT MEMBER? "z [a b c]
+PRINT MEMBER? "ell "hello
+
+; Usable directly in conditions.
+IF EMPTY? [] [PRINT "list-is-empty]
+IF WORD? "hi [PRINT "its-a-word]
+IF NOT LIST? "hi [PRINT "not-a-list]

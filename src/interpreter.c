@@ -397,6 +397,20 @@ static void value_to_text(LogoApp *app, const Value *v, char *out, size_t out_si
     }
 }
 
+// Whether two values are "equal" the same way = already treats them:
+// plain numeric equality if both sides are numbers, otherwise a
+// case-insensitive text comparison — shared by parse_comparison's `=`/
+// `<>` and by MEMBER? below, rather than duplicating the same rule.
+static gboolean values_equal(LogoApp *app, Value a, Value b) {
+    if (a.type == VALUE_NUMBER && b.type == VALUE_NUMBER) {
+        return a.number == b.number;
+    }
+    char a_text[512], b_text[512];
+    value_to_text(app, &a, a_text, sizeof(a_text));
+    value_to_text(app, &b, b_text, sizeof(b_text));
+    return strcasecmp(a_text, b_text) == 0;
+}
+
 // Store `v` as a single new list-element node — used when FPUT/LPUT wrap
 // `thing`, and when LIST wraps a whole argument as one element. If v is
 // itself a list, the new node just references its existing chain by
@@ -791,6 +805,46 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         append_output(app, "ITEM: index out of range\n");
         return word_value("");
     }
+    if (consume_keyword(ptr, "MEMBER?")) {
+        Value thing = parse_factor(app, ptr);
+        Value container = parse_factor(app, ptr);
+        if (container.type == VALUE_LIST) {
+            for (int idx = container.list_head; idx != -1; idx = app->list_pool[idx].next) {
+                if (values_equal(app, thing, list_node_to_value(&app->list_pool[idx]))) {
+                    return number_value(1);
+                }
+            }
+            return number_value(0);
+        }
+        if (container.type == VALUE_WORD) {
+            // A word's "elements" are its characters -- membership is
+            // substring containment, so MEMBER? "ell "hello is true too,
+            // not just single-character checks.
+            char thing_text[512];
+            value_to_text(app, &thing, thing_text, sizeof(thing_text));
+            return number_value(strstr(container.word, thing_text) != NULL ? 1 : 0);
+        }
+        // A bare number counts as a one-element list.
+        return number_value(values_equal(app, thing, container) ? 1 : 0);
+    }
+    if (consume_keyword(ptr, "EMPTY?")) {
+        Value arg = parse_factor(app, ptr);
+        if (arg.type == VALUE_LIST) return number_value(arg.list_head == -1 ? 1 : 0);
+        if (arg.type == VALUE_WORD) return number_value(arg.word[0] == '\0' ? 1 : 0);
+        return number_value(0); // a number is never "empty"
+    }
+    if (consume_keyword(ptr, "WORD?")) {
+        Value arg = parse_factor(app, ptr);
+        return number_value(arg.type == VALUE_WORD ? 1 : 0);
+    }
+    if (consume_keyword(ptr, "LIST?")) {
+        Value arg = parse_factor(app, ptr);
+        return number_value(arg.type == VALUE_LIST ? 1 : 0);
+    }
+    if (consume_keyword(ptr, "NUMBER?")) {
+        Value arg = parse_factor(app, ptr);
+        return number_value(arg.type == VALUE_NUMBER ? 1 : 0);
+    }
     if (consume_keyword(ptr, "FPUT")) {
         Value thing = parse_factor(app, ptr);
         Value list = parse_factor(app, ptr);
@@ -932,10 +986,7 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
             // Words/lists only support = and <>; a text comparison for
             // the rest wouldn't be meaningful, so they just report
             // unequal.
-            char left_text[512], right_text[512];
-            value_to_text(app, &left, left_text, sizeof(left_text));
-            value_to_text(app, &right, right_text, sizeof(right_text));
-            int equal = strcasecmp(left_text, right_text) == 0;
+            int equal = values_equal(app, left, right);
             if (op1 == '=') return equal;
             if (op1 == '<' && op2 == '>') return !equal;
             return 0;
