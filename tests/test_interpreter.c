@@ -60,6 +60,35 @@ static LogoApp new_app(void) {
 
 #define CHECK_CONTAINS(haystack, needle) CHECK(strstr((haystack), (needle)) != NULL)
 
+// --- Comments (';') ---
+
+TEST(test_comment_on_its_own_line_is_ignored) {
+    LogoApp app = new_app();
+    eval_logo(&app, "; a comment\nPRINT \"hi\n; another comment\nPRINT \"bye");
+    CHECK_STREQ(captured_output, "hi\nbye\n");
+}
+
+TEST(test_trailing_comment_after_a_command_is_ignored) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT \"hi ; trailing comment\nPRINT \"bye");
+    CHECK_STREQ(captured_output, "hi\nbye\n");
+}
+
+TEST(test_comment_inside_a_block_is_ignored) {
+    LogoApp app = new_app();
+    eval_logo(&app, "REPEAT 2 [FD 10 ; move forward\nRT 90]");
+    CHECK(app.line_count == 2);
+}
+
+TEST(test_semicolon_glued_to_a_word_is_not_a_comment) {
+    // Comments are only recognized at a token boundary (wherever
+    // whitespace already is) -- a ';' with no preceding space is just an
+    // ordinary word character.
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT WORD \"hi \";there");
+    CHECK_STREQ(captured_output, "hi;there\n");
+}
+
 // --- Turtle motion ---
 
 TEST(test_forward_moves_and_draws) {
@@ -137,6 +166,32 @@ TEST(test_setbackground_sets_canvas_color) {
     CHECK_NEAR(app.bg_r, 10.0 / 255.0);
     CHECK_NEAR(app.bg_g, 20.0 / 255.0);
     CHECK_NEAR(app.bg_b, 30.0 / 255.0);
+}
+
+// --- POS/HEADING (turtle state queries) ---
+
+TEST(test_pos_reads_back_turtle_position) {
+    LogoApp app = new_app();
+    eval_logo(&app, "FD 100\nPRINT POS");
+    CHECK_STREQ(captured_output, "250 150\n");
+}
+
+TEST(test_heading_reads_back_turtle_heading_without_wrapping) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT HEADING\nRT 90\nPRINT HEADING\nRT 90 RT 90 RT 90\nPRINT HEADING");
+    CHECK_STREQ(captured_output, "0\n90\n360\n"); // no 0-360 normalization, same as RT/LT/SETHEADING
+}
+
+TEST(test_heading_can_be_saved_and_restored) {
+    LogoApp app = new_app();
+    eval_logo(&app, "RT 45\nMAKE \"h HEADING\nSETHEADING 200\nSETHEADING :h\nPRINT HEADING");
+    CHECK_STREQ(captured_output, "45\n");
+}
+
+TEST(test_pos_and_heading_follow_the_current_turtle) {
+    LogoApp app = new_app();
+    eval_logo(&app, "TELL 1\nFD 50 RT 90\nPRINT POS\nPRINT HEADING\nTELL 0\nPRINT POS\nPRINT HEADING");
+    CHECK_STREQ(captured_output, "250 200\n90\n250 250\n0\n");
 }
 
 // --- Multiple turtles ---
@@ -872,6 +927,11 @@ TEST(test_while_iteration_limit_reports_error) {
 }
 
 int main(void) {
+    RUN(test_comment_on_its_own_line_is_ignored);
+    RUN(test_trailing_comment_after_a_command_is_ignored);
+    RUN(test_comment_inside_a_block_is_ignored);
+    RUN(test_semicolon_glued_to_a_word_is_not_a_comment);
+
     RUN(test_forward_moves_and_draws);
     RUN(test_penup_moves_without_drawing);
     RUN(test_repeat_square_returns_to_start);
@@ -880,6 +940,11 @@ int main(void) {
     RUN(test_arc_draws_without_moving_the_turtle);
     RUN(test_setpencolor_and_width_stamp_the_segment);
     RUN(test_setbackground_sets_canvas_color);
+
+    RUN(test_pos_reads_back_turtle_position);
+    RUN(test_heading_reads_back_turtle_heading_without_wrapping);
+    RUN(test_heading_can_be_saved_and_restored);
+    RUN(test_pos_and_heading_follow_the_current_turtle);
 
     RUN(test_tell_creates_and_switches_turtles);
     RUN(test_turtles_move_independently);

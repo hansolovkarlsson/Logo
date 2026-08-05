@@ -1,0 +1,21 @@
+; POS/HEADING: read back the turtle's current position and heading,
+; which used to be settable but not readable.
+
+FD 100
+PRINT POS
+PRINT HEADING
+
+RT 45
+MAKE "saved HEADING
+SETHEADING 200
+PRINT HEADING
+SETHEADING :saved
+PRINT HEADING
+
+TELL 1
+FD 50 RT 90
+PRINT POS
+PRINT HEADING
+TELL 0
+PRINT POS
+PRINT HEADING

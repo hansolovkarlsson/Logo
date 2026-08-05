@@ -16,9 +16,23 @@
 
 // --- HELPER FUNCTIONS ---
 
-// Advance past leading whitespace.
+// Advance past leading whitespace and ';' line comments (a comment runs
+// from ';' to the next newline or end of input). Called everywhere a
+// token boundary is found — the main eval_logo loop, expression parsing,
+// extract_block, list literals — so a comment is recognized wherever
+// whitespace already is, with no separate comment-stripping pass needed.
+// A ';' with no preceding whitespace (glued onto a word or "-literal) is
+// just an ordinary character, not a comment marker, same as any language
+// where a comment must start at a token boundary.
 static const char* skip_whitespace(const char *str) {
-    while (*str && isspace((unsigned char)*str)) str++;
+    for (;;) {
+        while (*str && isspace((unsigned char)*str)) str++;
+        if (*str == ';') {
+            while (*str && *str != '\n') str++;
+            continue; // more whitespace, or another comment line, may follow
+        }
+        break;
+    }
     return str;
 }
 
@@ -691,6 +705,17 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         Value a = parse_factor(app, ptr);
         Value b = parse_factor(app, ptr);
         return list_wrap_pair(app, a, b);
+    }
+    if (consume_keyword(ptr, "HEADING")) {
+        // The raw stored angle, same convention SETHEADING/RT/LT already
+        // use — not normalized to 0-360, since nothing else in the
+        // interpreter normalizes it either (RT 720 just keeps adding).
+        return number_value(current_turtle(app)->angle);
+    }
+    if (consume_keyword(ptr, "POS")) {
+        // [x y] as a 2-element list, reusing LIST's wrap-as-one-element
+        // logic since a raw x/y pair never needs splicing.
+        return list_wrap_pair(app, number_value(current_turtle(app)->x), number_value(current_turtle(app)->y));
     }
     if (**ptr == ':') {
         (*ptr)++;

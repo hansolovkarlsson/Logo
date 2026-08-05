@@ -4,6 +4,29 @@ This documents the Logo dialect actually implemented in `src/main.c`, as of
 the current build. It's a living document — update it in the same commit
 whenever a language feature changes.
 
+## Comments
+
+```
+; this whole line is a comment
+FD 100 ; and so is everything after this semicolon
+REPEAT 4 [
+  FD 50 ; comments work inside blocks too
+  RT 90
+]
+```
+
+- `;` starts a comment that runs to the end of the line, recognized
+  anywhere a token boundary falls — after a command, on its own line,
+  inside a `REPEAT`/`IF`/`WHILE` block, between list elements.
+- A `;` with no preceding whitespace (glued directly onto a word or
+  `"`-literal, like `"hi;there`) is just an ordinary character, not a
+  comment — a comment has to start at a token boundary, same as most
+  languages.
+- Because a comment consumes the rest of its line unconditionally, one
+  placed *before* a list literal's closing `]` on the same line eats the
+  `]` too (`PRINT [a b ; c]` never sees its closing bracket). Keep
+  comments on their own line, or after a complete statement.
+
 ## Turtle model
 
 - Turtle 0 starts at position `(250, 250)` facing angle `0`, pen down.
@@ -102,6 +125,32 @@ FD 80
   background — unlike pen color, this is a single canvas-wide value (not
   remembered per line), so changing it recolors the whole background
   immediately, past drawing included. Default is white.
+
+### Turtle state queries
+
+```
+FD 100
+PRINT POS               -> 250 150
+PRINT HEADING           -> 0
+
+RT 45
+MAKE "h HEADING
+SETHEADING 200
+SETHEADING :h
+PRINT HEADING           -> 45
+```
+
+- `POS` and `HEADING` are operators (not commands) that read the current
+  turtle's position and heading back into an expression — they work
+  anywhere an argument is expected, same as `FIRST`/`COUNT`/etc. `SETXY`/
+  `SETHEADING`/`RT`/`LT` can *set* these, but until now there was no way
+  to *read* them back into a variable.
+- `POS` outputs a 2-element list `[x y]`. `HEADING` outputs a plain
+  number — the raw stored angle, not normalized to 0-360 (turning `RT 90`
+  four times reads back as `360`, not `0`), matching how `RT`/`LT`/
+  `SETHEADING` already accumulate it.
+- Both always refer to whichever turtle `TELL` currently targets, same as
+  `FD`/`RT`/etc.
 
 ## Expressions
 
