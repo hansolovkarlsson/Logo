@@ -12,8 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `LOCAL "name` — a variable scoped to the current call without being a
-  parameter; cheap on top of the scope stack parameters already use.
 - [ ] `HIDETURTLE`/`SHOWTURTLE`, `WRAP`/`FENCE`/`WINDOW` — toggle turtle
   visibility, and choose what happens when a turtle drives off the canvas
   edge (wrap around, stop, or keep going off-screen).

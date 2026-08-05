@@ -1325,6 +1325,42 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, "MAKE: expected a \"name\n");
             }
         }
+        // 3b'. LOCAL "name — a variable scoped to the current call,
+        // without being a parameter (see Variables & scoping below).
+        // Only valid inside an active procedure call; the scope's vars
+        // array shares its fixed capacity (MAX_PARAMS) with real
+        // parameters, so a procedure with many parameters may not have
+        // room left for additional LOCALs.
+        else if (strcasecmp(token, "LOCAL") == 0) {
+            char varname[64] = {0};
+            if (sscanf(ptr, "%63s%n", varname, &read_bytes) == 1 && varname[0] == '"') {
+                ptr += read_bytes;
+                if (app->scope_depth <= 0) {
+                    append_output(app, "LOCAL: can only be used inside a procedure\n");
+                } else {
+                    Scope *scope = &app->scopes[app->scope_depth - 1];
+                    gboolean already_local = FALSE;
+                    for (int i = 0; i < scope->count; i++) {
+                        if (strcasecmp(scope->vars[i].name, varname + 1) == 0) {
+                            already_local = TRUE;
+                            break;
+                        }
+                    }
+                    if (!already_local) {
+                        if (scope->count < MAX_PARAMS) {
+                            Variable *v = &scope->vars[scope->count++];
+                            snprintf(v->name, sizeof(v->name), "%s", varname + 1);
+                            v->type = VALUE_NUMBER;
+                            v->number = 0;
+                        } else {
+                            append_output(app, "LOCAL: too many local variables\n");
+                        }
+                    }
+                }
+            } else {
+                append_output(app, "LOCAL: expected a \"name\n");
+            }
+        }
         // 3c. CONDITIONALS: IF <cond> [block] (ELSE [block])   or   IFELSE <cond> [block] [block]
         else if (strcasecmp(token, "IF") == 0 || strcasecmp(token, "IFELSE") == 0) {
             double cond = parse_condition(app, &ptr);

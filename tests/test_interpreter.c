@@ -291,6 +291,34 @@ TEST(test_erase_removes_procedure) {
     CHECK_CONTAINS(captured_output, "I don't know how to");
 }
 
+TEST(test_local_scopes_a_variable_without_leaking_to_global) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "MAKE \"x 999\n"
+        "TO uselocal\nLOCAL \"x\nMAKE \"x 1\nPRINT :x\nEND\n"
+        "uselocal\n"
+        "PRINT :x");
+    CHECK_STREQ(captured_output, "1\n999\n"); // the outer global is untouched
+}
+
+TEST(test_local_initializes_to_zero) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO t\nLOCAL \"y\nPRINT :y\nEND\nt");
+    CHECK_STREQ(captured_output, "0\n");
+}
+
+TEST(test_local_outside_procedure_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOCAL \"x");
+    CHECK_CONTAINS(captured_output, "LOCAL: can only be used inside a procedure");
+}
+
+TEST(test_local_without_quote_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOCAL x");
+    CHECK_CONTAINS(captured_output, "LOCAL: expected a");
+}
+
 // --- Conditionals & booleans ---
 
 TEST(test_if_ifelse_comparisons) {
@@ -1126,6 +1154,11 @@ int main(void) {
     RUN(test_make_without_local_mutates_outer_global);
     RUN(test_to_redefinition_overwrites);
     RUN(test_erase_removes_procedure);
+
+    RUN(test_local_scopes_a_variable_without_leaking_to_global);
+    RUN(test_local_initializes_to_zero);
+    RUN(test_local_outside_procedure_reports_error);
+    RUN(test_local_without_quote_reports_error);
 
     RUN(test_if_ifelse_comparisons);
     RUN(test_boolean_and_or_not);

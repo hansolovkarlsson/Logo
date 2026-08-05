@@ -213,6 +213,27 @@ outer calls on the stack, then the globals — so:
 - Recursion is capped at 200 nested calls; going deeper prints "Recursion
   too deep, call ignored" instead of crashing.
 
+```
+TO uselocal
+  LOCAL "x
+  MAKE "x 1
+  PRINT :x
+END
+```
+
+- `LOCAL "name` declares a variable scoped to the current call, the same
+  way a parameter is, but without being one — useful for a working
+  variable a procedure needs internally that has nothing to do with its
+  arguments. It reads as `0` until assigned, and is popped along with
+  the rest of the call's scope when the procedure returns.
+- Only valid inside an active procedure call — `LOCAL` at the top level
+  (not inside any `TO`) prints `LOCAL: can only be used inside a
+  procedure`.
+- A call's locals share the same fixed-size slot table (`MAX_PARAMS` —
+  8) that its parameters use, so a procedure with many parameters may
+  not have room left for additional `LOCAL`s; going over prints `LOCAL:
+  too many local variables`.
+
 ## Words & lists
 
 ```

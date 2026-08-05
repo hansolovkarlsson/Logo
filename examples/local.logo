@@ -1,0 +1,20 @@
+; LOCAL "name: a variable scoped to the current call, without being a
+; parameter -- doesn't leak to the outer/global scope.
+
+MAKE "x 999
+
+TO uselocal
+  LOCAL "x
+  MAKE "x 1
+  PRINT :x
+END
+
+uselocal
+PRINT :x
+
+; A fresh LOCAL reads as 0 before you assign it.
+TO showlocal
+  LOCAL "y
+  PRINT :y
+END
+showlocal
