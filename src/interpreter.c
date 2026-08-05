@@ -570,6 +570,30 @@ static Value list_lput(LogoApp *app, Value thing, Value list) {
     return list_value(new_head);
 }
 
+// BUTLAST: everything except the last element of a list — the
+// complement of BUTFIRST. Unlike BUTFIRST (which can just point at an
+// existing suffix), this needs the *prefix* up to the last element,
+// which means copying every node except the last one into a fresh
+// chain: a singly-linked list has no way to walk backward from the end,
+// so there's no existing sub-chain to just reference.
+static Value list_butlast(LogoApp *app, Value arg) {
+    int count = 0;
+    for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
+    if (count <= 1) return list_value(-1);
+
+    int new_head = -1;
+    int *next_slot = &new_head;
+    int idx = arg.list_head;
+    for (int i = 0; i < count - 1; i++) {
+        int copy = list_node_copy(app, idx);
+        if (copy < 0) return list_pool_exhausted_error(app);
+        *next_slot = copy;
+        next_slot = &app->list_pool[copy].next;
+        idx = app->list_pool[idx].next;
+    }
+    return list_value(new_head);
+}
+
 // Parse a single value: a parenthesized expression, a unary +/-, a "word
 // literal, a [list] literal, a list operator/constructor (FIRST,
 // BUTFIRST, LAST, COUNT, FPUT, LPUT, WORD, SENTENCE/SE, LIST — each
@@ -669,6 +693,45 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             return number_value((double)strlen(arg.word));
         }
         return number_value(1); // a bare number counts as a one-element list
+    }
+    if (consume_keyword(ptr, "BUTLAST")) {
+        Value arg = parse_factor(app, ptr);
+        if (arg.type == VALUE_LIST) {
+            return list_butlast(app, arg);
+        }
+        if (arg.type == VALUE_WORD) {
+            size_t len = strlen(arg.word);
+            if (len == 0) return word_value("");
+            Value result = word_value(arg.word);
+            result.word[len - 1] = '\0';
+            return result;
+        }
+        return list_value(-1); // BUTLAST of a bare number is empty
+    }
+    if (consume_keyword(ptr, "ITEM")) {
+        int index = (int)value_to_number(parse_factor(app, ptr));
+        Value thing = parse_factor(app, ptr);
+        if (thing.type == VALUE_LIST) {
+            int i = 1;
+            for (int idx = thing.list_head; idx != -1; idx = app->list_pool[idx].next, i++) {
+                if (i == index) return list_node_to_value(&app->list_pool[idx]);
+            }
+            append_output(app, "ITEM: index out of range\n");
+            return word_value("");
+        }
+        if (thing.type == VALUE_WORD) {
+            int len = (int)strlen(thing.word);
+            if (index < 1 || index > len) {
+                append_output(app, "ITEM: index out of range\n");
+                return word_value("");
+            }
+            char ch[2] = {thing.word[index - 1], '\0'};
+            return word_value(ch);
+        }
+        // A bare number counts as a one-element list -- only index 1 is valid.
+        if (index == 1) return thing;
+        append_output(app, "ITEM: index out of range\n");
+        return word_value("");
     }
     if (consume_keyword(ptr, "FPUT")) {
         Value thing = parse_factor(app, ptr);

@@ -1,0 +1,17 @@
+; ITEM/BUTLAST: the other half of FIRST/BUTFIRST/LAST/COUNT --
+; random access by position, and "everything except the last element."
+
+PRINT ITEM 1 [a b c]
+PRINT ITEM 2 [a b c]
+PRINT ITEM 3 "hello
+
+PRINT BUTLAST [a b c]
+PRINT BUTLAST "hello
+
+; Works on nested lists too -- an element that's itself a sublist
+; counts/returns as one.
+PRINT ITEM 2 [a [b c] d]
+PRINT BUTLAST [a [b c] d]
+
+; Out-of-range index is a reported error, not silently empty/wrong.
+PRINT ITEM 10 [a b c]

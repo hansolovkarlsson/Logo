@@ -246,7 +246,9 @@ MAKE "colors [red green blue]
 PRINT FIRST :colors            -> red
 PRINT LAST :colors             -> blue
 PRINT BUTFIRST :colors         -> green blue
+PRINT BUTLAST :colors          -> red green
 PRINT COUNT :colors            -> 3
+PRINT ITEM 2 :colors           -> green
 IF FIRST :colors = "red [PRINT "yes]
 
 PRINT COUNT [a [b c] d]        -> 3 (top-level elements only — [b c] counts as one)
@@ -257,20 +259,27 @@ PRINT FIRST [[1 2] 3]          -> 1 2 (the sublist [1 2], printed — see Output
 PRINT FIRST "hello              -> h
 PRINT LAST "hello               -> o
 PRINT BUTFIRST "hello           -> ello
+PRINT BUTLAST "hello            -> hell
 PRINT COUNT "hello              -> 5
+PRINT ITEM 3 "hello              -> l
 ```
 
-- `FIRST`, `BUTFIRST`, and `LAST` take one word/list-ish argument. On a
-  list, they operate on its top-level elements only — an element that's
-  itself a sublist is returned/skipped whole, not flattened into it.
-  `FIRST`/`LAST` return that element as-is (a word, a number, or a list);
-  `BUTFIRST` returns a new list of everything after the first element.
-  `COUNT` takes the same kind of argument and returns a **number** — how
-  many top-level elements it has (a sublist element counts as one,
-  regardless of its own length).
-- On a **word**, all four work the same way but one level deeper: a word
-  is a sequence of *characters*, not one atomic element, so `FIRST`/`LAST`
-  return a single-character word, `BUTFIRST` returns the rest as a word,
+- `FIRST`, `BUTFIRST`, `LAST`, and `BUTLAST` take one word/list-ish
+  argument. On a list, they operate on its top-level elements only — an
+  element that's itself a sublist is returned/skipped whole, not
+  flattened into it. `FIRST`/`LAST` return that element as-is (a word, a
+  number, or a list); `BUTFIRST` returns everything after the first
+  element, `BUTLAST` everything except the last. `COUNT` takes the same
+  kind of argument and returns a **number** — how many top-level elements
+  it has (a sublist element counts as one, regardless of its own length).
+- `ITEM index thing` is random access by position (1-indexed): the
+  `index`th top-level element of a list, or the `index`th character of a
+  word. An `index` less than 1 or past the end is a reported error (see
+  Errors below) rather than a silent empty result or a crash.
+- On a **word**, `FIRST`/`BUTFIRST`/`LAST`/`BUTLAST`/`COUNT`/`ITEM` all
+  work the same way but one level deeper: a word is a sequence of
+  *characters*, not one atomic element, so `FIRST`/`LAST`/`ITEM` return a
+  single-character word, `BUTFIRST`/`BUTLAST` return the rest as a word,
   and `COUNT` returns its length. This is substrings — the only way to
   pull characters out of a word, no separate substring syntax needed. A
   bare **number**, unlike a word, stays atomic and does not decompose
@@ -279,9 +288,10 @@ PRINT COUNT "hello              -> 5
 - The argument to any of these can be a `"word`, a `[bracketed list]`, a
   `:variable` holding either, a nested list operator call (`FIRST BUTFIRST
   :colors`), or a bare number (treated as a one-element list, so `COUNT 5`
-  is `1`). `FIRST`/`LAST`/`BUTFIRST` of an empty list (`[]`) or an empty
-  word (`""`) is empty; `COUNT` of either is `0`.
-- All four work anywhere an argument is expected — `PRINT`, `MAKE "name`,
+  is `1`, and only `ITEM 1` of one is valid). `FIRST`/`LAST`/`BUTFIRST`/
+  `BUTLAST` of an empty list (`[]`) or an empty word (`""`) is empty;
+  `COUNT` of either is `0`.
+- All six work anywhere an argument is expected — `PRINT`, `MAKE "name`,
   both sides of `=`/`<>`, and plain arithmetic (`FD FIRST :colors`,
   `REPEAT COUNT :items [...]`) — coercing to a number the same way any
   other word does when arithmetic touches it (see above).
@@ -506,6 +516,9 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   "List construction" above). `FPUT`/`LPUT` print the analogous `FPUT:
   can't add a list to a word` / `LPUT: can't add a list to a word` if
   `thing` is a list and `list` is a word.
+- `ITEM` prints `ITEM: index out of range` if given an index less than 1
+  or past the end of its list/word argument, rather than an empty result
+  or an unchecked out-of-bounds read.
 - Every internal text buffer (procedure bodies, block bodies, words,
   variable values, file paths, REPL history entries) is fixed-size but
   generously sized for normal use; input that would overflow one is

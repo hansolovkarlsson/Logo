@@ -12,10 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `ITEM index thing`, `BUTLAST` — the natural other half of
-  `FIRST`/`BUTFIRST`/`LAST`/`COUNT`: random access by position, and
-  "everything except the last element." Slots into the existing list/
-  substring machinery directly.
 - [ ] Fuller arithmetic: `MOD`, `POWER`, `SQRT`, `SIN`, `COS`, `ARCTAN`,
   `RANDOM`, `ROUND`, `ABS` — arithmetic currently stops at `+ − * /`.
 - [ ] Type/membership predicates: `MEMBER?`, `EMPTY?`, `WORD?`, `LIST?`,

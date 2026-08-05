@@ -522,6 +522,68 @@ TEST(test_butfirst_preserves_a_sublist_element) {
     CHECK_STREQ(captured_output, "[b c] d\n");
 }
 
+// --- ITEM, BUTLAST ---
+
+TEST(test_item_on_list_and_word) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "PRINT ITEM 1 [a b c]\n"
+        "PRINT ITEM 2 [a b c]\n"
+        "PRINT ITEM 3 [a b c]\n"
+        "PRINT ITEM 1 \"hi\n"
+        "PRINT ITEM 3 \"hello");
+    CHECK_STREQ(captured_output, "a\nb\nc\nh\nl\n");
+}
+
+TEST(test_item_out_of_range_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT ITEM 0 [a b c]");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+    captured_output[0] = '\0';
+    eval_logo(&app, "PRINT ITEM 5 [a b c]");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+    captured_output[0] = '\0';
+    eval_logo(&app, "PRINT ITEM 10 \"hi");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+}
+
+TEST(test_item_on_bare_number) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT ITEM 1 5");
+    CHECK_STREQ(captured_output, "5\n");
+    captured_output[0] = '\0';
+    eval_logo(&app, "PRINT ITEM 2 5");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+}
+
+TEST(test_item_of_nested_sublist_element) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT ITEM 2 [a [b c] d]");
+    CHECK_STREQ(captured_output, "b c\n"); // the sublist, printed as PRINT's own top-level value
+}
+
+TEST(test_butlast_on_list_and_word) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT BUTLAST [a b c]\nPRINT BUTLAST \"hello");
+    CHECK_STREQ(captured_output, "a b\nhell\n");
+}
+
+TEST(test_butlast_of_empty_or_single_element_is_empty) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "PRINT BUTLAST []\n"
+        "PRINT BUTLAST [a]\n"
+        "PRINT BUTLAST \"\n"
+        "PRINT BUTLAST \"a");
+    CHECK_STREQ(captured_output, "\n\n\n\n");
+}
+
+TEST(test_butlast_preserves_a_sublist_element) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT BUTLAST [a [b c] d]");
+    CHECK_STREQ(captured_output, "a [b c]\n");
+}
+
 TEST(test_sentence_splices_but_list_wraps) {
     // The whole point of true nesting: SENTENCE and LIST finally differ.
     LogoApp app = new_app();
@@ -992,6 +1054,15 @@ int main(void) {
     RUN(test_count_of_nested_list_counts_top_level_only);
     RUN(test_first_and_last_can_return_a_sublist);
     RUN(test_butfirst_preserves_a_sublist_element);
+
+    RUN(test_item_on_list_and_word);
+    RUN(test_item_out_of_range_reports_error);
+    RUN(test_item_on_bare_number);
+    RUN(test_item_of_nested_sublist_element);
+    RUN(test_butlast_on_list_and_word);
+    RUN(test_butlast_of_empty_or_single_element_is_empty);
+    RUN(test_butlast_preserves_a_sublist_element);
+
     RUN(test_sentence_splices_but_list_wraps);
     RUN(test_fput_a_list_creates_genuine_nesting);
     RUN(test_lput_a_list_creates_genuine_nesting);
