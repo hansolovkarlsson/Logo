@@ -156,23 +156,35 @@ outer calls on the stack, then the globals — so:
 MAKE "name "World
 PRINT :name
 IF :name = "World [PRINT "matched]
+
+MAKE "greeting [Hello there, friend!]
+PRINT :greeting
+IF :greeting = [Hello there, friend!] [PRINT "matched]
 ```
 
 - `MAKE "name "word` sets a variable to a **word** — a single token, no
   spaces — instead of a number. `:name` still reads it back the same way.
+- `MAKE "name [some words]` sets a variable to a multi-word string
+  instead: the words inside the brackets, joined by single spaces
+  regardless of the original whitespace between them (so `[hello   world]`
+  and `[hello world]` produce the same value). This is the same bracketed
+  syntax `PRINT [...]` uses (see Output below) — it's a value here instead
+  of being printed immediately.
+- Whether set via `"word` or `[a list]`, the result is the same kind of
+  value — both are just a word (text) held in the variable. There's no
+  separate "string" type, no concatenation, and no substring operations;
+  a word/list literal is a single opaque piece of text you can set,
+  print, and compare, not take apart — see `ROADMAP.md`.
 - A word-typed variable used inside a numeric context (arithmetic, a
   `FORWARD`/`REPEAT`/etc. argument) just reads as `0` — words don't
   participate in arithmetic. `PRINT` and `=`/`<>` comparisons are word-aware
-  (see Output and Conditionals below); every other numeric-expecting spot
-  in the language is not.
+  (see Output and Conditionals below, and note `=`/`<>` also accept a
+  `[bracketed list]` directly as an operand, not just a variable); every
+  other numeric-expecting spot in the language is not.
 - `MAKE "a :b` where `:b` is a word does **not** copy the word — it falls
   back to that same numeric-context behavior (copies `0`). To copy a word,
-  assign it again as a literal (`MAKE "a "sameword`).
-- There is no general string type with spaces, concatenation, or
-  substring operations — a word is one token. A `[bracketed list of
-  words]` can be printed directly (see `PRINT` below) but isn't a value
-  you can store in a variable or take apart (`FIRST`/`BUTFIRST`/etc. don't
-  exist) — see `ROADMAP.md`.
+  assign it again as a literal (`MAKE "a "sameword` or `MAKE "a [some
+  words]`).
 
 ## Procedures
 
@@ -212,9 +224,10 @@ IFELSE :size > 10 [PRINT "big] [PRINT "small]
   and a second expression: `< > = <= >= <>`. If no relational operator is
   present, the expression's truthiness is used (non-zero number, or
   non-empty word = true).
-- `=` and `<>` also work between words (`:name = "Alice`), comparing text
-  case-insensitively. `< > <= >=` are numeric-only — comparing a word with
-  one of those always reports false.
+- `=` and `<>` also work between words (`:name = "Alice`, or
+  `:greeting = [hello there]`), comparing text case-insensitively.
+  `< > <= >=` are numeric-only — comparing a word with one of those
+  always reports false.
 
 ```
 IF :x > 0 AND :x < 10 [PRINT "in-range]

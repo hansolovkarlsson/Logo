@@ -48,6 +48,34 @@ static const char* extract_block(const char *str, char *buffer, size_t buf_size)
     return str;
 }
 
+// Extract a bracketed [ list of words ], joined into `out` by single
+// spaces regardless of the original whitespace between them (so
+// [hello   world] and [hello world] produce the same text). Used to
+// treat a bracketed list as a multi-word string value — for PRINT, for
+// MAKE "name [...], and for word comparisons. Returns the position just
+// past the closing ']', or NULL if `str` doesn't start with '['.
+static const char* extract_word_list(const char *str, char *out, size_t out_size) {
+    char list_text[256] = {0};
+    const char *after = extract_block(str, list_text, sizeof(list_text));
+    if (after == NULL) return NULL;
+
+    out[0] = '\0';
+    const char *p = list_text;
+    gboolean first_word = TRUE;
+    while (*p) {
+        p = skip_whitespace(p);
+        if (*p == '\0') break;
+        char word[64] = {0};
+        int n = 0;
+        if (sscanf(p, "%63s%n", word, &n) != 1 || n == 0) break;
+        if (!first_word) strncat(out, " ", out_size - strlen(out) - 1);
+        strncat(out, word, out_size - strlen(out) - 1);
+        first_word = FALSE;
+        p += n;
+    }
+    return after;
+}
+
 // Clamp a color channel to the valid 0.0-1.0 range Cairo expects.
 static double clamp01(double v) {
     if (v < 0) return 0;
@@ -275,8 +303,8 @@ typedef struct {
     char word[128];
 } Operand;
 
-// Parse one comparison operand: a "word literal, a :variable (carrying
-// whichever type it holds), or a numeric expression.
+// Parse one comparison operand: a "word literal, a [multi-word] literal,
+// a :variable (carrying whichever type it holds), or a numeric expression.
 static Operand parse_operand(LogoApp *app, const char **ptr) {
     *ptr = skip_whitespace(*ptr);
     Operand result = {0};
@@ -291,6 +319,15 @@ static Operand parse_operand(LogoApp *app, const char **ptr) {
         result.word[i] = '\0';
         result.is_word = TRUE;
         return result;
+    }
+
+    if (**ptr == '[') {
+        const char *after = extract_word_list(*ptr, result.word, sizeof(result.word));
+        if (after != NULL) {
+            *ptr = after;
+            result.is_word = TRUE;
+            return result;
+        }
     }
 
     if (**ptr == ':') {
@@ -682,6 +719,17 @@ void eval_logo(LogoApp *app, const char *code) {
                     }
                     word[i] = '\0';
                     set_var_word(app, varname + 1, word);
+                } else if (*ptr == '[') {
+                    // MAKE "name [some words] — a multi-word string, unlike
+                    // MAKE "name "word which is a single token.
+                    char word[128] = {0};
+                    const char *after = extract_word_list(ptr, word, sizeof(word));
+                    if (after != NULL) {
+                        ptr = after;
+                        set_var_word(app, varname + 1, word);
+                    } else {
+                        append_output(app, "MAKE: expected [ words ]\n");
+                    }
                 } else {
                     double val = parse_expr(app, &ptr);
                     set_var(app, varname + 1, val);
@@ -791,24 +839,8 @@ void eval_logo(LogoApp *app, const char *code) {
                 // A bracketed list literal prints as its words, single-
                 // spaced — it's not evaluated as code the way REPEAT/IF
                 // blocks are.
-                char list_text[256] = {0};
-                const char *after = extract_block(ptr, list_text, sizeof(list_text));
+                const char *after = extract_word_list(ptr, line, sizeof(line));
                 if (after != NULL) ptr = after;
-
-                line[0] = '\0';
-                const char *lp = list_text;
-                gboolean first_word = TRUE;
-                while (*lp) {
-                    lp = skip_whitespace(lp);
-                    if (*lp == '\0') break;
-                    char word[64] = {0};
-                    int n = 0;
-                    if (sscanf(lp, "%63s%n", word, &n) != 1 || n == 0) break;
-                    if (!first_word) strncat(line, " ", sizeof(line) - strlen(line) - 1);
-                    strncat(line, word, sizeof(line) - strlen(line) - 1);
-                    first_word = FALSE;
-                    lp += n;
-                }
             } else if (*ptr == ':') {
                 // A bare word-typed variable prints its text; anything
                 // else (numeric variable, or :name as part of a larger

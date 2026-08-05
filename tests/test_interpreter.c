@@ -261,6 +261,21 @@ TEST(test_word_variable_and_comparison) {
     CHECK_STREQ(captured_output, "World\nmatched\n");
 }
 
+TEST(test_make_multiword_string_from_bracket_list) {
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"greeting [hello   there    friend]\nPRINT :greeting");
+    CHECK_STREQ(captured_output, "hello there friend\n");
+}
+
+TEST(test_multiword_string_comparison) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "MAKE \"greeting [hello there]\n"
+        "IF :greeting = [hello there] [PRINT \"matched]\n"
+        "IF :greeting = [goodbye] [PRINT \"should-not-print]");
+    CHECK_STREQ(captured_output, "matched\n");
+}
+
 TEST(test_print_list_joins_words_with_single_spaces) {
     LogoApp app = new_app();
     eval_logo(&app, "PRINT [hello   there    friend]");
@@ -314,6 +329,8 @@ int main(void) {
     RUN(test_while_loop);
 
     RUN(test_word_variable_and_comparison);
+    RUN(test_make_multiword_string_from_bracket_list);
+    RUN(test_multiword_string_comparison);
     RUN(test_print_list_joins_words_with_single_spaces);
 
     RUN(test_unknown_command_reports_error);

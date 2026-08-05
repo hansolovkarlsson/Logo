@@ -1,0 +1,8 @@
+MAKE "greeting [Hello there, friend!]
+PRINT :greeting
+
+IF :greeting = [Hello there, friend!] [PRINT "matched]
+IF :greeting = [Goodbye] [PRINT "should-not-print]
+
+MAKE "single "word
+PRINT :single

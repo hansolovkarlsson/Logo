@@ -7,9 +7,10 @@ rather than marking it "done" in place.
 
 ## Language
 
-- [ ] A real multi-word string type (concatenation, substrings) distinct
-  from the current single-token word — words/variables landed, but
-  `MAKE "name` and `PRINT "word` still can't hold text with spaces in it.
+- [ ] String operations: concatenation, substrings, character access.
+  `MAKE "name [some words]` now holds multi-word text (see "Words" in
+  `LANGUAGE.md`), but there's still no way to build a string out of
+  pieces at runtime (e.g. joining two variables) or take one apart.
 - [ ] Lists as a first-class, storable, manipulable value (`MAKE "mylist
   [1 2 3]`, `FIRST`, `BUTFIRST`, `LAST`, `COUNT`, ...) — a bigger change,
   since it means the expression evaluator (currently pure `double`)
