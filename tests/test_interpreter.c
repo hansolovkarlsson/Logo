@@ -587,6 +587,73 @@ TEST(test_is_input_complete_to_with_end) {
     CHECK(is_input_complete("TO square :size\nREPEAT 4 [FD :size RT 90]\nEND"));
 }
 
+// --- Files (LOAD/SAVE) ---
+//
+// Real file I/O against build/ (already gitignored scratch space the
+// Makefile creates for object files) rather than a fixed system path, so
+// these don't depend on /tmp being writable or collide with anything
+// else. Each test cleans up the file it wrote.
+
+TEST(test_save_and_load_round_trip) {
+    const char *path = "build/test_save_roundtrip.logo";
+    remove(path);
+
+    LogoApp saver = new_app();
+    eval_logo(&saver, "TO square :size\nREPEAT 4 [FD :size RT 90]\nEND\nSAVE \"build/test_save_roundtrip.logo");
+    CHECK_CONTAINS(captured_output, "Saved build/test_save_roundtrip.logo");
+
+    LogoApp loader = new_app();
+    captured_output[0] = '\0'; // new_app doesn't reset the shared buffer between apps
+    eval_logo(&loader, "LOAD \"build/test_save_roundtrip.logo\nsquare 60");
+    CHECK(loader.line_count == 4);
+    CHECK_NEAR(loader.turtles[0].x, 250.0);
+    CHECK_NEAR(loader.turtles[0].y, 250.0);
+
+    remove(path);
+}
+
+TEST(test_save_with_no_procedures_writes_empty_file) {
+    const char *path = "build/test_save_empty.logo";
+    remove(path);
+
+    LogoApp app = new_app();
+    eval_logo(&app, "SAVE \"build/test_save_empty.logo");
+
+    FILE *f = fopen(path, "rb");
+    CHECK(f != NULL);
+    if (f != NULL) {
+        fseek(f, 0, SEEK_END);
+        CHECK(ftell(f) == 0);
+        fclose(f);
+    }
+
+    remove(path);
+}
+
+TEST(test_load_nonexistent_file_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "LOAD \"build/definitely_does_not_exist.logo");
+    CHECK_CONTAINS(captured_output, "LOAD: could not read file");
+}
+
+TEST(test_save_to_unwritable_path_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "SAVE \"build/no_such_subdir/whatever.logo");
+    CHECK_CONTAINS(captured_output, "SAVE: could not write file");
+}
+
+TEST(test_load_without_quote_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "LOAD path");
+    CHECK_CONTAINS(captured_output, "LOAD: expected a");
+}
+
+TEST(test_save_without_quote_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "SAVE path");
+    CHECK_CONTAINS(captured_output, "SAVE: expected a");
+}
+
 // --- Errors ---
 
 TEST(test_unknown_command_reports_error) {
@@ -784,6 +851,13 @@ int main(void) {
     RUN(test_is_input_complete_balanced_bracket);
     RUN(test_is_input_complete_to_without_end);
     RUN(test_is_input_complete_to_with_end);
+
+    RUN(test_save_and_load_round_trip);
+    RUN(test_save_with_no_procedures_writes_empty_file);
+    RUN(test_load_nonexistent_file_reports_error);
+    RUN(test_save_to_unwritable_path_reports_error);
+    RUN(test_load_without_quote_reports_error);
+    RUN(test_save_without_quote_reports_error);
 
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);
