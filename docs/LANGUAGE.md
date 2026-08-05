@@ -164,29 +164,31 @@ IF :greeting = [Hello there, friend!] [PRINT "matched]
 
 - `MAKE "name "word` sets a variable to a **word** — a single token, no
   spaces — instead of a number. `:name` still reads it back the same way.
-- `MAKE "name [some words]` sets a variable to a multi-word string
-  instead: the words inside the brackets, joined by single spaces
-  regardless of the original whitespace between them (so `[hello   world]`
-  and `[hello world]` produce the same value). This is the same bracketed
-  syntax `PRINT [...]` uses (see Output below) — it's a value here instead
-  of being printed immediately, and it's also how you write a **list**:
-  `[1 2 3]` is just a word whose text happens to look like numbers — see
-  "List operators" below.
-- Whether set via `"word` or `[a list]`, the result is the same kind of
-  value underneath — both are just a word (text) held in the variable.
-  There's no separate string or list type — see "List construction" below
-  for building one up at runtime, and `ROADMAP.md` for what's still
-  missing (substrings, true nested lists).
+- `MAKE "name [some words]` sets a variable to a **list**: the elements
+  inside the brackets, in order, with whitespace between them normalized
+  (so `[hello   world]` and `[hello world]` produce the same value). This
+  is the same bracketed syntax `PRINT [...]` uses (see Output below) —
+  it's a value here instead of being printed immediately.
+- Lists nest: an element can itself be a bracketed sublist, e.g. `[a [b
+  c] d]` is a 3-element list whose second element is the 2-element list
+  `[b c]`. See "List operators" and "List construction" below for reading
+  and building nested structure.
+- A word and a list are two distinct kinds of value — `"word` (a single
+  token, no spaces) versus `[a list]` (elements, possibly nested). `MAKE
+  "a :b` copies whichever kind `:b` currently holds, unchanged.
 - A word used inside a numeric context (arithmetic, a `FORWARD`/`REPEAT`/
   etc. argument) coerces by reading the number its text starts with —
   `FD FIRST [100 50]` moves forward `100` — falling back to `0` if it
-  doesn't start with one at all (`PRINT "hello + 1` is `1`). This applies
+  doesn't start with one at all (`PRINT "hello + 1` is `1`); a list
+  coerces to `0`, having no meaningful numeric reading. This applies
   everywhere: every argument in the language (`PRINT`, `MAKE`, turtle
   commands, `REPEAT`'s count, procedure-call arguments, comparisons, ...)
-  is parsed by the same word-aware expression evaluator.
-- `MAKE "a :b` copies `:b`'s value as-is, whether it's a word or a number
-  (a bare `:name` only — `MAKE "a :b + 1` still evaluates numerically, same
-  as any other compound expression).
+  is parsed by the same word/list-aware expression evaluator.
+- `MAKE "a :b` copies `:b`'s value as-is — word, number, or list (a bare
+  `:name` only — `MAKE "a :b + 1` still evaluates numerically, same as any
+  other compound expression). Copying a list this way is just copying a
+  reference to its (immutable) elements, not a deep copy — cheap
+  regardless of the list's size.
 
 ### List operators
 
@@ -197,13 +199,21 @@ PRINT LAST :colors             -> blue
 PRINT BUTFIRST :colors         -> green blue
 PRINT COUNT :colors            -> 3
 IF FIRST :colors = "red [PRINT "yes]
+
+PRINT COUNT [a [b c] d]        -> 3 (top-level elements only — [b c] counts as one)
+PRINT FIRST [[1 2] 3]          -> 1 2 (the sublist [1 2], printed — see Output below
+                                        for why a list PRINT'ing as its own top-level
+                                        value never shows its own brackets)
 ```
 
-- `FIRST`, `BUTFIRST`, and `LAST` take one word/list-ish argument and
-  return a word: the first element, everything after the first element,
-  or the last element, respectively (splitting on whitespace). `COUNT`
-  takes the same kind of argument and returns a **number** — how many
-  elements it has.
+- `FIRST`, `BUTFIRST`, and `LAST` take one word/list-ish argument. On a
+  list, they operate on its top-level elements only — an element that's
+  itself a sublist is returned/skipped whole, not flattened into it.
+  `FIRST`/`LAST` return that element as-is (a word, a number, or a list);
+  `BUTFIRST` returns a new list of everything after the first element.
+  `COUNT` takes the same kind of argument and returns a **number** — how
+  many top-level elements it has (a sublist element counts as one,
+  regardless of its own length).
 - The argument to any of these can be a `"word`, a `[bracketed list]`, a
   `:variable` holding either, a nested list operator call (`FIRST BUTFIRST
   :colors`), or a bare number (treated as a one-element list, so `COUNT 5`
@@ -220,21 +230,31 @@ IF FIRST :colors = "red [PRINT "yes]
 PRINT WORD "hello "world        -> helloworld
 PRINT SENTENCE "a "b            -> a b
 PRINT SE [1 2] [3 4]            -> 1 2 3 4
+PRINT LIST [1 2] [3 4]          -> [1 2] [3 4]
 MAKE "colors [green blue]
 PRINT FPUT "red :colors         -> red green blue
 PRINT LPUT "purple :colors      -> green blue purple
+PRINT FPUT [1 2] [3 4]          -> [1 2] 3 4
 ```
 
 - `WORD a b` concatenates two words directly with **no** space between
-  them — pure string concatenation.
-- `SENTENCE a b` (or `SE`) joins two words/lists into one flat list,
-  separated by a single space. `LIST a b` does the same thing: since
-  lists here are flat, single-space-joined text with no separate list
-  type (see above), there's no nested-vs-flattened distinction between
-  `SENTENCE` and `LIST` the way there is in a Logo with true nested
-  lists — see `ROADMAP.md`.
+  them — pure string concatenation. It only accepts word/number
+  arguments; passing it a list is an error (see Errors below) rather than
+  silently flattening the list's structure into text.
+- `SENTENCE a b` (or `SE`) **splices** two values into one flat list: a
+  list argument contributes its own elements individually, a word/number
+  argument contributes itself as one element.
+- `LIST a b` **wraps** instead: each argument becomes exactly one element
+  regardless of whether it's itself a list, so `LIST [1 2] [3 4]` is the
+  2-element list `[[1 2] [3 4]]` (each element a sublist) — never
+  splicing the way `SENTENCE` does. This is the actual difference between
+  the two operators, now that lists nest; with only word/number
+  arguments, they still behave identically (`LIST "x "y` is `x y`, same
+  as `SENTENCE "x "y`).
 - `FPUT thing list` prepends `thing` as a new first element; `LPUT thing
-  list` appends it as a new last element.
+  list` appends it as a new last element. If `thing` is itself a list,
+  this creates genuine nesting (`FPUT [1 2] [3 4]` is `[[1 2] 3 4]`,
+  printing as `[1 2] 3 4`) rather than splicing it in.
 - All four take exactly two arguments (nest calls for more: `WORD "a
   WORD "b "c`) and, like the list operators above, work anywhere an
   argument is expected — including plain arithmetic.
@@ -336,13 +356,23 @@ PRINT [hello there, this prints as one line]
   first whitespace character).
 - `PRINT :name` prints a word-typed variable as its text, or a
   numeric-typed variable as a number — whichever it holds.
-- `PRINT [words...]` prints a bracketed list as its words, joined by
+- `PRINT [words...]` prints a bracketed list as its elements, joined by
   single spaces (any original whitespace inside the brackets is
   collapsed). This is direct, immediate printing — the list isn't
   evaluated as code (unlike a `REPEAT`/`IF`/`WHILE` block) and isn't
   stored anywhere.
 - `PRINT <expr>` (anything else) evaluates and prints a numeric
   expression.
+- A list's own outer brackets are never shown when it's the thing being
+  printed directly (`PRINT [a b]` -> `a b`, not `[a b]`) — but a nested
+  sublist **inside** that list does print with its brackets, since
+  that's the only way to tell where one element ends and the next
+  begins: `PRINT [a [b c] d]` -> `a [b c] d`. The same rule applies no
+  matter how the list value was produced — `PRINT FIRST [[1 2] 3]`
+  prints `1 2` (no brackets, since the sublist is PRINT's own top-level
+  value here), while `PRINT LIST FIRST [[1 2] 3] "x` prints `[1 2] x`
+  (bracketed, now that it's nested one level inside the 2-element list
+  `LIST` just built).
 
 ## Files
 
@@ -395,10 +425,17 @@ silently doing nothing (or, in one case that's now fixed, crashing):
 - Recursion past 200 nested calls prints `Recursion too deep, call
   ignored` (see Variables & scoping above); a `WHILE` past 1,000,000
   iterations prints `WHILE: stopped after too many iterations`.
+- `WORD` prints `WORD: expected words, not a list` if given a list
+  argument, rather than silently flattening its structure into text (see
+  "List construction" above).
 - Every internal text buffer (procedure bodies, block bodies, words,
   variable values, file paths, REPL history entries) is fixed-size but
   generously sized for normal use; input that would overflow one is
-  rejected with an error above rather than silently truncated.
+  rejected with an error above rather than silently truncated. List
+  storage works the same way: every list element in the program (across
+  every list, including sublists) comes from one fixed-size pool
+  (8192 elements); building a list once it's full prints `list storage
+  full, list operation ignored` instead of overflowing.
 
 What's still silent: a word that doesn't start with a number, used where
 a number is expected, reads as `0` rather than erroring (see Words
@@ -447,9 +484,9 @@ unparseable expression just evaluates to `0`, same as always) — see
 
 ## Known limitations (intentional, tracked in `ROADMAP.md`)
 
-- No substrings, and no true nested lists (a list containing another list
-  as an element) — a list is always flat, single-space-joined text. See
-  "Words & lists" above and `ROADMAP.md`.
+- No substrings — a word is an indivisible token; there's no way to pull
+  characters out of one the way `FIRST`/`BUTFIRST`/etc. pull elements out
+  of a list.
 - A word that doesn't start with a number, used where a number is
   expected, silently coerces to `0` rather than erroring — see "Errors"
   above.

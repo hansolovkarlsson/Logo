@@ -59,32 +59,64 @@ static const char* extract_block(const char *str, char *buffer, size_t buf_size)
     return str;
 }
 
-// Extract a bracketed [ list of words ], joined into `out` by single
-// spaces regardless of the original whitespace between them (so
-// [hello   world] and [hello world] produce the same text). Used to
-// treat a bracketed list as a multi-word string value — for PRINT, for
-// MAKE "name [...], and for word comparisons. Returns the position just
-// past the closing ']', or NULL if `str` doesn't start with '['.
-static const char* extract_word_list(const char *str, char *out, size_t out_size) {
-    char list_text[2048] = {0};
-    const char *after = extract_block(str, list_text, sizeof(list_text));
-    if (after == NULL) return NULL;
+// Allocate a new node in app->list_pool. Returns -1 if the pool is
+// exhausted (MAX_LIST_NODES) — same "cap it, report a loud error" policy
+// as every other fixed buffer in this codebase; every caller treats -1
+// as "report an error and abandon this list operation."
+static int list_alloc_node(LogoApp *app) {
+    if (app->list_pool_count >= MAX_LIST_NODES) return -1;
+    return app->list_pool_count++;
+}
 
-    out[0] = '\0';
-    const char *p = list_text;
-    gboolean first_word = TRUE;
-    while (*p) {
-        p = skip_whitespace(p);
-        if (*p == '\0') break;
-        char word[512] = {0};
-        int n = 0;
-        if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) break;
-        if (!first_word) strncat(out, " ", out_size - strlen(out) - 1);
-        strncat(out, word, out_size - strlen(out) - 1);
-        first_word = FALSE;
-        p += n;
+// Parse a bracketed [ ... ] list literal starting at `str` (which must
+// point at '['), building real ListNode chain entries in app->list_pool
+// instead of flattening nested brackets into text (the old
+// extract_word_list-based approach silently corrupted anything nested,
+// e.g. mis-tokenizing [a [b c] d] into four space-split "words"). Each
+// element is either a nested list (recursing on '[') or a whitespace-
+// delimited word. Sets *out_head to the list's head node index (-1 for
+// an empty list) and returns the position just past the closing ']', or
+// NULL if the bracket is unterminated or the pool fills up.
+static const char* parse_list_literal(LogoApp *app, const char *str, int *out_head) {
+    str = skip_whitespace(str);
+    if (*str != '[') return NULL;
+    str++;
+
+    int head = -1;
+    int *next_slot = &head;
+
+    for (;;) {
+        str = skip_whitespace(str);
+        if (*str == '\0') return NULL; // unterminated
+        if (*str == ']') { str++; break; }
+
+        int node_idx = list_alloc_node(app);
+        if (node_idx < 0) return NULL; // pool exhausted
+
+        if (*str == '[') {
+            int sub_head;
+            str = parse_list_literal(app, str, &sub_head);
+            if (str == NULL) return NULL;
+            app->list_pool[node_idx].type = LIST_ELEM_LIST;
+            app->list_pool[node_idx].sublist_head = sub_head;
+        } else {
+            char word[512] = {0};
+            size_t i = 0;
+            while (*str && !isspace((unsigned char)*str) && *str != '[' && *str != ']' && i < sizeof(word) - 1) {
+                word[i++] = *str;
+                str++;
+            }
+            word[i] = '\0';
+            app->list_pool[node_idx].type = LIST_ELEM_WORD;
+            snprintf(app->list_pool[node_idx].word, sizeof(app->list_pool[node_idx].word), "%s", word);
+        }
+        app->list_pool[node_idx].next = -1;
+        *next_slot = node_idx;
+        next_slot = &app->list_pool[node_idx].next;
     }
-    return after;
+
+    *out_head = head;
+    return str;
 }
 
 // Clamp a color channel to the valid 0.0-1.0 range Cairo expects.
@@ -208,6 +240,18 @@ static void set_var(LogoApp *app, const char *name, double value) {
     }
 }
 
+// Set a variable to a list (MAKE "name [...] / a list operator result),
+// same binding rules as set_var. Just copies the head index — safe
+// aliasing, since list nodes are never mutated after being built (see
+// the ListNode comment in logo_types.h).
+static void set_var_list(LogoApp *app, const char *name, int list_head) {
+    Variable *v = find_or_create_var(app, name);
+    if (v != NULL) {
+        v->type = VALUE_LIST;
+        v->list_head = list_head;
+    }
+}
+
 // Set a variable to a word (MAKE "name "word), same binding rules as
 // set_var.
 static void set_var_word(LogoApp *app, const char *name, const char *word) {
@@ -228,43 +272,141 @@ static void set_var_word(LogoApp *app, const char *name, const char *word) {
 // — FD FIRST :colors, MAKE "x FIRST :list + 1, PRINT WORD "a "b, and so on.
 
 typedef struct {
-    gboolean is_word;
+    ValueType type;
     double number;
     char word[512];
+    int list_head; // type == VALUE_LIST: index into app->list_pool, -1 = empty
 } Value;
 
 static Value number_value(double n) {
     Value v = {0};
+    v.type = VALUE_NUMBER;
     v.number = n;
+    v.list_head = -1;
     return v;
 }
 
 static Value word_value(const char *w) {
     Value v = {0};
-    v.is_word = TRUE;
+    v.type = VALUE_WORD;
     snprintf(v.word, sizeof(v.word), "%s", w);
+    v.list_head = -1;
+    return v;
+}
+
+static Value list_value(int head) {
+    Value v = {0};
+    v.type = VALUE_LIST;
+    v.list_head = head;
     return v;
 }
 
 // Coerce a Value to a number for arithmetic: a number as-is; a word by
 // parsing its leading numeric text — so FIRST [100 50] behaves like the
 // number 100 in FD FIRST :colors — falling back to 0 if it doesn't start
-// with one at all (same "coerces rather than errors" rule as always).
+// with one at all (same "coerces rather than errors" rule as always); a
+// list coerces to 0, having no meaningful numeric reading.
 static double value_to_number(Value v) {
-    if (!v.is_word) return v.number;
+    if (v.type == VALUE_NUMBER) return v.number;
+    if (v.type == VALUE_LIST) return 0;
     char *end;
     double n = strtod(v.word, &end);
     return (end != v.word) ? n : 0;
 }
 
+// Render a list's elements into `out`, space-separated, without
+// enclosing brackets at this level — matching how a bracketed list
+// literal has always printed at the top level (PRINT [a b] -> "a b").
+// A nested LIST element recurses one level deeper, wrapped in its own
+// brackets: that's the only place brackets appear in output, since the
+// literal syntax's outer brackets were never part of the printed value.
+static void list_elements_to_text(LogoApp *app, int head, char *out, size_t out_size) {
+    out[0] = '\0';
+    gboolean first = TRUE;
+    for (int idx = head; idx != -1; idx = app->list_pool[idx].next) {
+        if (!first) strncat(out, " ", out_size - strlen(out) - 1);
+        first = FALSE;
+        ListNode *node = &app->list_pool[idx];
+        if (node->type == LIST_ELEM_NUMBER) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%g", node->number);
+            strncat(out, buf, out_size - strlen(out) - 1);
+        } else if (node->type == LIST_ELEM_LIST) {
+            strncat(out, "[", out_size - strlen(out) - 1);
+            char sub[512];
+            list_elements_to_text(app, node->sublist_head, sub, sizeof(sub));
+            strncat(out, sub, out_size - strlen(out) - 1);
+            strncat(out, "]", out_size - strlen(out) - 1);
+        } else {
+            strncat(out, node->word, out_size - strlen(out) - 1);
+        }
+    }
+}
+
 // Render a Value as text: a word as-is, a number formatted the same way
-// PRINT shows it.
-static void value_to_text(const Value *v, char *out, size_t out_size) {
-    if (v->is_word) {
+// PRINT shows it, a list via list_elements_to_text above.
+static void value_to_text(LogoApp *app, const Value *v, char *out, size_t out_size) {
+    if (v->type == VALUE_WORD) {
         snprintf(out, out_size, "%s", v->word);
+    } else if (v->type == VALUE_LIST) {
+        list_elements_to_text(app, v->list_head, out, out_size);
     } else {
         snprintf(out, out_size, "%g", v->number);
     }
+}
+
+// Store `v` as a single new list-element node — used when FPUT/LPUT wrap
+// `thing`, and when LIST wraps a whole argument as one element. If v is
+// itself a list, the new node just references its existing chain by
+// index (no deep copy needed, since list nodes are never mutated after
+// being built). Returns -1 if the pool is exhausted.
+static int list_node_from_value(LogoApp *app, Value v) {
+    int idx = list_alloc_node(app);
+    if (idx < 0) return -1;
+    ListNode *node = &app->list_pool[idx];
+    node->next = -1;
+    if (v.type == VALUE_NUMBER) {
+        node->type = LIST_ELEM_NUMBER;
+        node->number = v.number;
+    } else if (v.type == VALUE_LIST) {
+        node->type = LIST_ELEM_LIST;
+        node->sublist_head = v.list_head;
+    } else {
+        node->type = LIST_ELEM_WORD;
+        snprintf(node->word, sizeof(node->word), "%s", v.word);
+    }
+    return idx;
+}
+
+// Map a list element node back to a Value — used by FIRST/LAST to return
+// whichever element they land on (which may itself be a list).
+static Value list_node_to_value(const ListNode *node) {
+    if (node->type == LIST_ELEM_NUMBER) return number_value(node->number);
+    if (node->type == LIST_ELEM_LIST) return list_value(node->sublist_head);
+    return word_value(node->word);
+}
+
+// Copy `src_idx`'s node payload (type/number/word/sublist_head) into a
+// freshly allocated node — used to build a new top-level spine for
+// SENTENCE/LPUT without mutating (or aliasing into) whatever existing
+// list `src_idx` came from. A LIST_ELEM_LIST payload's sublist_head is
+// copied as-is (structural sharing) rather than recursively copied,
+// since nested sublists are never mutated either. Returns -1 if the pool
+// is exhausted.
+static int list_node_copy(LogoApp *app, int src_idx) {
+    int idx = list_alloc_node(app);
+    if (idx < 0) return -1;
+    app->list_pool[idx] = app->list_pool[src_idx];
+    app->list_pool[idx].next = -1;
+    return idx;
+}
+
+// Reported when a list-construction operator runs out of pool space —
+// same "loud error, not silent corruption" policy as every other fixed
+// buffer here.
+static Value list_pool_exhausted_error(LogoApp *app) {
+    append_output(app, "list storage full, list operation ignored\n");
+    return word_value("");
 }
 
 static Value parse_expr(LogoApp *app, const char **ptr);
@@ -286,100 +428,101 @@ static gboolean consume_keyword(const char **ptr, const char *keyword) {
 
 // --- LIST OPERATORS & CONSTRUCTION (FIRST, BUTFIRST, LAST, COUNT, FPUT, LPUT, WORD, SENTENCE/SE, LIST) ---
 //
-// A "list" here is exactly the same word/text value MAKE "name [...] and
-// PRINT [...] already produce (space-joined elements, no separate list
-// type) — these just tokenize and rebuild that text. See the "Words &
+// A "list" is a real (if flat-by-default) recursive structure now — see
+// the ListNode/list_pool comment in logo_types.h — built and read via
+// the parse_list_literal/list_node_* helpers above. See the "Words &
 // lists" section of docs/LANGUAGE.md.
 
-// FIRST of a list/word: the first whitespace-delimited element, or empty
-// if there isn't one.
-static void list_first(const char *text, char *out, size_t out_size) {
-    const char *p = skip_whitespace(text);
-    char word[512] = {0};
-    int n = 0;
-    if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) {
-        out[0] = '\0';
-        return;
-    }
-    snprintf(out, out_size, "%s", word);
-}
-
-// LAST of a list/word: the final whitespace-delimited element.
-static void list_last(const char *text, char *out, size_t out_size) {
-    out[0] = '\0';
-    const char *p = text;
-    while (*p) {
-        p = skip_whitespace(p);
-        if (*p == '\0') break;
-        char word[512] = {0};
-        int n = 0;
-        if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) break;
-        snprintf(out, out_size, "%s", word);
-        p += n;
-    }
-}
-
-// BUTFIRST of a list/word: every element after the first, still
-// single-space-joined (the input is assumed already normalized that way,
-// since it always comes from a word value or a nested list operator).
-static void list_butfirst(const char *text, char *out, size_t out_size) {
-    const char *p = skip_whitespace(text);
-    char first[512] = {0};
-    int n = 0;
-    if (sscanf(p, "%511s%n", first, &n) != 1 || n == 0) {
-        out[0] = '\0';
-        return;
-    }
-    p = skip_whitespace(p + n);
-    snprintf(out, out_size, "%s", p);
-}
-
-// COUNT of a list/word: the number of whitespace-delimited elements.
-static int list_count(const char *text) {
-    int count = 0;
-    const char *p = text;
-    while (*p) {
-        p = skip_whitespace(p);
-        if (*p == '\0') break;
-        char word[512] = {0};
-        int n = 0;
-        if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) break;
-        count++;
-        p += n;
-    }
-    return count;
-}
-
 // WORD: concatenate two words directly, with no separating space — pure
-// string concatenation (WORD "hello "world -> "helloworld).
+// string concatenation (WORD "hello "world -> "helloworld). Only
+// accepts word/number arguments; a list argument is a reported error
+// (see the WORD branch in parse_factor) rather than silently
+// stringifying its structure away.
 static void list_word(const char *a, const char *b, char *out, size_t out_size) {
     snprintf(out, out_size, "%s%s", a, b);
 }
 
-// SENTENCE/SE and LIST: combine two list/word values into one flat list,
-// joined by a single space (and skipping the space if either side is
-// empty). Since a list here is already flat, single-space-joined text
-// with no separate list type (see the comment above), SENTENCE and
-// LIST-style construction are the same operation — there's no nested
-// element to distinguish them from each other.
-static void list_sentence(const char *a, const char *b, char *out, size_t out_size) {
-    if (a[0] == '\0') {
-        snprintf(out, out_size, "%s", b);
-    } else if (b[0] == '\0') {
-        snprintf(out, out_size, "%s", a);
-    } else {
-        snprintf(out, out_size, "%s %s", a, b);
+// SENTENCE/SE: splice two values into one flat list — a LIST-typed
+// argument contributes its own elements individually; a word/number
+// argument contributes itself as one element. Builds a fresh top-level
+// spine (copying each spliced-in node via list_node_copy) so the result
+// doesn't alias into (or get corrupted by) whatever `a` and `b` came
+// from.
+static Value list_sentence(LogoApp *app, Value a, Value b) {
+    int new_head = -1;
+    int *next_slot = &new_head;
+    Value parts[2] = {a, b};
+
+    for (int p = 0; p < 2; p++) {
+        if (parts[p].type == VALUE_LIST) {
+            for (int idx = parts[p].list_head; idx != -1; idx = app->list_pool[idx].next) {
+                int copy = list_node_copy(app, idx);
+                if (copy < 0) return list_pool_exhausted_error(app);
+                *next_slot = copy;
+                next_slot = &app->list_pool[copy].next;
+            }
+        } else {
+            int node = list_node_from_value(app, parts[p]);
+            if (node < 0) return list_pool_exhausted_error(app);
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
     }
+    return list_value(new_head);
 }
 
-// FPUT: prepend `thing` as a new first element of `list`.
-static void list_fput(const char *thing, const char *list, char *out, size_t out_size) {
-    list_sentence(thing, list, out, out_size);
+// LIST: combine two values into a new 2-element list, each argument
+// becoming exactly one element regardless of whether it's itself a list
+// — unlike SENTENCE above, this never splices. This is the whole reason
+// SENTENCE and LIST used to be the same operation before nested lists
+// existed: there was no such thing yet as "wrap a list as a single
+// element".
+static Value list_wrap_pair(LogoApp *app, Value a, Value b) {
+    int node_a = list_node_from_value(app, a);
+    if (node_a < 0) return list_pool_exhausted_error(app);
+    int node_b = list_node_from_value(app, b);
+    if (node_b < 0) return list_pool_exhausted_error(app);
+    app->list_pool[node_a].next = node_b;
+    return list_value(node_a);
 }
 
-// LPUT: append `thing` as a new last element of `list`.
-static void list_lput(const char *thing, const char *list, char *out, size_t out_size) {
-    list_sentence(list, thing, out, out_size);
+// FPUT: prepend `thing` as a new first element of `list` (wrapping
+// `list` as a one-element list first if it isn't already a LIST value —
+// same convention FIRST/LAST/BUTFIRST/COUNT use for a bare word/number).
+// Just one new node: its `next` points straight at the existing chain,
+// which is never touched.
+static Value list_fput(LogoApp *app, Value thing, Value list) {
+    int list_head = (list.type == VALUE_LIST) ? list.list_head : list_node_from_value(app, list);
+    if (list.type != VALUE_LIST && list_head < 0) return list_pool_exhausted_error(app);
+
+    int new_node = list_node_from_value(app, thing);
+    if (new_node < 0) return list_pool_exhausted_error(app);
+    app->list_pool[new_node].next = list_head;
+    return list_value(new_node);
+}
+
+// LPUT: append `thing` as a new last element of `list` (same wrapping
+// convention as FPUT above). Unlike FPUT, appending means copying the
+// whole spine — an existing node's `next` can't be repointed without
+// corrupting whatever else already shares that chain — then attaching a
+// fresh node for `thing` at the tail.
+static Value list_lput(LogoApp *app, Value thing, Value list) {
+    int src_head = (list.type == VALUE_LIST) ? list.list_head : list_node_from_value(app, list);
+    if (list.type != VALUE_LIST && src_head < 0) return list_pool_exhausted_error(app);
+
+    int new_head = -1;
+    int *next_slot = &new_head;
+    for (int idx = src_head; idx != -1; idx = app->list_pool[idx].next) {
+        int copy = list_node_copy(app, idx);
+        if (copy < 0) return list_pool_exhausted_error(app);
+        *next_slot = copy;
+        next_slot = &app->list_pool[copy].next;
+    }
+
+    int new_node = list_node_from_value(app, thing);
+    if (new_node < 0) return list_pool_exhausted_error(app);
+    *next_slot = new_node;
+    return list_value(new_head);
 }
 
 // Parse a single value: a parenthesized expression, a unary +/-, a "word
@@ -418,91 +561,84 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         return word_value(word);
     }
     if (**ptr == '[') {
-        char word[512] = {0};
-        const char *after = extract_word_list(*ptr, word, sizeof(word));
+        int head;
+        const char *after = parse_list_literal(app, *ptr, &head);
         if (after != NULL) {
             *ptr = after;
-            return word_value(word);
+            return list_value(head);
         }
         append_output(app, "[ list ]: missing closing ] or too long\n");
         return word_value("");
     }
     if (consume_keyword(ptr, "BUTFIRST")) {
         Value arg = parse_factor(app, ptr);
-        char text[512];
-        value_to_text(&arg, text, sizeof(text));
-        Value result = {0};
-        result.is_word = TRUE;
-        list_butfirst(text, result.word, sizeof(result.word));
-        return result;
+        if (arg.type == VALUE_LIST) {
+            return list_value(arg.list_head < 0 ? -1 : app->list_pool[arg.list_head].next);
+        }
+        return list_value(-1); // BUTFIRST of a one-element (bare word/number) list is empty
     }
     if (consume_keyword(ptr, "FIRST")) {
         Value arg = parse_factor(app, ptr);
-        char text[512];
-        value_to_text(&arg, text, sizeof(text));
-        Value result = {0};
-        result.is_word = TRUE;
-        list_first(text, result.word, sizeof(result.word));
-        return result;
+        if (arg.type == VALUE_LIST) {
+            if (arg.list_head < 0) return word_value("");
+            return list_node_to_value(&app->list_pool[arg.list_head]);
+        }
+        return arg; // FIRST of a bare word/number is itself
     }
     if (consume_keyword(ptr, "LAST")) {
         Value arg = parse_factor(app, ptr);
-        char text[512];
-        value_to_text(&arg, text, sizeof(text));
-        Value result = {0};
-        result.is_word = TRUE;
-        list_last(text, result.word, sizeof(result.word));
-        return result;
+        if (arg.type == VALUE_LIST) {
+            if (arg.list_head < 0) return word_value("");
+            int idx = arg.list_head;
+            while (app->list_pool[idx].next != -1) idx = app->list_pool[idx].next;
+            return list_node_to_value(&app->list_pool[idx]);
+        }
+        return arg; // LAST of a bare word/number is itself
     }
     if (consume_keyword(ptr, "COUNT")) {
         Value arg = parse_factor(app, ptr);
-        char text[512];
-        value_to_text(&arg, text, sizeof(text));
-        return number_value(list_count(text));
+        if (arg.type == VALUE_LIST) {
+            int count = 0;
+            for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
+            return number_value(count);
+        }
+        return number_value(1); // a bare word/number counts as a one-element list
     }
     if (consume_keyword(ptr, "FPUT")) {
         Value thing = parse_factor(app, ptr);
         Value list = parse_factor(app, ptr);
-        char thing_text[512], list_text[512];
-        value_to_text(&thing, thing_text, sizeof(thing_text));
-        value_to_text(&list, list_text, sizeof(list_text));
-        Value result = {0};
-        result.is_word = TRUE;
-        list_fput(thing_text, list_text, result.word, sizeof(result.word));
-        return result;
+        return list_fput(app, thing, list);
     }
     if (consume_keyword(ptr, "LPUT")) {
         Value thing = parse_factor(app, ptr);
         Value list = parse_factor(app, ptr);
-        char thing_text[512], list_text[512];
-        value_to_text(&thing, thing_text, sizeof(thing_text));
-        value_to_text(&list, list_text, sizeof(list_text));
-        Value result = {0};
-        result.is_word = TRUE;
-        list_lput(thing_text, list_text, result.word, sizeof(result.word));
-        return result;
+        return list_lput(app, thing, list);
     }
     if (consume_keyword(ptr, "WORD")) {
         Value a = parse_factor(app, ptr);
         Value b = parse_factor(app, ptr);
+        if (a.type == VALUE_LIST || b.type == VALUE_LIST) {
+            append_output(app, "WORD: expected words, not a list\n");
+            return word_value("");
+        }
         char a_text[512], b_text[512];
-        value_to_text(&a, a_text, sizeof(a_text));
-        value_to_text(&b, b_text, sizeof(b_text));
+        value_to_text(app, &a, a_text, sizeof(a_text));
+        value_to_text(app, &b, b_text, sizeof(b_text));
         Value result = {0};
-        result.is_word = TRUE;
+        result.type = VALUE_WORD;
+        result.list_head = -1;
         list_word(a_text, b_text, result.word, sizeof(result.word));
         return result;
     }
-    if (consume_keyword(ptr, "SENTENCE") || consume_keyword(ptr, "SE") || consume_keyword(ptr, "LIST")) {
+    if (consume_keyword(ptr, "SENTENCE") || consume_keyword(ptr, "SE")) {
         Value a = parse_factor(app, ptr);
         Value b = parse_factor(app, ptr);
-        char a_text[512], b_text[512];
-        value_to_text(&a, a_text, sizeof(a_text));
-        value_to_text(&b, b_text, sizeof(b_text));
-        Value result = {0};
-        result.is_word = TRUE;
-        list_sentence(a_text, b_text, result.word, sizeof(result.word));
-        return result;
+        return list_sentence(app, a, b);
+    }
+    if (consume_keyword(ptr, "LIST")) {
+        Value a = parse_factor(app, ptr);
+        Value b = parse_factor(app, ptr);
+        return list_wrap_pair(app, a, b);
     }
     if (**ptr == ':') {
         (*ptr)++;
@@ -514,10 +650,12 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         }
         name[i] = '\0';
         Variable *v = find_var(app, name);
-        if (v != NULL && v->type == VALUE_WORD) {
-            return word_value(v->word);
+        if (v != NULL) {
+            if (v->type == VALUE_WORD) return word_value(v->word);
+            if (v->type == VALUE_LIST) return list_value(v->list_head);
+            return number_value(v->number);
         }
-        return number_value(v != NULL ? v->number : 0);
+        return number_value(0);
     }
 
     char *end;
@@ -592,12 +730,13 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
         }
         Value right = parse_expr(app, ptr);
 
-        if (left.is_word || right.is_word) {
-            // Words only support = and <>; a text comparison for the
-            // rest wouldn't be meaningful, so they just report unequal.
+        if (left.type != VALUE_NUMBER || right.type != VALUE_NUMBER) {
+            // Words/lists only support = and <>; a text comparison for
+            // the rest wouldn't be meaningful, so they just report
+            // unequal.
             char left_text[512], right_text[512];
-            value_to_text(&left, left_text, sizeof(left_text));
-            value_to_text(&right, right_text, sizeof(right_text));
+            value_to_text(app, &left, left_text, sizeof(left_text));
+            value_to_text(app, &right, right_text, sizeof(right_text));
             int equal = strcasecmp(left_text, right_text) == 0;
             if (op1 == '=') return equal;
             if (op1 == '<' && op2 == '>') return !equal;
@@ -612,7 +751,8 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
         return left.number > right.number;
     }
 
-    return left.is_word ? (left.word[0] != '\0') : (left.number != 0);
+    if (left.type == VALUE_LIST) return left.list_head != -1;
+    return left.type == VALUE_WORD ? (left.word[0] != '\0') : (left.number != 0);
 }
 
 // NOT <bool> | comparison — NOT binds tighter than AND/OR and can nest
@@ -911,8 +1051,10 @@ void eval_logo(LogoApp *app, const char *code) {
             if (sscanf(ptr, "%63s%n", varname, &read_bytes) == 1 && varname[0] == '"') {
                 ptr += read_bytes;
                 Value val = parse_expr(app, &ptr);
-                if (val.is_word) {
+                if (val.type == VALUE_WORD) {
                     set_var_word(app, varname + 1, val.word);
+                } else if (val.type == VALUE_LIST) {
+                    set_var_list(app, varname + 1, val.list_head);
                 } else {
                     set_var(app, varname + 1, val.number);
                 }
@@ -1011,7 +1153,7 @@ void eval_logo(LogoApp *app, const char *code) {
         else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {
             Value val = parse_expr(app, &ptr);
             char line[512];
-            value_to_text(&val, line, sizeof(line));
+            value_to_text(app, &val, line, sizeof(line));
             append_output(app, line);
             append_output(app, "\n");
         }

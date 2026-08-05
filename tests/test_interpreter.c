@@ -374,6 +374,81 @@ TEST(test_list_construction_via_make_and_nesting) {
     CHECK_STREQ(captured_output, "helloworld\na\n");
 }
 
+// --- True nested lists ---
+
+TEST(test_print_nested_list_literal) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT [a [b c] d]");
+    CHECK_STREQ(captured_output, "a [b c] d\n");
+}
+
+TEST(test_count_of_nested_list_counts_top_level_only) {
+    // A regression test for a real bug in the pre-nested-lists code: the
+    // old flatten-by-whitespace tokenizer silently miscounted this as 4
+    // ("a", "[b", "c]", "d") instead of the correct 3 top-level elements.
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT COUNT [a [b c] d]");
+    CHECK_STREQ(captured_output, "3\n");
+}
+
+TEST(test_first_and_last_can_return_a_sublist) {
+    // A sublist FIRST/LAST returns prints unbracketed if it's PRINT's own
+    // top-level value (same "no brackets at the top level" rule as any
+    // other list) -- but bracketed once it's nested as an element inside
+    // something larger, here via LIST.
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "PRINT FIRST [[1 2] 3]\n"
+        "PRINT LAST [1 2 [3 4]]\n"
+        "PRINT LIST FIRST [[1 2] 3] \"x");
+    CHECK_STREQ(captured_output, "1 2\n3 4\n[1 2] x\n");
+}
+
+TEST(test_butfirst_preserves_a_sublist_element) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT BUTFIRST [a [b c] d]");
+    CHECK_STREQ(captured_output, "[b c] d\n");
+}
+
+TEST(test_sentence_splices_but_list_wraps) {
+    // The whole point of true nesting: SENTENCE and LIST finally differ.
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "PRINT SENTENCE [1 2] [3 4]\n"
+        "PRINT LIST [1 2] [3 4]");
+    CHECK_STREQ(captured_output, "1 2 3 4\n[1 2] [3 4]\n");
+}
+
+TEST(test_fput_a_list_creates_genuine_nesting) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT FPUT [1 2] [3 4]");
+    CHECK_STREQ(captured_output, "[1 2] 3 4\n");
+}
+
+TEST(test_lput_a_list_creates_genuine_nesting) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT LPUT [3 4] [1 2]");
+    CHECK_STREQ(captured_output, "1 2 [3 4]\n");
+}
+
+TEST(test_make_aliases_a_nested_list) {
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"a [1 [2 3]]\nMAKE \"b :a\nPRINT :b");
+    CHECK_STREQ(captured_output, "1 [2 3]\n");
+}
+
+TEST(test_word_on_a_list_argument_reports_an_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "PRINT WORD [1 2] \"x");
+    CHECK_CONTAINS(captured_output, "WORD: expected words, not a list");
+}
+
+TEST(test_list_pool_exhaustion_reports_an_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"x []\nREPEAT 9000 [MAKE \"x FPUT 1 :x]");
+    CHECK_CONTAINS(captured_output, "list storage full");
+}
+
 // --- Words/lists in numeric contexts ---
 
 TEST(test_forward_with_list_operator_argument) {
@@ -520,6 +595,17 @@ int main(void) {
     RUN(test_sentence_joins_with_a_space);
     RUN(test_fput_prepends_and_lput_appends);
     RUN(test_list_construction_via_make_and_nesting);
+
+    RUN(test_print_nested_list_literal);
+    RUN(test_count_of_nested_list_counts_top_level_only);
+    RUN(test_first_and_last_can_return_a_sublist);
+    RUN(test_butfirst_preserves_a_sublist_element);
+    RUN(test_sentence_splices_but_list_wraps);
+    RUN(test_fput_a_list_creates_genuine_nesting);
+    RUN(test_lput_a_list_creates_genuine_nesting);
+    RUN(test_make_aliases_a_nested_list);
+    RUN(test_word_on_a_list_argument_reports_an_error);
+    RUN(test_list_pool_exhaustion_reports_an_error);
 
     RUN(test_forward_with_list_operator_argument);
     RUN(test_repeat_count_from_list_operator);

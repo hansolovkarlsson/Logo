@@ -1,0 +1,25 @@
+; True nested lists: a list can now contain another list as an element,
+; instead of everything always flattening to space-joined text.
+
+PRINT [a [b c] d]
+PRINT COUNT [a [b c] d]
+
+PRINT FIRST [[1 2] 3]
+PRINT LAST [1 2 [3 4]]
+PRINT BUTFIRST [a [b c] d]
+
+; SENTENCE and LIST finally differ now that nesting exists.
+PRINT SENTENCE [1 2] [3 4]
+PRINT LIST [1 2] [3 4]
+
+; FPUT/LPUT with a list as the thing being added creates real nesting.
+PRINT FPUT [1 2] [3 4]
+PRINT LPUT [3 4] [1 2]
+
+; Aliasing a nested list via MAKE "b :a is just copying a reference.
+MAKE "a [1 [2 3]]
+MAKE "b :a
+PRINT :b
+
+; WORD refuses a list argument instead of silently flattening it.
+PRINT WORD [1 2] "x

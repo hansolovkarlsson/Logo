@@ -18,6 +18,7 @@
 #define MAX_SCOPE_DEPTH 200
 #define MAX_HISTORY 200
 #define MAX_TURTLES 10
+#define MAX_LIST_NODES 8192
 
 // One drawn segment of the turtle's trail, in the pen color/width active
 // when it was drawn (so a drawing can mix both across SETPENCOLOR and
@@ -47,14 +48,16 @@ typedef struct {
     char body[8192];
 } Procedure;
 
-// A variable's value is either a number or a word (single-token string,
-// no spaces) — see the "Words" section of docs/LANGUAGE.md. Arithmetic
-// (parse_expr and everything built on it, in interpreter.c) coerces a
-// word by reading the number its text starts with, falling back to 0 if
-// it doesn't start with one at all.
+// A variable's value is a number, a word (single-token string, no
+// spaces), or a list — see the "Words & lists" section of
+// docs/LANGUAGE.md. Arithmetic (parse_expr and everything built on it,
+// in interpreter.c) coerces a word by reading the number its text starts
+// with, falling back to 0 if it doesn't start with one at all (a list
+// coerces to 0, having no meaningful numeric reading).
 typedef enum {
     VALUE_NUMBER,
     VALUE_WORD,
+    VALUE_LIST,
 } ValueType;
 
 // A variable binding: a global (MAKE "name value / :name) or one entry in
@@ -64,7 +67,33 @@ typedef struct {
     ValueType type;
     double number;
     char word[512];
+    int list_head; // type == VALUE_LIST: index into LogoApp.list_pool, -1 = empty list
 } Variable;
+
+// One element of a Logo list ([a [b c] d]): a number, a word, or a
+// nested sublist, linked to the next element of the same list — a
+// persistent singly-linked cons cell in a fixed pool (LogoApp.list_pool)
+// rather than a malloc'd tree, to stay consistent with this codebase's
+// no-dynamic-allocation style. Nodes are never mutated after being
+// built (the language has no in-place list-mutation op), which is what
+// makes that safe: a list value can be freely aliased by index (MAKE "b
+// :a just copies a head index), and building a new list (SENTENCE, LIST,
+// FPUT, LPUT) only needs to allocate fresh top-level nodes for its own
+// new shape, reusing any nested sublist's existing nodes by index
+// instead of deep-copying them.
+typedef enum {
+    LIST_ELEM_NUMBER,
+    LIST_ELEM_WORD,
+    LIST_ELEM_LIST,
+} ListElemType;
+
+typedef struct {
+    ListElemType type;
+    double number;    // type == LIST_ELEM_NUMBER
+    char word[512];    // type == LIST_ELEM_WORD
+    int sublist_head;   // type == LIST_ELEM_LIST: index into list_pool, -1 = empty
+    int next;             // index of the next node in this same list, -1 = end
+} ListNode;
 
 // A local scope pushed for one procedure call: its parameters bound to
 // their argument values. :name lookups search the scope stack from the
@@ -98,6 +127,12 @@ typedef struct LogoApp {
 
     Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call
     int scope_depth;
+
+    // Backing storage for every list value in the program (see ListNode
+    // above): a bump allocator, never reclaimed — same "generously sized,
+    // loud error if exceeded" policy as every other fixed buffer here.
+    ListNode list_pool[MAX_LIST_NODES];
+    int list_pool_count;
 
     // Canvas background color (0.0-1.0 per channel; set via
     // SETBACKGROUND/SETBG). A canvas-wide property, not the turtle's.
