@@ -1,0 +1,5 @@
+REPEAT 4 [FD 10 RT 90
+PRINT "still-alive
+
+IF 1 = 1 [PRINT "hi
+PRINT "also-still-alive

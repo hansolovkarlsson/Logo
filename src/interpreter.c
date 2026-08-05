@@ -24,7 +24,11 @@ static const char* skip_whitespace(const char *str) {
 
 // Parse a bracketed [ ... ] block, honoring nested brackets, and copy its
 // contents into buffer. Returns the position just past the closing ']',
-// or NULL if str doesn't start with '['.
+// or NULL if str doesn't start with '[', the block is never closed
+// before the input ends, or its content doesn't fit in buf_size. The
+// latter two used to be silently accepted with an unterminated/truncated
+// buffer instead of failing — every caller already treats NULL as "report
+// an error", so fixing this here fixes it everywhere at once.
 static const char* extract_block(const char *str, char *buffer, size_t buf_size) {
     str = skip_whitespace(str);
     if (*str != '[') return NULL;
@@ -32,16 +36,23 @@ static const char* extract_block(const char *str, char *buffer, size_t buf_size)
     str++;
     int depth = 1;
     size_t idx = 0;
+    gboolean truncated = FALSE;
 
     while (*str && depth > 0) {
         if (*str == '[') depth++;
         else if (*str == ']') depth--;
 
         if (depth > 0) {
-            if (idx < buf_size - 1) buffer[idx++] = *str;
+            if (idx < buf_size - 1) {
+                buffer[idx++] = *str;
+            } else {
+                truncated = TRUE;
+            }
             str++;
         }
     }
+
+    if (depth > 0 || truncated) return NULL; // unterminated, or didn't fit
 
     buffer[idx] = '\0';
     if (*str == ']') str++;
@@ -55,7 +66,7 @@ static const char* extract_block(const char *str, char *buffer, size_t buf_size)
 // MAKE "name [...], and for word comparisons. Returns the position just
 // past the closing ']', or NULL if `str` doesn't start with '['.
 static const char* extract_word_list(const char *str, char *out, size_t out_size) {
-    char list_text[256] = {0};
+    char list_text[2048] = {0};
     const char *after = extract_block(str, list_text, sizeof(list_text));
     if (after == NULL) return NULL;
 
@@ -65,9 +76,9 @@ static const char* extract_word_list(const char *str, char *out, size_t out_size
     while (*p) {
         p = skip_whitespace(p);
         if (*p == '\0') break;
-        char word[64] = {0};
+        char word[512] = {0};
         int n = 0;
-        if (sscanf(p, "%63s%n", word, &n) != 1 || n == 0) break;
+        if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) break;
         if (!first_word) strncat(out, " ", out_size - strlen(out) - 1);
         strncat(out, word, out_size - strlen(out) - 1);
         first_word = FALSE;
@@ -245,9 +256,9 @@ static gboolean consume_keyword(const char **ptr, const char *keyword) {
 // if there isn't one.
 static void list_first(const char *text, char *out, size_t out_size) {
     const char *p = skip_whitespace(text);
-    char word[128] = {0};
+    char word[512] = {0};
     int n = 0;
-    if (sscanf(p, "%127s%n", word, &n) != 1 || n == 0) {
+    if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) {
         out[0] = '\0';
         return;
     }
@@ -261,9 +272,9 @@ static void list_last(const char *text, char *out, size_t out_size) {
     while (*p) {
         p = skip_whitespace(p);
         if (*p == '\0') break;
-        char word[128] = {0};
+        char word[512] = {0};
         int n = 0;
-        if (sscanf(p, "%127s%n", word, &n) != 1 || n == 0) break;
+        if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) break;
         snprintf(out, out_size, "%s", word);
         p += n;
     }
@@ -274,9 +285,9 @@ static void list_last(const char *text, char *out, size_t out_size) {
 // since it always comes from a word value or a nested list operator).
 static void list_butfirst(const char *text, char *out, size_t out_size) {
     const char *p = skip_whitespace(text);
-    char first[128] = {0};
+    char first[512] = {0};
     int n = 0;
-    if (sscanf(p, "%127s%n", first, &n) != 1 || n == 0) {
+    if (sscanf(p, "%511s%n", first, &n) != 1 || n == 0) {
         out[0] = '\0';
         return;
     }
@@ -291,9 +302,9 @@ static int list_count(const char *text) {
     while (*p) {
         p = skip_whitespace(p);
         if (*p == '\0') break;
-        char word[128] = {0};
+        char word[512] = {0};
         int n = 0;
-        if (sscanf(p, "%127s%n", word, &n) != 1 || n == 0) break;
+        if (sscanf(p, "%511s%n", word, &n) != 1 || n == 0) break;
         count++;
         p += n;
     }
@@ -330,19 +341,19 @@ static void parse_list_text(LogoApp *app, const char **ptr, char *out, size_t ou
     }
 
     if (consume_keyword(ptr, "BUTFIRST")) {
-        char inner[256];
+        char inner[1024];
         parse_list_text(app, ptr, inner, sizeof(inner));
         list_butfirst(inner, out, out_size);
         return;
     }
     if (consume_keyword(ptr, "FIRST")) {
-        char inner[256];
+        char inner[1024];
         parse_list_text(app, ptr, inner, sizeof(inner));
         list_first(inner, out, out_size);
         return;
     }
     if (consume_keyword(ptr, "LAST")) {
-        char inner[256];
+        char inner[1024];
         parse_list_text(app, ptr, inner, sizeof(inner));
         list_last(inner, out, out_size);
         return;
@@ -450,7 +461,7 @@ static double parse_expr(LogoApp *app, const char **ptr) {
 typedef struct {
     gboolean is_word;
     double number;
-    char word[128];
+    char word[512];
 } Operand;
 
 // Parse one comparison operand: a "word literal, a [multi-word] literal,
@@ -481,28 +492,28 @@ static Operand parse_operand(LogoApp *app, const char **ptr) {
     }
 
     if (consume_keyword(ptr, "BUTFIRST")) {
-        char text[256];
+        char text[1024];
         parse_list_text(app, ptr, text, sizeof(text));
         list_butfirst(text, result.word, sizeof(result.word));
         result.is_word = TRUE;
         return result;
     }
     if (consume_keyword(ptr, "FIRST")) {
-        char text[256];
+        char text[1024];
         parse_list_text(app, ptr, text, sizeof(text));
         list_first(text, result.word, sizeof(result.word));
         result.is_word = TRUE;
         return result;
     }
     if (consume_keyword(ptr, "LAST")) {
-        char text[256];
+        char text[1024];
         parse_list_text(app, ptr, text, sizeof(text));
         list_last(text, result.word, sizeof(result.word));
         result.is_word = TRUE;
         return result;
     }
     if (consume_keyword(ptr, "COUNT")) {
-        char text[256];
+        char text[1024];
         parse_list_text(app, ptr, text, sizeof(text));
         result.number = list_count(text);
         result.is_word = FALSE;
@@ -565,7 +576,7 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
         if (left.is_word || right.is_word) {
             // Words only support = and <>; a text comparison for the
             // rest wouldn't be meaningful, so they just report unequal.
-            char left_text[128], right_text[128];
+            char left_text[512], right_text[512];
             operand_to_text(&left, left_text, sizeof(left_text));
             operand_to_text(&right, right_text, sizeof(right_text));
             int equal = strcasecmp(left_text, right_text) == 0;
@@ -637,10 +648,10 @@ void eval_logo(LogoApp *app, const char *code) {
         ptr = skip_whitespace(ptr);
         if (*ptr == '\0') break;
 
-        char token[64] = {0};
+        char token[128] = {0};
         int read_bytes = 0;
 
-        if (sscanf(ptr, "%63s%n", token, &read_bytes) != 1) break;
+        if (sscanf(ptr, "%127s%n", token, &read_bytes) != 1) break;
         ptr += read_bytes;
 
         // 1. PROCEDURE DEFINITION: TO <NAME> [:PARAM ...] ... END
@@ -683,6 +694,10 @@ void eval_logo(LogoApp *app, const char *code) {
                         if (body_len < sizeof(proc->body)) {
                             strncpy(proc->body, ptr, body_len);
                             proc->body[body_len] = '\0';
+                        } else {
+                            append_output(app, "TO ");
+                            append_output(app, name_buf);
+                            append_output(app, ": procedure body too long, not defined\n");
                         }
                     } else {
                         append_output(app, "Too many procedures defined, TO ignored\n");
@@ -719,8 +734,8 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         // 1c. LOAD "path — read a file and run it as Logo source
         else if (strcasecmp(token, "LOAD") == 0) {
-            char path_buf[256] = {0};
-            if (sscanf(ptr, "%255s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+            char path_buf[512] = {0};
+            if (sscanf(ptr, "%511s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
                 ptr += read_bytes;
 
                 char *contents = NULL;
@@ -738,8 +753,8 @@ void eval_logo(LogoApp *app, const char *code) {
         }
         // 1d. SAVE "path — write all defined procedures out as Logo source
         else if (strcasecmp(token, "SAVE") == 0) {
-            char path_buf[256] = {0};
-            if (sscanf(ptr, "%255s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+            char path_buf[512] = {0};
+            if (sscanf(ptr, "%511s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
                 ptr += read_bytes;
 
                 char *content = serialize_procedures(app);
@@ -760,7 +775,7 @@ void eval_logo(LogoApp *app, const char *code) {
         // 2. REPEAT LOOPS
         else if (strcasecmp(token, "REPEAT") == 0) {
             int count = (int)parse_expr(app, &ptr);
-            char block_body[1024];
+            char block_body[4096];
             const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
 
             if (after_block != NULL) {
@@ -778,12 +793,12 @@ void eval_logo(LogoApp *app, const char *code) {
             double cond = parse_condition(app, &ptr);
             size_t cond_len = (size_t)(ptr - cond_start);
 
-            char cond_text[256] = {0};
+            char cond_text[1024] = {0};
             if (cond_len >= sizeof(cond_text)) cond_len = sizeof(cond_text) - 1;
             memcpy(cond_text, cond_start, cond_len);
             cond_text[cond_len] = '\0';
 
-            char block_body[1024] = {0};
+            char block_body[4096] = {0};
             const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
 
             if (after_block != NULL) {
@@ -877,7 +892,7 @@ void eval_logo(LogoApp *app, const char *code) {
 
                 if (*ptr == '"') {
                     ptr++;
-                    char word[128] = {0};
+                    char word[512] = {0};
                     size_t i = 0;
                     while (*ptr && !isspace((unsigned char)*ptr) && i < sizeof(word) - 1) {
                         word[i++] = *ptr++;
@@ -887,7 +902,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 } else if (*ptr == '[') {
                     // MAKE "name [some words] — a multi-word string, unlike
                     // MAKE "name "word which is a single token.
-                    char word[128] = {0};
+                    char word[512] = {0};
                     const char *after = extract_word_list(ptr, word, sizeof(word));
                     if (after != NULL) {
                         ptr = after;
@@ -896,22 +911,22 @@ void eval_logo(LogoApp *app, const char *code) {
                         append_output(app, "MAKE: expected [ words ]\n");
                     }
                 } else if (consume_keyword(&ptr, "BUTFIRST")) {
-                    char text[256], word[128];
+                    char text[1024], word[512];
                     parse_list_text(app, &ptr, text, sizeof(text));
                     list_butfirst(text, word, sizeof(word));
                     set_var_word(app, varname + 1, word);
                 } else if (consume_keyword(&ptr, "FIRST")) {
-                    char text[256], word[128];
+                    char text[1024], word[512];
                     parse_list_text(app, &ptr, text, sizeof(text));
                     list_first(text, word, sizeof(word));
                     set_var_word(app, varname + 1, word);
                 } else if (consume_keyword(&ptr, "LAST")) {
-                    char text[256], word[128];
+                    char text[1024], word[512];
                     parse_list_text(app, &ptr, text, sizeof(text));
                     list_last(text, word, sizeof(word));
                     set_var_word(app, varname + 1, word);
                 } else if (consume_keyword(&ptr, "COUNT")) {
-                    char text[256];
+                    char text[1024];
                     parse_list_text(app, &ptr, text, sizeof(text));
                     set_var(app, varname + 1, (double)list_count(text));
                 } else if (*ptr == ':') {
@@ -949,12 +964,12 @@ void eval_logo(LogoApp *app, const char *code) {
         else if (strcasecmp(token, "IF") == 0 || strcasecmp(token, "IFELSE") == 0) {
             double cond = parse_condition(app, &ptr);
 
-            char true_body[1024] = {0};
+            char true_body[4096] = {0};
             const char *after_true = extract_block(ptr, true_body, sizeof(true_body));
 
             if (after_true != NULL) {
                 ptr = after_true;
-                char false_body[1024] = {0};
+                char false_body[4096] = {0};
                 int has_false = 0;
 
                 const char *lookahead = skip_whitespace(ptr);
@@ -1033,7 +1048,8 @@ void eval_logo(LogoApp *app, const char *code) {
         // 3d. OUTPUT: PRINT "word   PRINT [list of words]   or   PRINT <expr>
         else if (strcasecmp(token, "PRINT") == 0 || strcasecmp(token, "PR") == 0) {
             ptr = skip_whitespace(ptr);
-            char line[128];
+            char line[512] = {0};
+            gboolean skip_output = FALSE;
 
             if (*ptr == '"') {
                 ptr++;
@@ -1047,21 +1063,26 @@ void eval_logo(LogoApp *app, const char *code) {
                 // spaced — it's not evaluated as code the way REPEAT/IF
                 // blocks are.
                 const char *after = extract_word_list(ptr, line, sizeof(line));
-                if (after != NULL) ptr = after;
+                if (after != NULL) {
+                    ptr = after;
+                } else {
+                    append_output(app, "PRINT: expected [ words ]\n");
+                    skip_output = TRUE;
+                }
             } else if (consume_keyword(&ptr, "BUTFIRST")) {
-                char text[256];
+                char text[1024];
                 parse_list_text(app, &ptr, text, sizeof(text));
                 list_butfirst(text, line, sizeof(line));
             } else if (consume_keyword(&ptr, "FIRST")) {
-                char text[256];
+                char text[1024];
                 parse_list_text(app, &ptr, text, sizeof(text));
                 list_first(text, line, sizeof(line));
             } else if (consume_keyword(&ptr, "LAST")) {
-                char text[256];
+                char text[1024];
                 parse_list_text(app, &ptr, text, sizeof(text));
                 list_last(text, line, sizeof(line));
             } else if (consume_keyword(&ptr, "COUNT")) {
-                char text[256];
+                char text[1024];
                 parse_list_text(app, &ptr, text, sizeof(text));
                 snprintf(line, sizeof(line), "%d", list_count(text));
             } else if (*ptr == ':') {
@@ -1092,8 +1113,10 @@ void eval_logo(LogoApp *app, const char *code) {
                 snprintf(line, sizeof(line), "%g", val);
             }
 
-            append_output(app, line);
-            append_output(app, "\n");
+            if (!skip_output) {
+                append_output(app, line);
+                append_output(app, "\n");
+            }
         }
         // 4. USER-DEFINED PROCEDURE CALL
         else {

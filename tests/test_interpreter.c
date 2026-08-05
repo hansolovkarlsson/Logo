@@ -362,6 +362,47 @@ TEST(test_make_without_quote_reports_error) {
     CHECK_CONTAINS(captured_output, "MAKE: expected a");
 }
 
+// --- Robustness (fixed-size buffer limits) ---
+//
+// extract_block (shared by REPEAT/WHILE/IF/IFELSE and bracketed list
+// literals) used to treat an unterminated `[` as if it silently extended
+// to the end of the input; it now detects that and reports an error
+// instead of running mangled state.
+
+TEST(test_repeat_unterminated_block_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "REPEAT 4 [FD 10 RT 90");
+    CHECK_CONTAINS(captured_output, "REPEAT: expected [ block ]");
+    CHECK(app.line_count == 0); // the body never ran
+}
+
+TEST(test_if_unterminated_block_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "IF 1 = 1 [PRINT \"hi");
+    CHECK_CONTAINS(captured_output, "IF: expected [ block ]");
+}
+
+TEST(test_while_unterminated_block_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "MAKE \"i 0\nWHILE :i < 3 [PRINT :i");
+    CHECK_CONTAINS(captured_output, "WHILE: expected [ block ]");
+}
+
+TEST(test_to_body_too_long_reports_error) {
+    LogoApp app = new_app();
+    char body[9000];
+    size_t i = 0;
+    while (i + 8 < sizeof(body)) {
+        memcpy(body + i, "PRINT 1\n", 8);
+        i += 8;
+    }
+    body[i] = '\0';
+    char code[10000];
+    snprintf(code, sizeof(code), "TO longproc\n%sEND\n", body);
+    eval_logo(&app, code);
+    CHECK_CONTAINS(captured_output, "longproc: procedure body too long, not defined");
+}
+
 int main(void) {
     RUN(test_forward_moves_and_draws);
     RUN(test_penup_moves_without_drawing);
@@ -404,6 +445,11 @@ int main(void) {
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);
     RUN(test_make_without_quote_reports_error);
+
+    RUN(test_repeat_unterminated_block_reports_error);
+    RUN(test_if_unterminated_block_reports_error);
+    RUN(test_while_unterminated_block_reports_error);
+    RUN(test_to_body_too_long_reports_error);
 
     if (failures == 0) {
         printf("All tests passed.\n");

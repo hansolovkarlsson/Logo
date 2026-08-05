@@ -25,9 +25,6 @@ rather than marking it "done" in place.
 
 ## Robustness
 
-- [ ] Replace the fixed-size C buffers (`token[64]`, procedure `body[2048]`,
-  block bodies `[1024]`) with something that can't silently truncate long
-  input.
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).

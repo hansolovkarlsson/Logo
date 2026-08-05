@@ -354,15 +354,25 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   processing the rest of that input, rather than running the dangling body
   as top-level commands.
 - `REPEAT`, `WHILE`, `IF`, and `IFELSE` each print `<COMMAND>: expected [
-  block ]` if the bracketed block is missing or malformed. `IFELSE`
-  additionally prints `IFELSE: expected two [ block ]s` if only one block
-  is given (`IF` doesn't require a second block; `IFELSE` does).
+  block ]` if the bracketed block is missing, unterminated (no matching
+  `]`), or too long to fit the interpreter's internal buffer (4KB — see
+  below). `IFELSE` additionally prints `IFELSE: expected two [ block ]s`
+  if only one block is given (`IF` doesn't require a second block;
+  `IFELSE` does). A bracketed list literal (`PRINT [...]`, `MAKE "name
+  [...]`) that's unterminated or oversized is likewise rejected rather
+  than silently treated as ending at the input's end.
 - `MAKE`, `ERASE`, `LOAD`, and `SAVE` each print `<COMMAND>: expected a
   "name`/`"path` if the required quoted word is missing. `ERASE` also
   prints `ERASE: no such procedure "<name>` if the name isn't defined.
+- `TO <name>: procedure body too long, not defined` if a procedure's body
+  exceeds the interpreter's internal buffer (8KB).
 - Recursion past 200 nested calls prints `Recursion too deep, call
   ignored` (see Variables & scoping above); a `WHILE` past 1,000,000
   iterations prints `WHILE: stopped after too many iterations`.
+- Every internal text buffer (procedure bodies, block bodies, words,
+  variable values, file paths, REPL history entries) is fixed-size but
+  generously sized for normal use; input that would overflow one is
+  rejected with an error above rather than silently truncated.
 
 What's still silent: passing the wrong *kind* of value somewhere (a word
 where a number is expected reads as `0`; see Words above) and any parse

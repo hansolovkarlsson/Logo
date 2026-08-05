@@ -44,7 +44,7 @@ typedef struct {
     char name[32];
     char param_names[MAX_PARAMS][32]; // e.g. :SIZE :ANGLE ...
     int param_count;
-    char body[2048];
+    char body[8192];
 } Procedure;
 
 // A variable's value is either a number or a word (single-token string,
@@ -62,7 +62,7 @@ typedef struct {
     char name[32];
     ValueType type;
     double number;
-    char word[128];
+    char word[512];
 } Variable;
 
 // A local scope pushed for one procedure call: its parameters bound to
@@ -103,10 +103,10 @@ typedef struct LogoApp {
     double bg_r, bg_g, bg_b;
 
     // REPL command history (up/down arrow recall in the entry box).
-    char history[MAX_HISTORY][2048];
+    char history[MAX_HISTORY][8192];
     int history_count;
     int history_pos; // index currently shown; == history_count means "live" (not browsing)
-    char history_draft[2048]; // in-progress text saved when browsing starts
+    char history_draft[8192]; // in-progress text saved when browsing starts
 
     GtkWidget *window;
     GtkWidget *drawing_area;
