@@ -1082,6 +1082,39 @@ void append_output(LogoApp *app, const char *text) {
 
 // --- RECURSIVE INTERPRETER ---
 
+// Push a fresh scope binding proc's parameters to arg_vals, run its
+// body, then pop the scope — shared by an ordinary procedure call and
+// APPLY, which source their argument values differently (parsed
+// positionally from the command line vs. taken from a list) but bind,
+// run, and unwind exactly the same way. Forced inline: extracting this
+// added an extra stack frame to every level of procedure-call recursion
+// (there used to be none — eval_logo just called itself directly),
+// which alone overflowed the stack at the existing, documented 200-call
+// cap under AddressSanitizer. Inlining folds it back into eval_logo's
+// own frame, restoring the original per-level stack cost.
+static inline __attribute__((always_inline)) void call_procedure(LogoApp *app, Procedure *proc, double *arg_vals) {
+    if (app->scope_depth >= MAX_SCOPE_DEPTH) {
+        append_output(app, "Recursion too deep, call ignored\n");
+        return;
+    }
+    // Bind parameters as locals in a fresh scope so they shadow
+    // same-named variables from outer calls or globals, then run the
+    // unmodified procedure body.
+    Scope *scope = &app->scopes[app->scope_depth];
+    scope->count = proc->param_count;
+    for (int p = 0; p < proc->param_count; p++) {
+        // param_names are stored with their leading ':'; strip it.
+        snprintf(scope->vars[p].name, sizeof(scope->vars[p].name), "%s", proc->param_names[p] + 1);
+        scope->vars[p].type = VALUE_NUMBER;
+        scope->vars[p].number = arg_vals[p];
+    }
+    app->scope_depth++;
+
+    eval_logo(app, proc->body);
+
+    app->scope_depth--;
+}
+
 // Tokenize and execute one chunk of Logo source (a REPL line, a
 // procedure body, or a REPEAT/IF/WHILE block), recursing for nested
 // blocks and procedure calls.
@@ -1511,6 +1544,58 @@ void eval_logo(LogoApp *app, const char *code) {
             append_output(app, line);
             append_output(app, "\n");
         }
+        // 3e. RUN thing — executes a stored word/list as Logo source,
+        // exactly as if it had been typed directly: the thing that makes
+        // a list double as a deferred program, not just data. Capped by
+        // run_depth rather than scope_depth, since RUN doesn't push a
+        // scope of its own — run code shares the caller's scope — but
+        // still needs a guard against a self-referential RUN (e.g. MAKE
+        // "x [RUN :x] / RUN :x) blowing the C call stack.
+        else if (strcasecmp(token, "RUN") == 0) {
+            Value val = parse_expr(app, &ptr);
+            if (app->run_depth >= MAX_RUN_DEPTH) {
+                append_output(app, "RUN: too deeply nested, ignored\n");
+            } else {
+                char code_text[4096];
+                value_to_text(app, &val, code_text, sizeof(code_text));
+                app->run_depth++;
+                eval_logo(app, code_text);
+                app->run_depth--;
+            }
+        }
+        // 3f. APPLY "name arglist — calls a procedure with arguments
+        // taken from a list, instead of parsed positionally from the
+        // command line. A non-list argument is treated as a one-element
+        // list, same convention list operators use.
+        else if (strcasecmp(token, "APPLY") == 0) {
+            Value name_val = parse_expr(app, &ptr);
+            Value list_val = parse_expr(app, &ptr);
+            char name_text[64];
+            value_to_text(app, &name_val, name_text, sizeof(name_text));
+            Procedure *proc = find_procedure(app, name_text);
+            if (proc == NULL) {
+                append_output(app, "APPLY: no such procedure \"");
+                append_output(app, name_text);
+                append_output(app, "\n");
+            } else {
+                double arg_vals[MAX_PARAMS];
+                int count = 0;
+                if (list_val.type == VALUE_LIST) {
+                    for (int idx = list_val.list_head; idx != -1 && count < MAX_PARAMS; idx = app->list_pool[idx].next) {
+                        arg_vals[count++] = value_to_number(list_node_to_value(&app->list_pool[idx]));
+                    }
+                } else {
+                    arg_vals[count++] = value_to_number(list_val);
+                }
+                if (count != proc->param_count) {
+                    append_output(app, "APPLY: wrong number of inputs for procedure \"");
+                    append_output(app, name_text);
+                    append_output(app, "\n");
+                } else {
+                    call_procedure(app, proc, arg_vals);
+                }
+            }
+        }
         // 4. USER-DEFINED PROCEDURE CALL
         else {
             Procedure *proc = find_procedure(app, token);
@@ -1523,27 +1608,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 for (int p = 0; p < proc->param_count; p++) {
                     arg_vals[p] = value_to_number(parse_expr(app, &ptr));
                 }
-
-                if (app->scope_depth >= MAX_SCOPE_DEPTH) {
-                    append_output(app, "Recursion too deep, call ignored\n");
-                } else {
-                    // Bind parameters as locals in a fresh scope so they
-                    // shadow same-named variables from outer calls or
-                    // globals, then run the unmodified procedure body.
-                    Scope *scope = &app->scopes[app->scope_depth];
-                    scope->count = proc->param_count;
-                    for (int p = 0; p < proc->param_count; p++) {
-                        // param_names are stored with their leading ':'; strip it.
-                        snprintf(scope->vars[p].name, sizeof(scope->vars[p].name), "%s", proc->param_names[p] + 1);
-                        scope->vars[p].type = VALUE_NUMBER;
-                        scope->vars[p].number = arg_vals[p];
-                    }
-                    app->scope_depth++;
-
-                    eval_logo(app, proc->body);
-
-                    app->scope_depth--;
-                }
+                call_procedure(app, proc, arg_vals);
             } else {
                 append_output(app, "I don't know how to ");
                 append_output(app, token);

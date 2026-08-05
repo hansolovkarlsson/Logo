@@ -361,6 +361,58 @@ TEST(test_local_without_quote_reports_error) {
     CHECK_CONTAINS(captured_output, "LOCAL: expected a");
 }
 
+// --- RUN, APPLY ---
+
+TEST(test_run_executes_a_list_as_code) {
+    LogoApp *app = new_app();
+    eval_logo(app, "RUN [FD 100 RT 90]");
+    CHECK_NEAR(app->turtles[0].x, 250.0);
+    CHECK_NEAR(app->turtles[0].y, 150.0);
+    CHECK_NEAR(app->turtles[0].angle, 90.0);
+}
+
+TEST(test_run_executes_a_stored_variable) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"prog [FD 50 RT 90]\nRUN :prog");
+    CHECK_NEAR(app->turtles[0].y, 200.0);
+    CHECK_NEAR(app->turtles[0].angle, 90.0);
+}
+
+TEST(test_run_handles_nested_blocks) {
+    // A nested list renders back out through value_to_text with its own
+    // brackets (see PRINT of nested lists) -- which happens to mean it's
+    // valid Logo source again, so REPEAT's own [block] round-trips.
+    LogoApp *app = new_app();
+    eval_logo(app, "RUN [REPEAT 4 [FD 10 RT 90]]");
+    CHECK(app->line_count == 4);
+    CHECK_NEAR(app->turtles[0].x, 250.0);
+    CHECK_NEAR(app->turtles[0].y, 250.0);
+}
+
+TEST(test_run_self_reference_is_capped) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"x [RUN :x]\nRUN :x");
+    CHECK_CONTAINS(captured_output, "RUN: too deeply nested, ignored");
+}
+
+TEST(test_apply_calls_procedure_with_list_args) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO add2 :a :b\nPRINT :a + :b\nEND\nAPPLY \"add2 [3 4]");
+    CHECK_STREQ(captured_output, "7\n");
+}
+
+TEST(test_apply_wrong_arg_count_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO add2 :a :b\nPRINT :a + :b\nEND\nAPPLY \"add2 [3]");
+    CHECK_CONTAINS(captured_output, "APPLY: wrong number of inputs");
+}
+
+TEST(test_apply_unknown_procedure_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "APPLY \"nosuch [1]");
+    CHECK_CONTAINS(captured_output, "APPLY: no such procedure");
+}
+
 // --- Conditionals & booleans ---
 
 TEST(test_if_ifelse_comparisons) {
@@ -1207,6 +1259,14 @@ int main(void) {
     RUN(test_local_initializes_to_zero);
     RUN(test_local_outside_procedure_reports_error);
     RUN(test_local_without_quote_reports_error);
+
+    RUN(test_run_executes_a_list_as_code);
+    RUN(test_run_executes_a_stored_variable);
+    RUN(test_run_handles_nested_blocks);
+    RUN(test_run_self_reference_is_capped);
+    RUN(test_apply_calls_procedure_with_list_args);
+    RUN(test_apply_wrong_arg_count_reports_error);
+    RUN(test_apply_unknown_procedure_reports_error);
 
     RUN(test_if_ifelse_comparisons);
     RUN(test_boolean_and_or_not);

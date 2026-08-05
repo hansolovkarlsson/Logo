@@ -12,9 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `RUN`, `APPLY` — execute a stored list as code, or call a
-  procedure/template with a list of arguments. The thing that makes a list
-  double as a deferred program, not just data.
 - [ ] `MAP`, `FOREACH`, `FILTER`, `REDUCE` — higher-order iteration over a
   list, instead of hand-walking it with `FIRST`/`BUTFIRST` inside a `WHILE`.
   Builds on `RUN`/`APPLY` above.
@@ -33,3 +30,13 @@ scoped items first.
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).
+- [ ] `eval_logo`'s 200-call recursion cap (`MAX_SCOPE_DEPTH`) is close to,
+  but not confirmed over, a stack-safety edge under AddressSanitizer —
+  found 2026-08-05 while stress-testing `RUN`/`APPLY`. `eval_logo` is one
+  giant function with every command as a branch, compiled at `-O0`, so
+  each new feature's locals add to its per-call stack frame even though
+  only one branch runs per call; 200 levels of recursion now overflows
+  under ASan's inflated overhead, though every plain (non-ASan) run has
+  passed cleanly. Left as-is for now rather than lowering the documented
+  cap or splitting `eval_logo` into smaller per-command functions — revisit
+  if a real (non-ASan) crash from deep recursion is ever reported.

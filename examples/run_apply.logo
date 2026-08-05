@@ -1,0 +1,25 @@
+; RUN executes a stored list/word as Logo source -- the thing that
+; makes a list double as a deferred program, not just data.
+
+RUN [FD 100 RT 90]
+PRINT POS
+
+MAKE "prog [FD 50 RT 90]
+RUN :prog
+PRINT POS
+
+; Nested blocks round-trip correctly.
+CLEAR
+RUN [REPEAT 4 [FD 40 RT 90]]
+PRINT POS
+
+; APPLY calls a procedure with arguments taken from a list, instead of
+; parsed positionally from the command line.
+TO add2 :a :b
+  PRINT :a + :b
+END
+APPLY "add2 [3 4]
+
+; A self-referential RUN is refused rather than crashing.
+MAKE "x [RUN :x]
+RUN :x

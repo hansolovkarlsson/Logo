@@ -16,6 +16,14 @@
 #define MAX_WHILE_ITERATIONS 1000000
 #define MAX_PARAMS 8
 #define MAX_SCOPE_DEPTH 200
+// Deliberately much lower than MAX_SCOPE_DEPTH: each nested RUN carries
+// a 4KB local text buffer that ordinary procedure-call recursion
+// doesn't, so it costs far more stack per level -- confirmed by
+// AddressSanitizer overflowing around depth ~186 when this reused
+// MAX_SCOPE_DEPTH (200). RUN self-reference is always a mistake in the
+// Logo program, never a legitimate deep-recursion technique the way
+// procedure recursion can be, so a low cap costs nothing real.
+#define MAX_RUN_DEPTH 50
 #define MAX_HISTORY 200
 #define MAX_TURTLES 10
 #define MAX_LIST_NODES 8192
@@ -138,6 +146,13 @@ typedef struct LogoApp {
 
     Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call
     int scope_depth;
+
+    // How many RUNs are currently nested (RUN doesn't push a Scope of its
+    // own -- run code shares the caller's scope, unlike a procedure call
+    // -- so this is separate from scope_depth, but capped at the same
+    // MAX_SCOPE_DEPTH to guard against a self-referential RUN blowing
+    // the C call stack, e.g. MAKE "x [RUN :x] / RUN :x).
+    int run_depth;
 
     // Backing storage for every list value in the program (see ListNode
     // above): a bump allocator, never reclaimed — same "generously sized,

@@ -450,6 +450,42 @@ rect 100 40
   definition. `ERASE "name` removes a procedure entirely.
 - Procedures can call other procedures, including recursively.
 
+### Deferred execution: RUN, APPLY
+
+```
+RUN [FD 100 RT 90]
+
+MAKE "prog [FD 50 RT 90]
+RUN :prog
+
+TO add2 :a :b
+  PRINT :a + :b
+END
+APPLY "add2 [3 4]        -> 7
+```
+
+- `RUN thing` executes a stored word or list as Logo source, exactly as
+  if it had been typed directly — the thing that makes a list double as
+  a deferred program instead of just data. A list containing a nested
+  `[...]` block (like `RUN [REPEAT 4 [FD 10 RT 90]]`) round-trips
+  correctly: a sublist always renders back out with its own brackets
+  (see "Output" below), which happens to mean it's valid Logo source
+  again.
+- `APPLY "name arglist` calls procedure `name` with its arguments taken
+  from `arglist`, instead of parsed positionally from the command line.
+  The list's element count must exactly match the procedure's parameter
+  count — `APPLY: wrong number of inputs for procedure "name` otherwise.
+- Both are commands (not operators usable inside an expression like
+  `FIRST`/`WORD`/etc. are) — that's tied to procedures not yet being
+  able to return a value (see `ROADMAP.md`'s `OUTPUT`/`STOP` item), which
+  is what an expression-usable `RUN`/`APPLY` would need to output.
+- A self-referential `RUN` (e.g. `MAKE "x [RUN :x]` then `RUN :x`) is
+  capped and reported as `RUN: too deeply nested, ignored` rather than
+  crashing — this is a much lower, separate limit from ordinary
+  recursion, since nested `RUN`s are considerably more expensive per
+  level and a self-referential one is always a mistake in the program,
+  never a legitimate technique.
+
 ## Conditionals
 
 ```
@@ -609,6 +645,11 @@ silently doing nothing (or, in one case that's now fixed, crashing):
 - `ITEM` prints `ITEM: index out of range` if given an index less than 1
   or past the end of its list/word argument, rather than an empty result
   or an unchecked out-of-bounds read.
+- `APPLY` prints `APPLY: no such procedure "name` if given an undefined
+  procedure name, or `APPLY: wrong number of inputs for procedure "name`
+  if its list's element count doesn't match the procedure's parameter
+  count. `RUN` prints `RUN: too deeply nested, ignored` for a
+  self-referential `RUN` (see "Deferred execution" above).
 - Every internal text buffer (procedure bodies, block bodies, words,
   variable values, file paths, REPL history entries) is fixed-size but
   generously sized for normal use; input that would overflow one is
