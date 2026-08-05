@@ -493,6 +493,47 @@ rect 100 40
   definition. `ERASE "name` removes a procedure entirely.
 - Procedures can call other procedures, including recursively.
 
+### OUTPUT, STOP
+
+```
+TO double :n
+  OUTPUT :n * 2
+END
+PRINT double 5        -> 10
+
+TO fact :n
+  IF :n = 0 [OUTPUT 1]
+  OUTPUT :n * fact :n - 1
+END
+PRINT fact 5           -> 120
+```
+
+- `OUTPUT expr` ends the current procedure call and hands `expr` back as
+  its value — like a `return` statement. That's what lets a procedure
+  call be used as a value anywhere an argument is expected
+  (`PRINT double 5`, `MAKE "x double 5`), the same way `FIRST`/`WORD`/
+  etc. already can. A same-named built-in always wins over a
+  user-defined procedure at this "used as a value" position, same
+  precedence rule the ordinary command dispatch already has for command
+  names.
+- `STOP` ends the current call the same way but with no value at all —
+  for a procedure that's only ever called for its side effects (like a
+  turtle-drawing procedure), used to bail out early (e.g. `IF :n < 0
+  [STOP]`).
+- Calling a procedure that never actually reaches an `OUTPUT` (it either
+  runs to completion or hits a bare `STOP` first) as if it *were* a
+  value is a reported error — `<name>: didn't output a value` — rather
+  than a silent `0` or empty word.
+- Called as a plain statement instead (not inside another expression),
+  a procedure's `OUTPUT` value is simply discarded, no error either way
+  — `double 5` alone on a line just runs it.
+- `OUTPUT`/`STOP` can appear anywhere inside the procedure, including
+  nested inside any number of `REPEAT`/`IF`/`WHILE` blocks, and still
+  end the *whole call* — not just the block they're textually inside.
+  Both are only valid inside an active procedure call; used at the top
+  level, `OUTPUT`/`STOP` print `OUTPUT: can only be used inside a
+  procedure` / `STOP: can only be used inside a procedure`.
+
 ### Deferred execution: RUN, APPLY
 
 ```

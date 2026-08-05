@@ -12,9 +12,6 @@ Standard Berkeley Logo features this interpreter doesn't have yet — see
 smallest-to-largest lift, so working top to bottom tackles the cheap, clearly-
 scoped items first.
 
-- [ ] `OUTPUT`/`STOP` — let a `TO ... END` procedure return a value and be
-  used inside an expression, the way `FIRST`/`WORD`/etc. already can.
-  Changes the procedure-call convention — the biggest item on this list.
 - [ ] `CATCH`/`THROW` — structured error recovery, so a procedure can catch
   and handle a failure from something it called instead of an error just
   printing a message and unwinding.

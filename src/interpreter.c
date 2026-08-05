@@ -373,6 +373,27 @@ static Value list_value(int head) {
     return v;
 }
 
+// Stash/recover a Value in LogoApp's plain output_* fields (see the
+// comment there) — used by OUTPUT to hand a value up to whichever
+// call_procedure is waiting for it, without LogoApp needing to know
+// about this file's private Value type.
+static void store_output_value(LogoApp *app, Value v) {
+    app->output_type = v.type;
+    app->output_number = v.number;
+    snprintf(app->output_word, sizeof(app->output_word), "%s", v.word);
+    app->output_list_head = v.list_head;
+    app->has_output_value = TRUE;
+}
+
+static Value load_output_value(LogoApp *app) {
+    Value v = {0};
+    v.type = app->output_type;
+    v.number = app->output_number;
+    snprintf(v.word, sizeof(v.word), "%s", app->output_word);
+    v.list_head = app->output_list_head;
+    return v;
+}
+
 // Coerce a Value to a number for arithmetic: a number as-is; a word by
 // parsing its leading numeric text — so FIRST [100 50] behaves like the
 // number 100 in FD FIRST :colors — falling back to 0 if it doesn't start
@@ -539,6 +560,7 @@ static Value list_pool_exhausted_error(LogoApp *app) {
 
 static Value parse_expr(LogoApp *app, const char **ptr);
 static double parse_condition(LogoApp *app, const char **ptr);
+static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, Procedure *proc, double *arg_vals, gboolean *did_output);
 
 // Substitute `element` for every "?" in `template_text`, then parse the
 // result as an expression — the operator form MAP/REDUCE share (FOREACH
@@ -1075,6 +1097,39 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         return number_value(0);
     }
 
+    // A user-defined procedure used as a value-producing operator (its
+    // body calls OUTPUT) -- e.g. PRINT double 5, MAKE "x double 5. Only
+    // reached here, after every built-in operator above, since a
+    // same-named built-in always wins (same precedence rule the ordinary
+    // top-level procedure-call dispatch in eval_logo already has for
+    // command names). Calling a procedure that never outputs anything
+    // this way is a reported error rather than a silent 0 or empty word,
+    // matching this project's "loud, not silent" precedent for other
+    // structural mismatches (WORD on a list, FPUT/LPUT mixing types).
+    {
+        const char *lookahead = skip_whitespace(*ptr);
+        char name[32] = {0};
+        int n = 0;
+        if (sscanf(lookahead, "%31s%n", name, &n) == 1) {
+            Procedure *proc = find_procedure(app, name);
+            if (proc != NULL) {
+                *ptr = lookahead + n;
+                double arg_vals[MAX_PARAMS];
+                for (int p = 0; p < proc->param_count; p++) {
+                    arg_vals[p] = value_to_number(parse_expr(app, ptr));
+                }
+                gboolean did_output = FALSE;
+                Value result = call_procedure(app, proc, arg_vals, &did_output);
+                if (!did_output) {
+                    append_output(app, name);
+                    append_output(app, ": didn't output a value\n");
+                    return word_value("");
+                }
+                return result;
+            }
+        }
+    }
+
     char *end;
     double val = strtod(*ptr, &end);
     *ptr = end;
@@ -1212,19 +1267,30 @@ void append_output(LogoApp *app, const char *text) {
 // --- RECURSIVE INTERPRETER ---
 
 // Push a fresh scope binding proc's parameters to arg_vals, run its
-// body, then pop the scope — shared by an ordinary procedure call and
-// APPLY, which source their argument values differently (parsed
-// positionally from the command line vs. taken from a list) but bind,
-// run, and unwind exactly the same way. Forced inline: extracting this
-// added an extra stack frame to every level of procedure-call recursion
-// (there used to be none — eval_logo just called itself directly),
-// which alone overflowed the stack at the existing, documented 200-call
-// cap under AddressSanitizer. Inlining folds it back into eval_logo's
-// own frame, restoring the original per-level stack cost.
-static inline __attribute__((always_inline)) void call_procedure(LogoApp *app, Procedure *proc, double *arg_vals) {
+// body, then pop the scope — shared by an ordinary procedure call,
+// APPLY, and the value-producing procedure-call operator in
+// parse_factor, which source their argument values differently (parsed
+// positionally from the command line, taken from a list, or parsed as
+// an expression's operand) but bind, run, and unwind exactly the same
+// way. Forced inline: extracting this added an extra stack frame to
+// every level of procedure-call recursion (there used to be none —
+// eval_logo just called itself directly), which alone overflowed the
+// stack at the existing, documented 200-call cap under
+// AddressSanitizer. Inlining folds it back into eval_logo's own frame,
+// restoring the original per-level stack cost.
+//
+// Returns whatever OUTPUT (if any) set inside the procedure's body, and
+// reports through *did_output whether one actually ran — a bare STOP,
+// or the body just running to completion, means the procedure never
+// output anything. Callers that only want the side effects (the
+// ordinary statement-call site, APPLY) pass NULL and ignore it; the
+// operator call site (a procedure used as a value inside an expression)
+// checks it and reports an error if nothing was output.
+static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, Procedure *proc, double *arg_vals, gboolean *did_output) {
     if (app->scope_depth >= MAX_SCOPE_DEPTH) {
         append_output(app, "Recursion too deep, call ignored\n");
-        return;
+        if (did_output != NULL) *did_output = FALSE;
+        return number_value(0);
     }
     // Bind parameters as locals in a fresh scope so they shadow
     // same-named variables from outer calls or globals, then run the
@@ -1241,16 +1307,32 @@ static inline __attribute__((always_inline)) void call_procedure(LogoApp *app, P
 
     eval_logo(app, proc->body);
 
+    // OUTPUT/STOP's stop_requested is caught right here: this procedure
+    // call is exactly the boundary it's meant to unwind to, so it's
+    // cleared before returning rather than left to keep propagating into
+    // whatever called *this* procedure.
+    gboolean produced = app->has_output_value;
+    Value result = produced ? load_output_value(app) : number_value(0);
+    app->stop_requested = FALSE;
+    app->has_output_value = FALSE;
     app->scope_depth--;
+    if (did_output != NULL) *did_output = produced;
+    return result;
 }
 
 // Tokenize and execute one chunk of Logo source (a REPL line, a
 // procedure body, or a REPEAT/IF/WHILE block), recursing for nested
-// blocks and procedure calls.
+// blocks and procedure calls. Stops dead as soon as OUTPUT/STOP sets
+// stop_requested — including partway through this exact call, if this
+// invocation *is* the one running the OUTPUT/STOP statement itself —
+// which is what lets it unwind up through however many nested
+// REPEAT/IF/WHILE eval_logo calls sit between there and the procedure
+// call the signal is actually meant to stop (call_procedure is what
+// catches it and clears the flag again).
 void eval_logo(LogoApp *app, const char *code) {
     const char *ptr = code;
 
-    while (*ptr != '\0') {
+    while (*ptr != '\0' && !app->stop_requested) {
         ptr = skip_whitespace(ptr);
         if (*ptr == '\0') break;
 
@@ -1402,6 +1484,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 ptr = after_block;
                 for (int i = 0; i < count; i++) {
                     eval_logo(app, block_body);
+                    if (app->stop_requested) break; // OUTPUT/STOP inside the block escapes the loop
                 }
             } else {
                 append_output(app, "REPEAT: expected [ block ]\n");
@@ -1430,6 +1513,7 @@ void eval_logo(LogoApp *app, const char *code) {
                         break;
                     }
                     eval_logo(app, block_body);
+                    if (app->stop_requested) break; // OUTPUT/STOP inside the block escapes the loop
                     const char *cptr = cond_text;
                     cond = parse_condition(app, &cptr);
                     iterations++;
@@ -1557,6 +1641,32 @@ void eval_logo(LogoApp *app, const char *code) {
                 }
             } else {
                 append_output(app, "LOCAL: expected a \"name\n");
+            }
+        }
+        // 3b''. OUTPUT expr / STOP — end the current procedure call, the
+        // way a real `return` does: OUTPUT also hands `expr` back as
+        // that call's value (see the procedure-call operator in
+        // parse_factor, below), while a bare STOP ends it with no value
+        // at all. Both work through stop_requested (see eval_logo's own
+        // loop condition above and call_procedure's comment) rather than
+        // unwinding the C call stack directly, so either can appear
+        // anywhere inside the procedure — including nested inside any
+        // number of REPEAT/IF/WHILE blocks — and still stop the whole
+        // call, not just the block it's textually inside.
+        else if (strcasecmp(token, "OUTPUT") == 0 || strcasecmp(token, "OP") == 0) {
+            if (app->scope_depth <= 0) {
+                append_output(app, "OUTPUT: can only be used inside a procedure\n");
+            } else {
+                Value val = parse_expr(app, &ptr);
+                store_output_value(app, val);
+                app->stop_requested = TRUE;
+            }
+        }
+        else if (strcasecmp(token, "STOP") == 0) {
+            if (app->scope_depth <= 0) {
+                append_output(app, "STOP: can only be used inside a procedure\n");
+            } else {
+                app->stop_requested = TRUE;
             }
         }
         // 3c. CONDITIONALS: IF <cond> [block] (ELSE [block])   or   IFELSE <cond> [block] [block]
@@ -1791,7 +1901,7 @@ void eval_logo(LogoApp *app, const char *code) {
                     append_output(app, name_text);
                     append_output(app, "\n");
                 } else {
-                    call_procedure(app, proc, arg_vals);
+                    call_procedure(app, proc, arg_vals, NULL);
                 }
             }
         }
@@ -1812,6 +1922,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 value_to_source_text(app, &el, el_text, sizeof(el_text));
                 substitute_placeholder(template_text, "?", el_text, code_text, sizeof(code_text));
                 eval_logo(app, code_text);
+                if (app->stop_requested) break; // OUTPUT/STOP inside the template escapes the loop
             }
         }
         // 4. USER-DEFINED PROCEDURE CALL
@@ -1826,7 +1937,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 for (int p = 0; p < proc->param_count; p++) {
                     arg_vals[p] = value_to_number(parse_expr(app, &ptr));
                 }
-                call_procedure(app, proc, arg_vals);
+                call_procedure(app, proc, arg_vals, NULL);
             } else {
                 append_output(app, "I don't know how to ");
                 append_output(app, token);

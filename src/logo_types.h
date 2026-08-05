@@ -188,6 +188,23 @@ typedef struct LogoApp {
     // the C call stack, e.g. MAKE "x [RUN :x] / RUN :x).
     int run_depth;
 
+    // Set by OUTPUT/STOP: eval_logo's own loop checks this and stops
+    // dead as soon as it's set, so it unwinds up through however many
+    // nested blocks (REPEAT/IF/WHILE bodies) sit between the OUTPUT/STOP
+    // and the procedure call that's actually meant to stop -- reset back
+    // to FALSE by call_procedure once it's actually caught the signal at
+    // that boundary. has_output_value/output_* carry OUTPUT's value the
+    // same way; a bare STOP leaves has_output_value FALSE. Stored as
+    // plain fields (matching Variable's own type/number/word/list_head
+    // layout) rather than interpreter.c's private Value type, since this
+    // struct is also visible from ui.c.
+    gboolean stop_requested;
+    gboolean has_output_value;
+    ValueType output_type;
+    double output_number;
+    char output_word[512];
+    int output_list_head;
+
     // Backing storage for every list value in the program (see ListNode
     // above): a bump allocator, never reclaimed — same "generously sized,
     // loud error if exceeded" policy as every other fixed buffer here.

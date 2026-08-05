@@ -1,0 +1,33 @@
+; OUTPUT lets a procedure return a value and be used inside an
+; expression, the way FIRST/WORD/etc. already can. STOP ends a
+; procedure early with no value.
+
+TO double :n
+  OUTPUT :n * 2
+END
+PRINT double 5
+
+; Recursive procedures work the same way.
+TO fact :n
+  IF :n = 0 [OUTPUT 1]
+  OUTPUT :n * fact :n - 1
+END
+PRINT fact 5
+
+; STOP ends the procedure early; the caller continues normally.
+TO greet :n
+  IF :n < 0 [
+    PRINT "negative
+    STOP
+  ]
+  PRINT "hello
+END
+greet -1
+PRINT "after
+
+; Calling a procedure that never OUTPUTs as if it were a value is a
+; reported error, not a silent 0.
+TO novalue
+  PRINT "ran
+END
+PRINT novalue

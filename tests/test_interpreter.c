@@ -398,6 +398,76 @@ TEST(test_erase_removes_procedure) {
     CHECK_CONTAINS(captured_output, "I don't know how to");
 }
 
+// --- OUTPUT, STOP ---
+
+TEST(test_output_returns_a_value_used_in_an_expression) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO double :n\nOUTPUT :n * 2\nEND\nPRINT double 5");
+    CHECK_STREQ(captured_output, "10\n");
+}
+
+TEST(test_output_stops_the_rest_of_the_procedure) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO test2\nOUTPUT 1\nPRINT \"unreachable\nEND\nPRINT test2");
+    CHECK_STREQ(captured_output, "1\n");
+}
+
+TEST(test_output_escapes_nested_blocks) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO test3\nIF 1 = 1 [OUTPUT 42]\nPRINT \"unreachable\nEND\nPRINT test3");
+    CHECK_STREQ(captured_output, "42\n");
+}
+
+TEST(test_stop_ends_a_procedure_early_and_caller_continues) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO test4\nPRINT \"before\nSTOP\nPRINT \"unreachable\nEND\n"
+        "test4\n"
+        "PRINT \"after");
+    CHECK_STREQ(captured_output, "before\nafter\n");
+}
+
+TEST(test_output_used_as_a_plain_statement_discards_the_value) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO double :n\nOUTPUT :n * 2\nEND\ndouble 5\nPRINT \"done");
+    CHECK_STREQ(captured_output, "done\n"); // called bare (not as an operator) -- no error, no stray output
+}
+
+TEST(test_calling_a_procedure_that_never_outputs_as_a_value_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO novalue\nPRINT \"hi\nEND\nPRINT novalue");
+    CHECK_CONTAINS(captured_output, "hi");
+    CHECK_CONTAINS(captured_output, "novalue: didn't output a value");
+}
+
+TEST(test_output_outside_procedure_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "OUTPUT 5");
+    CHECK_CONTAINS(captured_output, "OUTPUT: can only be used inside a procedure");
+}
+
+TEST(test_stop_outside_procedure_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "STOP");
+    CHECK_CONTAINS(captured_output, "STOP: can only be used inside a procedure");
+}
+
+TEST(test_recursive_procedure_using_output) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO fact :n\nIF :n = 0 [OUTPUT 1]\nOUTPUT :n * fact :n - 1\nEND\nPRINT fact 5");
+    CHECK_STREQ(captured_output, "120\n");
+}
+
+TEST(test_output_value_can_be_a_word_or_list) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO greet\nOUTPUT \"hello\nEND\n"
+        "TO mklist\nOUTPUT [1 2 3]\nEND\n"
+        "PRINT greet\n"
+        "PRINT mklist");
+    CHECK_STREQ(captured_output, "hello\n1 2 3\n");
+}
+
 TEST(test_local_scopes_a_variable_without_leaking_to_global) {
     LogoApp *app = new_app();
     eval_logo(app,
@@ -1376,6 +1446,17 @@ int main(void) {
     RUN(test_make_without_local_mutates_outer_global);
     RUN(test_to_redefinition_overwrites);
     RUN(test_erase_removes_procedure);
+
+    RUN(test_output_returns_a_value_used_in_an_expression);
+    RUN(test_output_stops_the_rest_of_the_procedure);
+    RUN(test_output_escapes_nested_blocks);
+    RUN(test_stop_ends_a_procedure_early_and_caller_continues);
+    RUN(test_output_used_as_a_plain_statement_discards_the_value);
+    RUN(test_calling_a_procedure_that_never_outputs_as_a_value_reports_error);
+    RUN(test_output_outside_procedure_reports_error);
+    RUN(test_stop_outside_procedure_reports_error);
+    RUN(test_recursive_procedure_using_output);
+    RUN(test_output_value_can_be_a_word_or_list);
 
     RUN(test_local_scopes_a_variable_without_leaking_to_global);
     RUN(test_local_initializes_to_zero);
