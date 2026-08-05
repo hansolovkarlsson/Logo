@@ -491,6 +491,102 @@ TEST(test_setpenwidth_from_word_typed_variable) {
     CHECK_NEAR(app.lines[0].width, 3.0);
 }
 
+// --- Turtle command aliases & clamping ---
+
+TEST(test_back_moves_opposite_of_forward) {
+    LogoApp app = new_app();
+    eval_logo(&app, "BK 100");
+    CHECK_NEAR(app.turtles[0].x, 250.0);
+    CHECK_NEAR(app.turtles[0].y, 350.0); // opposite of FD 100's y=150
+}
+
+TEST(test_left_turns_opposite_of_right) {
+    LogoApp app = new_app();
+    eval_logo(&app, "LT 90 FD 100");
+    CHECK_NEAR(app.turtles[0].x, 150.0); // opposite of RT 90 FD 100's x=350
+    CHECK_NEAR(app.turtles[0].y, 250.0);
+}
+
+TEST(test_setpencolor_clamps_out_of_range_channels) {
+    LogoApp app = new_app();
+    eval_logo(&app, "SETPENCOLOR -10 300 128\nFD 10");
+    CHECK_NEAR(app.lines[0].r, 0.0);
+    CHECK_NEAR(app.lines[0].g, 1.0);
+    CHECK_NEAR(app.lines[0].b, 128.0 / 255.0);
+}
+
+TEST(test_setpenwidth_clamps_to_min_and_max) {
+    LogoApp app = new_app();
+    eval_logo(&app, "SETPENWIDTH 0.1\nFD 10");
+    CHECK_NEAR(app.lines[0].width, 0.5); // MIN_PEN_WIDTH
+    eval_logo(&app, "SETPENWIDTH 100\nFD 10");
+    CHECK_NEAR(app.lines[1].width, 20.0); // MAX_PEN_WIDTH
+}
+
+// --- Comparison operators (<= >= <> = <) ---
+
+TEST(test_full_comparison_operator_set) {
+    LogoApp app = new_app();
+    eval_logo(&app,
+        "IF 5 <= 5 [PRINT \"le]\n"
+        "IF 6 <= 5 [PRINT \"should-not-print]\n"
+        "IF 5 >= 5 [PRINT \"ge]\n"
+        "IF 5 >= 6 [PRINT \"should-not-print]\n"
+        "IF 5 <> 6 [PRINT \"ne]\n"
+        "IF 5 <> 5 [PRINT \"should-not-print]\n"
+        "IF 5 < 6 [PRINT \"lt]\n"
+        "IF 5 = 5 [PRINT \"eq]");
+    CHECK_STREQ(captured_output, "le\nge\nne\nlt\neq\n");
+}
+
+TEST(test_not_can_nest) {
+    LogoApp app = new_app();
+    eval_logo(&app, "IF NOT NOT 1 = 1 [PRINT \"yes]\nIF NOT NOT 1 = 2 [PRINT \"should-not-print]");
+    CHECK_STREQ(captured_output, "yes\n");
+}
+
+// --- IF/IFELSE branch selection ---
+
+TEST(test_if_false_condition_runs_nothing) {
+    LogoApp app = new_app();
+    eval_logo(&app, "IF 1 = 2 [PRINT \"should-not-print]\nPRINT \"after");
+    CHECK_STREQ(captured_output, "after\n");
+}
+
+TEST(test_if_with_literal_else_keyword) {
+    LogoApp app = new_app();
+    eval_logo(&app, "IF 1 = 2 [PRINT \"a] ELSE [PRINT \"b]");
+    CHECK_STREQ(captured_output, "b\n");
+}
+
+TEST(test_ifelse_selects_true_and_false_branches) {
+    LogoApp app = new_app();
+    eval_logo(&app, "IFELSE 1 = 1 [PRINT \"a] [PRINT \"b]\nIFELSE 1 = 2 [PRINT \"a] [PRINT \"b]");
+    CHECK_STREQ(captured_output, "a\nb\n");
+}
+
+// --- REPL input completeness (is_input_complete) ---
+
+TEST(test_is_input_complete_simple_command) {
+    CHECK(is_input_complete("FD 100"));
+}
+
+TEST(test_is_input_complete_unbalanced_bracket) {
+    CHECK(!is_input_complete("REPEAT 4 [FD 100"));
+}
+
+TEST(test_is_input_complete_balanced_bracket) {
+    CHECK(is_input_complete("REPEAT 4 [FD 100 RT 90]"));
+}
+
+TEST(test_is_input_complete_to_without_end) {
+    CHECK(!is_input_complete("TO square :size\nREPEAT 4 [FD :size RT 90]"));
+}
+
+TEST(test_is_input_complete_to_with_end) {
+    CHECK(is_input_complete("TO square :size\nREPEAT 4 [FD :size RT 90]\nEND"));
+}
+
 // --- Errors ---
 
 TEST(test_unknown_command_reports_error) {
@@ -550,6 +646,63 @@ TEST(test_to_body_too_long_reports_error) {
     snprintf(code, sizeof(code), "TO longproc\n%sEND\n", body);
     eval_logo(&app, code);
     CHECK_CONTAINS(captured_output, "longproc: procedure body too long, not defined");
+}
+
+TEST(test_to_missing_end_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "TO square\nPRINT \"never-runs");
+    CHECK_CONTAINS(captured_output, "square: missing END");
+}
+
+TEST(test_ifelse_missing_second_block_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "IFELSE 1 = 1 [PRINT \"a]");
+    CHECK_CONTAINS(captured_output, "IFELSE: expected two [ block ]s");
+}
+
+TEST(test_erase_without_quote_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "ERASE t");
+    CHECK_CONTAINS(captured_output, "ERASE: expected a");
+}
+
+TEST(test_erase_nonexistent_procedure_reports_error) {
+    LogoApp app = new_app();
+    eval_logo(&app, "ERASE \"nosuch");
+    CHECK_CONTAINS(captured_output, "ERASE: no such procedure \"nosuch");
+}
+
+TEST(test_too_many_procedures_reports_error) {
+    // MAX_PROCEDURES is 50; define 51 and confirm the last one is refused
+    // rather than silently overwriting or corrupting the table.
+    LogoApp app = new_app();
+    char code[4096] = {0};
+    for (int i = 0; i < 51; i++) {
+        char one[32];
+        snprintf(one, sizeof(one), "TO p%d\nEND\n", i);
+        strncat(code, one, sizeof(code) - strlen(code) - 1);
+    }
+    eval_logo(&app, code);
+    CHECK_CONTAINS(captured_output, "Too many procedures defined, TO ignored");
+    CHECK(app.proc_count == 50);
+}
+
+// --- Safety limits (recursion depth, WHILE iteration cap) ---
+
+TEST(test_recursion_depth_limit_reports_error) {
+    // MAX_SCOPE_DEPTH is 200; a procedure that always recurses should hit
+    // the cap and report an error rather than overflowing the scope stack.
+    LogoApp app = new_app();
+    eval_logo(&app, "TO recurse\nrecurse\nEND\nrecurse");
+    CHECK_CONTAINS(captured_output, "Recursion too deep, call ignored");
+}
+
+TEST(test_while_iteration_limit_reports_error) {
+    // MAX_WHILE_ITERATIONS is 1,000,000; a condition that never goes
+    // false should stop itself rather than hanging forever.
+    LogoApp app = new_app();
+    eval_logo(&app, "WHILE 1 = 1 []");
+    CHECK_CONTAINS(captured_output, "WHILE: stopped after too many iterations");
 }
 
 int main(void) {
@@ -614,6 +767,24 @@ int main(void) {
     RUN(test_unary_minus_on_list_operator);
     RUN(test_setpenwidth_from_word_typed_variable);
 
+    RUN(test_back_moves_opposite_of_forward);
+    RUN(test_left_turns_opposite_of_right);
+    RUN(test_setpencolor_clamps_out_of_range_channels);
+    RUN(test_setpenwidth_clamps_to_min_and_max);
+
+    RUN(test_full_comparison_operator_set);
+    RUN(test_not_can_nest);
+
+    RUN(test_if_false_condition_runs_nothing);
+    RUN(test_if_with_literal_else_keyword);
+    RUN(test_ifelse_selects_true_and_false_branches);
+
+    RUN(test_is_input_complete_simple_command);
+    RUN(test_is_input_complete_unbalanced_bracket);
+    RUN(test_is_input_complete_balanced_bracket);
+    RUN(test_is_input_complete_to_without_end);
+    RUN(test_is_input_complete_to_with_end);
+
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);
     RUN(test_make_without_quote_reports_error);
@@ -622,6 +793,14 @@ int main(void) {
     RUN(test_if_unterminated_block_reports_error);
     RUN(test_while_unterminated_block_reports_error);
     RUN(test_to_body_too_long_reports_error);
+    RUN(test_to_missing_end_reports_error);
+    RUN(test_ifelse_missing_second_block_reports_error);
+    RUN(test_erase_without_quote_reports_error);
+    RUN(test_erase_nonexistent_procedure_reports_error);
+    RUN(test_too_many_procedures_reports_error);
+
+    RUN(test_recursion_depth_limit_reports_error);
+    RUN(test_while_iteration_limit_reports_error);
 
     if (failures == 0) {
         printf("All tests passed.\n");
