@@ -19,29 +19,17 @@ Ideas from a 2026-08-06 review of
 against this interpreter's existing command set — same "small,
 self-contained" character as the original Phase 1, just found later:
 
-- [ ] `CLEAN` — erases drawing but leaves the turtle's position/heading
-  alone, unlike `CLEAR`/`CS` (which also homes it) — a real Berkeley
-  Logo distinction this interpreter doesn't have yet.
 - [ ] `CLEARTEXT` — clears the history pane specifically, separate from
   `CLEAR`'s canvas-only effect.
-- [ ] `WHO` — reports which turtle `TELL` currently has selected.
-- [ ] `PICK list` — a random element from a list; trivial given
-  `RANDOM`/`ITEM`/`COUNT` already exist.
 - [ ] `FLATTEN`, `PARSE`, `SUBST` — flatten nested lists into one flat
   list, tokenize a word into a list of words, and substitute occurrences
   of one thing for another within a list. `FLATTEN` specifically is only
   meaningful now that lists really nest.
-- [ ] `FILLARRAY array value` — fill every slot of an array with one
-  value in a single call, rather than looping `SETITEM` manually.
 - [ ] `PROCEDURES`/`NAMES` — list every currently-defined procedure/
   variable name; workspace introspection alongside Phase 1's `SHOW`.
 - [ ] `TEXT "name` — like `SHOW`, but returns a procedure's body as
   *data* (a list) instead of printing it — the complementary
   read-as-data half of what `SHOW` already prints.
-- [ ] `THING word` — reads a variable by a name that's itself a
-  computed word (`THING WORD "item :n`), unlike `:name` which only
-  takes a literal name — a genuine reflective capability `:name` alone
-  can't provide.
 
 ### Phase 3 — New data types, background/sprite images
 

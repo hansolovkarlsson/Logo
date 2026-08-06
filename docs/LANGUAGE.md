@@ -58,6 +58,8 @@ RT 90 FD 50
   triangle marker (all the same fixed green, regardless of pen color).
 - `TELL` with an index outside `0`-`9` prints an error and leaves the
   current turtle unchanged.
+- `WHO` outputs the current turtle's index — the one thing `TELL` sets
+  but has no way to read back on its own.
 
 ## Turtle commands
 
@@ -80,6 +82,7 @@ RT 90 FD 50
 | `SETPENWIDTH` | `SETPW` | expr (clamped 0.5-20) | Set the width new lines are drawn with |
 | `SETBACKGROUND` | `SETBG` | `r g b` (each 0-255) | Set the canvas's background color |
 | `CLEAR` | `CS` | — | Erase the canvas and reset the turtle's position/angle |
+| `CLEAN` | — | — | Erase the canvas only — unlike `CLEAR`/`CS`, the turtle's position/angle are untouched |
 | `HIDETURTLE` | `HT` | — | Stop drawing the turtle marker (the trail still draws) |
 | `SHOWTURTLE` | `ST` | — | Draw the turtle marker again |
 | `WRAP` | — | — | Crossing the canvas edge wraps around to the opposite side |
@@ -314,6 +317,12 @@ MAKE "size :size + 10
   already exist.
 - `:name` reads a variable's value inside any expression.
 - Variables are either numbers or **words** — see "Words & lists" below.
+- `THING name` also reads a variable back, but takes `name` as any
+  expression evaluating to a word rather than a literal identifier —
+  `:name` only ever takes a name written right there in the source,
+  while `THING WORD "item :n` can compute which variable to read at run
+  time. Otherwise identical to `:name`: same scope search, same `0` for
+  an unbound name.
 
 Procedure parameters are **local, dynamically-scoped** variables. Calling a
 procedure pushes a fresh scope binding its parameters to the (already
@@ -454,6 +463,18 @@ PRINT ITEM 3 "hello              -> l
   `REPEAT COUNT :items [...]`) — coercing to a number the same way any
   other word does when arithmetic touches it (see above).
 
+```
+PRINT PICK [10 20 30]     -> 10, 20, or 30
+PRINT PICK "hello         -> a random single character of "hello
+```
+
+- `PICK thing` outputs a random element — a random top-level element of
+  a list, a random character of a word, or a random slot of an array
+  (see "Arrays" below) — trivial given `RANDOM`/`ITEM`/`COUNT` already
+  exist. Reports `PICK: empty list` / `PICK: empty word` for an empty
+  list/word (an array's size is always at least 1, so it can't be
+  empty).
+
 ### List construction
 
 ```
@@ -521,6 +542,11 @@ PRINT COUNT :a         -> 3
   another array (see below) — and prints `SETITEM: index out of range`
   for an out-of-bounds `index`, or `SETITEM: expected an array` if given
   something other than an array.
+- `FILLARRAY array value` overwrites every slot with the same `value` in
+  one call, rather than looping `SETITEM` manually. Same `value`/error
+  rules as `SETITEM` (`FILLARRAY: expected an array` /
+  `FILLARRAY: can't store an array inside an array`), just applied to
+  every index at once.
 - `ARRAY?` reports (`TRUE`/`FALSE`) whether a value is an array, and
   `COUNT` reports its length — same conventions as the other type
   predicates and `COUNT` on a list/word.

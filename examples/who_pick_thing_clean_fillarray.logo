@@ -1,0 +1,29 @@
+; WHO -- which turtle TELL currently has selected.
+PRINT WHO
+TELL 1
+PRINT WHO
+TELL 0
+
+; PICK -- a random element from a list/word/array.
+PRINT PICK [10 20 30]
+PRINT PICK "hello
+
+; THING -- read a variable by a computed name, unlike :name which only
+; takes a literal identifier written right there in the source.
+MAKE "item1 "apple
+MAKE "n 1
+PRINT THING WORD "item :n
+
+; CLEAN -- erases drawing but leaves the turtle's position/heading
+; alone, unlike CLEAR/CS (which also homes it).
+FD 100
+RT 45
+CLEAN
+PRINT POS
+PRINT HEADING
+
+; FILLARRAY -- fill every slot of an array with one value in a single
+; call, rather than looping SETITEM manually.
+MAKE "a ARRAY 4
+FILLARRAY :a 0
+PRINT :a

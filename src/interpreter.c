@@ -1111,6 +1111,36 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         append_output(app, "ITEM: index out of range\n");
         return word_value("");
     }
+    if (consume_keyword(ptr, "PICK")) {
+        Value arg = parse_factor(app, ptr);
+        if (arg.type == VALUE_LIST) {
+            int count = 0;
+            for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
+            if (count == 0) {
+                append_output(app, "PICK: empty list\n");
+                return word_value("");
+            }
+            int target = (int)random_below(count);
+            int i = 0;
+            for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next, i++) {
+                if (i == target) return list_node_to_value(&app->list_pool[idx]);
+            }
+        }
+        if (arg.type == VALUE_WORD) {
+            size_t len = strlen(arg.word);
+            if (len == 0) {
+                append_output(app, "PICK: empty word\n");
+                return word_value("");
+            }
+            char ch[2] = {arg.word[(int)random_below((double)len)], '\0'};
+            return word_value(ch);
+        }
+        if (arg.type == VALUE_ARRAY) {
+            int idx = (int)random_below(arg.number);
+            return list_node_to_value(&app->list_pool[arg.list_head + idx]);
+        }
+        return arg; // a bare number counts as a one-element list
+    }
     if (consume_keyword(ptr, "MEMBER?")) {
         Value thing = parse_factor(app, ptr);
         Value container = parse_factor(app, ptr);
@@ -1320,6 +1350,9 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
     if (consume_keyword(ptr, "GETY")) {
         return number_value(current_turtle(app)->y);
     }
+    if (consume_keyword(ptr, "WHO")) {
+        return number_value(app->current_turtle);
+    }
     if (consume_keyword(ptr, "DISTANCE")) {
         // Plain distance between two arbitrary [x y] points -- not tied
         // to the turtle's own position, unlike TOWARDS below. Pass POS
@@ -1355,6 +1388,23 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         double heading = atan2(dx, -dy) * 180.0 / M_PI;
         if (heading < 0) heading += 360.0;
         return number_value(heading);
+    }
+    if (consume_keyword(ptr, "THING")) {
+        // The reflective, computed-name sibling of :name — :name only
+        // ever takes a literal identifier written right there in the
+        // source, while THING takes any expression that evaluates to a
+        // word, e.g. THING WORD "item :n.
+        Value name_val = parse_factor(app, ptr);
+        char name_text[512];
+        value_to_text(app, &name_val, name_text, sizeof(name_text));
+        Variable *v = find_var(app, name_text);
+        if (v != NULL) {
+            if (v->type == VALUE_WORD) return word_value(v->word);
+            if (v->type == VALUE_LIST) return list_value(v->list_head);
+            if (v->type == VALUE_ARRAY) return array_value(v->list_head, (int)v->number);
+            return number_value(v->number);
+        }
+        return number_value(0);
     }
     if (**ptr == ':') {
         (*ptr)++;
@@ -2057,6 +2107,32 @@ void eval_logo(LogoApp *app, const char *code) {
                 }
             }
         }
+        // 3a''''. FILLARRAY array value — fill every slot of an array
+        // with one value in a single call, the same per-cell assignment
+        // SETITEM does, looped over every index instead of just one.
+        else if (strcasecmp(token, "FILLARRAY") == 0) {
+            Value array_val = parse_expr(app, &ptr);
+            Value new_val = parse_expr(app, &ptr);
+            if (array_val.type != VALUE_ARRAY) {
+                append_output(app, "FILLARRAY: expected an array\n");
+            } else if (new_val.type == VALUE_ARRAY) {
+                append_output(app, "FILLARRAY: can't store an array inside an array\n");
+            } else {
+                for (int i = 0; i < (int)array_val.number; i++) {
+                    ListNode *node = &app->list_pool[array_val.list_head + i];
+                    if (new_val.type == VALUE_NUMBER) {
+                        node->type = LIST_ELEM_NUMBER;
+                        node->number = new_val.number;
+                    } else if (new_val.type == VALUE_LIST) {
+                        node->type = LIST_ELEM_LIST;
+                        node->sublist_head = new_val.list_head;
+                    } else {
+                        node->type = LIST_ELEM_WORD;
+                        snprintf(node->word, sizeof(node->word), "%s", new_val.word);
+                    }
+                }
+            }
+        }
         // 3b'. LOCAL "name — a variable scoped to the current call,
         // without being a parameter (see Variables & scoping below).
         // Only valid inside an active procedure call; the scope's vars
@@ -2213,6 +2289,14 @@ void eval_logo(LogoApp *app, const char *code) {
                 app->turtles[i].y = HOME_Y;
                 app->turtles[i].angle = 0;
             }
+        }
+        // CLEAN -- CLEAR's drawing-erase half only, leaving every
+        // turtle's position/heading alone (the real Berkeley Logo
+        // distinction between CLEAN and CLEAR/CS).
+        else if (strcasecmp(token, "CLEAN") == 0) {
+            app->line_count = 0;
+            app->label_count = 0;
+            app->raster_op_count = 0;
         }
         else if (strcasecmp(token, "HOME") == 0) {
             move_turtle_to(app, HOME_X, HOME_Y);

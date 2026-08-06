@@ -335,6 +335,21 @@ TEST(test_clear_homes_every_turtle) {
     }
 }
 
+TEST(test_clean_erases_drawing_but_leaves_the_turtle_alone) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FD 100 RT 45\nCLEAN");
+    CHECK(app->line_count == 0);
+    CHECK_NEAR(app->turtles[0].x, 250.0);
+    CHECK_NEAR(app->turtles[0].y, 150.0);
+    CHECK_NEAR(app->turtles[0].angle, 45.0);
+}
+
+TEST(test_who_reports_the_current_turtle) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT WHO\nTELL 1\nPRINT WHO\nTELL 0\nPRINT WHO");
+    CHECK_STREQ(captured_output, "0\n1\n0\n");
+}
+
 TEST(test_tell_out_of_range_reports_error) {
     LogoApp *app = new_app();
     eval_logo(app, "TELL 99");
@@ -418,6 +433,28 @@ TEST(test_make_without_local_mutates_outer_global) {
         "increment\nincrement\nincrement\n"
         "PRINT :counter");
     CHECK_STREQ(captured_output, "3\n"); // dynamic scoping: no local "counter" to shadow it
+}
+
+TEST(test_thing_reads_a_variable_by_a_computed_name) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"item1 42\nMAKE \"n 1\nPRINT THING WORD \"item :n");
+    CHECK_STREQ(captured_output, "42\n");
+}
+
+TEST(test_thing_matches_colon_name_for_words_lists_and_arrays) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "MAKE \"w \"hello\n"
+        "MAKE \"l [1 2 3]\n"
+        "PRINT THING \"w\n"
+        "PRINT THING \"l");
+    CHECK_STREQ(captured_output, "hello\n1 2 3\n");
+}
+
+TEST(test_thing_of_an_unbound_name_is_zero) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT THING \"nosuchvar");
+    CHECK_STREQ(captured_output, "0\n");
 }
 
 TEST(test_to_redefinition_overwrites) {
@@ -1242,6 +1279,30 @@ TEST(test_setitem_rejects_nesting_an_array) {
     CHECK_CONTAINS(captured_output, "SETITEM: can't store an array inside an array");
 }
 
+TEST(test_fillarray_sets_every_slot_in_one_call) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 3\nFILLARRAY :a \"x\nPRINT :a");
+    CHECK_STREQ(captured_output, "{x x x}\n");
+}
+
+TEST(test_fillarray_can_store_a_list_element) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 2\nFILLARRAY :a [1 2]\nPRINT ITEM 1 :a\nPRINT ITEM 2 :a");
+    CHECK_STREQ(captured_output, "1 2\n1 2\n");
+}
+
+TEST(test_fillarray_on_non_array_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FILLARRAY [1 2 3] \"x");
+    CHECK_CONTAINS(captured_output, "FILLARRAY: expected an array");
+}
+
+TEST(test_fillarray_rejects_nesting_an_array) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 2\nMAKE \"b ARRAY 2\nFILLARRAY :a :b");
+    CHECK_CONTAINS(captured_output, "FILLARRAY: can't store an array inside an array");
+}
+
 TEST(test_array_item_out_of_range_reports_error) {
     LogoApp *app = new_app();
     eval_logo(app, "MAKE \"a ARRAY 3\nPRINT ITEM 0 :a");
@@ -1409,6 +1470,42 @@ TEST(test_random_stays_in_range) {
         if (p != NULL) p++;
     }
     CHECK(checked == 200);
+}
+
+TEST(test_pick_returns_an_element_actually_in_the_list) {
+    LogoApp *app = new_app();
+    for (int i = 0; i < 100; i++) {
+        eval_logo(app, "PRINT PICK [10 20 30]");
+    }
+    const char *p = captured_output;
+    int checked = 0;
+    while (p != NULL && *p) {
+        int n;
+        CHECK(sscanf(p, "%d", &n) == 1);
+        CHECK(n == 10 || n == 20 || n == 30);
+        checked++;
+        p = strchr(p, '\n');
+        if (p != NULL) p++;
+    }
+    CHECK(checked == 100);
+}
+
+TEST(test_pick_on_word_and_array) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT PICK \"a"); // single-character word: only one possible pick
+    CHECK_STREQ(captured_output, "a\n");
+    captured_output[0] = '\0';
+    eval_logo(app, "MAKE \"arr ARRAY 1\nSETITEM 1 :arr \"z\nPRINT PICK :arr");
+    CHECK_STREQ(captured_output, "z\n");
+}
+
+TEST(test_pick_on_empty_list_or_word_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT PICK []");
+    CHECK_CONTAINS(captured_output, "PICK: empty list");
+    captured_output[0] = '\0';
+    eval_logo(app, "PRINT PICK \"");
+    CHECK_CONTAINS(captured_output, "PICK: empty word");
 }
 
 // --- Type/membership predicates (MEMBER?, EMPTY?, WORD?, LIST?, NUMBER?) ---
@@ -1852,6 +1949,8 @@ int main(void) {
     RUN(test_tell_creates_and_switches_turtles);
     RUN(test_turtles_move_independently);
     RUN(test_clear_homes_every_turtle);
+    RUN(test_clean_erases_drawing_but_leaves_the_turtle_alone);
+    RUN(test_who_reports_the_current_turtle);
     RUN(test_tell_out_of_range_reports_error);
 
     RUN(test_hideturtle_showturtle_toggles_visibility);
@@ -1864,6 +1963,9 @@ int main(void) {
     RUN(test_recursion_with_parameter);
     RUN(test_parameter_shadows_outer_global);
     RUN(test_make_without_local_mutates_outer_global);
+    RUN(test_thing_reads_a_variable_by_a_computed_name);
+    RUN(test_thing_matches_colon_name_for_words_lists_and_arrays);
+    RUN(test_thing_of_an_unbound_name_is_zero);
     RUN(test_to_redefinition_overwrites);
     RUN(test_erase_removes_procedure);
 
@@ -1983,6 +2085,10 @@ int main(void) {
     RUN(test_setitem_index_out_of_range);
     RUN(test_setitem_on_non_array_reports_error);
     RUN(test_setitem_rejects_nesting_an_array);
+    RUN(test_fillarray_sets_every_slot_in_one_call);
+    RUN(test_fillarray_can_store_a_list_element);
+    RUN(test_fillarray_on_non_array_reports_error);
+    RUN(test_fillarray_rejects_nesting_an_array);
     RUN(test_array_item_out_of_range_reports_error);
     RUN(test_array_predicates);
     RUN(test_make_b_a_aliases_the_same_mutable_array);
@@ -2008,6 +2114,9 @@ int main(void) {
     RUN(test_log_is_base_10_ln_is_natural_log);
     RUN(test_int_truncates_towards_zero);
     RUN(test_random_stays_in_range);
+    RUN(test_pick_returns_an_element_actually_in_the_list);
+    RUN(test_pick_on_word_and_array);
+    RUN(test_pick_on_empty_list_or_word_reports_error);
 
     RUN(test_word_list_number_predicates);
     RUN(test_empty_predicate);
