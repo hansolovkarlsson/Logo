@@ -755,6 +755,15 @@ static void action_reset_text_size(GSimpleAction *action, GVariant *parameter, g
     apply_font_size(app);
 }
 
+// File > Quit — without this, macOS's Cmd-Q is grayed out: GTK's app
+// menu shows a Quit item automatically but it has nothing to activate
+// until an "app.quit" action actually exists.
+static void action_quit(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    g_application_quit(G_APPLICATION(user_data));
+}
+
 // Build the main window: the turtle canvas / REPL pane split, the View
 // menu and its text-size actions/accelerators, then present it.
 void logo_activate(GtkApplication *app, gpointer user_data) {
@@ -867,6 +876,14 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     g_action_map_add_action_entries(G_ACTION_MAP(app), file_actions,
                                      G_N_ELEMENTS(file_actions), logo);
 
+    // Registered separately from file_actions since it needs `app` (to
+    // quit the application), not `logo`, as its user_data.
+    static GActionEntry quit_actions[] = {
+        {.name = "quit", .activate = action_quit},
+    };
+    g_action_map_add_action_entries(G_ACTION_MAP(app), quit_actions,
+                                     G_N_ELEMENTS(quit_actions), app);
+
     static GActionEntry text_size_actions[] = {
         {.name = "increase-text-size", .activate = action_increase_text_size},
         {.name = "decrease-text-size", .activate = action_decrease_text_size},
@@ -883,12 +900,14 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     const char *increase_accels[] = {"<Meta>plus", "<Meta>equal", NULL};
     const char *decrease_accels[] = {"<Meta>minus", NULL};
     const char *reset_accels[] = {"<Meta>0", NULL};
+    const char *quit_accels[] = {"<Meta>q", NULL};
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.save-file", save_accels);
     gtk_application_set_accels_for_action(app, "app.export-png", export_png_accels);
     gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
     gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);
     gtk_application_set_accels_for_action(app, "app.reset-text-size", reset_accels);
+    gtk_application_set_accels_for_action(app, "app.quit", quit_accels);
 
     GMenu *menu_bar = g_menu_new();
 
@@ -896,6 +915,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     g_menu_append(file_menu, "Open\xe2\x80\xa6", "app.open-file");
     g_menu_append(file_menu, "Save\xe2\x80\xa6", "app.save-file");
     g_menu_append(file_menu, "Export as PNG\xe2\x80\xa6", "app.export-png");
+    g_menu_append(file_menu, "Quit", "app.quit");
     g_menu_append_submenu(menu_bar, "File", G_MENU_MODEL(file_menu));
     g_object_unref(file_menu);
 

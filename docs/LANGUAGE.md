@@ -1053,9 +1053,10 @@ unparseable expression just evaluates to `0`, same as always) — see
   doesn't validate it. Also entry-box only.
 - The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
   a file via a native dialog and runs it the same way `LOAD` does;
-  **Save…** (⌘S), which does the same for `SAVE`; and **Export as PNG…**
+  **Save…** (⌘S), which does the same for `SAVE`; **Export as PNG…**
   (⌘E), which renders the current canvas (background, drawn lines, and the
-  turtle) to an image file at the canvas's actual pixel size.
+  turtle) to an image file at the canvas's actual pixel size; and **Quit**
+  (⌘Q), which closes the app.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
   Text Size, applied to both the history pane and the entry box.
 
