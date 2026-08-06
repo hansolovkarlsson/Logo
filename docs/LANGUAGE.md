@@ -664,6 +664,12 @@ rect 100 40
   `SAVE` would write it to a file — `TO name :params`, its body, then
   `END`. Prints `SHOW: no such procedure "name` if it isn't defined.
 - Procedures can call other procedures, including recursively.
+- `PROCEDURES` outputs a list of every currently-defined procedure's
+  name, in definition order — workspace introspection alongside `SHOW`.
+- `NAMES` outputs a list of every currently-defined **global**
+  variable's name — a procedure's own parameters and any `LOCAL`s don't
+  appear, only whatever `MAKE` has set outside of (or before) any call.
+  Reassigning an existing name with `MAKE` doesn't add a second entry.
 
 ### OUTPUT, STOP
 

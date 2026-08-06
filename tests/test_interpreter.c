@@ -350,6 +350,34 @@ TEST(test_who_reports_the_current_turtle) {
     CHECK_STREQ(captured_output, "0\n1\n0\n");
 }
 
+TEST(test_procedures_lists_every_defined_procedure) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO square :s\nREPEAT 4 [FD :s RT 90]\nEND\nTO tri\nREPEAT 3 [FD 50 RT 120]\nEND\nPRINT PROCEDURES");
+    CHECK_STREQ(captured_output, "square tri\n");
+}
+
+TEST(test_procedures_is_empty_when_none_are_defined) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT PROCEDURES\nPRINT EMPTY? PROCEDURES");
+    CHECK_STREQ(captured_output, "\nTRUE\n");
+}
+
+TEST(test_names_lists_every_global_variable_not_locals) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "MAKE \"a 1\n"
+        "MAKE \"b 2\n"
+        "TO p :x\nLOCAL \"y\nPRINT NAMES\nEND\n"
+        "p 3");
+    CHECK_STREQ(captured_output, "a b\n"); // parameter :x and LOCAL "y aren't globals
+}
+
+TEST(test_names_reflects_reassignment_not_duplicate_entries) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a 1\nMAKE \"a 2\nPRINT NAMES");
+    CHECK_STREQ(captured_output, "a\n"); // one entry, even after MAKE "a runs twice
+}
+
 TEST(test_tell_out_of_range_reports_error) {
     LogoApp *app = new_app();
     eval_logo(app, "TELL 99");
@@ -1951,6 +1979,10 @@ int main(void) {
     RUN(test_clear_homes_every_turtle);
     RUN(test_clean_erases_drawing_but_leaves_the_turtle_alone);
     RUN(test_who_reports_the_current_turtle);
+    RUN(test_procedures_lists_every_defined_procedure);
+    RUN(test_procedures_is_empty_when_none_are_defined);
+    RUN(test_names_lists_every_global_variable_not_locals);
+    RUN(test_names_reflects_reassignment_not_duplicate_entries);
     RUN(test_tell_out_of_range_reports_error);
 
     RUN(test_hideturtle_showturtle_toggles_visibility);

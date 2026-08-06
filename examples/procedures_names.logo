@@ -1,0 +1,16 @@
+; PROCEDURES/NAMES -- workspace introspection alongside SHOW: list every
+; currently-defined procedure/global-variable name.
+
+TO square :s
+  REPEAT 4 [FD :s RT 90]
+END
+
+TO triangle :s
+  REPEAT 3 [FD :s RT 120]
+END
+
+MAKE "speed 5
+MAKE "shape "square
+
+PRINT PROCEDURES
+PRINT NAMES

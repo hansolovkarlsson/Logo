@@ -1353,6 +1353,28 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
     if (consume_keyword(ptr, "WHO")) {
         return number_value(app->current_turtle);
     }
+    if (consume_keyword(ptr, "PROCEDURES")) {
+        int head = -1;
+        int *next_slot = &head;
+        for (int i = 0; i < app->proc_count; i++) {
+            int node = list_node_from_value(app, word_value(app->procedures[i].name));
+            if (node < 0) return list_pool_exhausted_error(app);
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+        return list_value(head);
+    }
+    if (consume_keyword(ptr, "NAMES")) {
+        int head = -1;
+        int *next_slot = &head;
+        for (int i = 0; i < app->var_count; i++) {
+            int node = list_node_from_value(app, word_value(app->variables[i].name));
+            if (node < 0) return list_pool_exhausted_error(app);
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+        return list_value(head);
+    }
     if (consume_keyword(ptr, "DISTANCE")) {
         // Plain distance between two arbitrary [x y] points -- not tied
         // to the turtle's own position, unlike TOWARDS below. Pass POS
