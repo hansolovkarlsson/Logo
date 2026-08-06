@@ -19,10 +19,6 @@ Ideas from a 2026-08-06 review of
 against this interpreter's existing command set — same "small,
 self-contained" character as the original Phase 1, just found later:
 
-- [ ] `FLATTEN`, `PARSE`, `SUBST` — flatten nested lists into one flat
-  list, tokenize a word into a list of words, and substitute occurrences
-  of one thing for another within a list. `FLATTEN` specifically is only
-  meaningful now that lists really nest.
 - [ ] `TEXT "name` — like `SHOW`, but returns a procedure's body as
   *data* (a list) instead of printing it — the complementary
   read-as-data half of what `SHOW` already prints.

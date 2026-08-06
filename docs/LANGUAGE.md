@@ -519,6 +519,38 @@ PRINT FPUT "a "bc                -> abc
   WORD "b "c`) and, like the list operators above, work anywhere an
   argument is expected — including plain arithmetic.
 
+### FLATTEN, PARSE, SUBST
+
+```
+PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]   -> 1 2 3 4 5 6 7
+PRINT FLATTEN [a b c]                 -> a b c (already flat -- unchanged)
+
+PRINT PARSE "hello                    -> hello (a one-element list)
+PRINT PARSE [red green blue]          -> red green blue
+
+PRINT SUBST "b "x [a b c b]           -> a x c x
+PRINT SUBST "b "x [a [b c] [d [b e]]] -> a [x c] [d [x e]]
+PRINT SUBST [1 2] "x [[1 2] 3 4]      -> x 3 4
+```
+
+- `FLATTEN thing` collapses every level of nesting into one flat list:
+  a sublist's own brackets disappear, and its leaf elements take their
+  place at the top level, in order — only meaningful now that lists
+  really nest. A bare word/number is treated as a one-element list, same
+  as `COUNT`/`FIRST`/etc.
+- `PARSE thing` tokenizes `thing`'s printed text (the same rendering
+  `PRINT` shows) by whitespace into a list of words — the reverse of
+  what `PRINT` already does for a plain word. It's a pure text split,
+  not bracket-aware: parsing a list that itself contains a sublist
+  yields literal `"[..."`/`"...]"`-shaped word tokens back, not a real
+  nested list, since a bracket is just another non-space character here.
+- `SUBST old new thing` rebuilds `thing`, replacing every element equal
+  to `old` with `new` — including a whole matching sublist as one unit,
+  not just a leaf value (`SUBST [1 2] "x [[1 2] 3 4]` replaces the whole
+  `[1 2]` sublist). A non-matching sublist is recursed into, so a nested
+  occurrence substitutes without disturbing the rest of that sublist. A
+  bare (non-list) `thing` just checks itself directly against `old`.
+
 ### Arrays
 
 ```

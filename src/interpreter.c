@@ -786,6 +786,66 @@ static gboolean list_as_two_numbers(LogoApp *app, Value v, double out[2]) {
     return n == 2;
 }
 
+// FLATTEN: recursively collects every leaf (number/word) reachable from
+// `list_head`'s chain into one flat chain, appended via *next_slot --
+// only meaningful now that lists really nest (see the ListNode comment
+// above). A sublist's own container node is discarded; only its leaves
+// survive, in order, at the same level as everything else. Returns
+// FALSE if the pool fills up partway through (the caller reports the
+// error; whatever was appended before the failure is simply abandoned).
+static gboolean list_flatten_into(LogoApp *app, int list_head, int **next_slot) {
+    for (int idx = list_head; idx != -1; idx = app->list_pool[idx].next) {
+        ListNode *node = &app->list_pool[idx];
+        if (node->type == LIST_ELEM_LIST) {
+            if (!list_flatten_into(app, node->sublist_head, next_slot)) return FALSE;
+        } else {
+            int new_idx = list_alloc_node(app);
+            if (new_idx < 0) return FALSE;
+            app->list_pool[new_idx] = *node;
+            app->list_pool[new_idx].next = -1;
+            **next_slot = new_idx;
+            *next_slot = &app->list_pool[new_idx].next;
+        }
+    }
+    return TRUE;
+}
+
+// SUBST: rebuilds `list_head`'s chain, replacing every element equal to
+// `old_val` (compared the same way MEMBER?/values_equal already do, so
+// a whole matching sublist substitutes as one unit too, not just a
+// leaf) with `new_val`. A non-matching sublist is recursed into and
+// rebuilt in place, so a nested occurrence substitutes without
+// disturbing the rest of that sublist. Sets *out_head and returns TRUE,
+// or returns FALSE if the pool fills up partway through.
+static gboolean list_subst_into(LogoApp *app, int list_head, Value old_val, Value new_val, int *out_head) {
+    int head = -1;
+    int *next_slot = &head;
+    for (int idx = list_head; idx != -1; idx = app->list_pool[idx].next) {
+        ListNode *node = &app->list_pool[idx];
+        Value elem = list_node_to_value(node);
+        int new_idx;
+        if (values_equal(app, elem, old_val)) {
+            new_idx = list_node_from_value(app, new_val);
+        } else if (node->type == LIST_ELEM_LIST) {
+            int sub_head;
+            if (!list_subst_into(app, node->sublist_head, old_val, new_val, &sub_head)) return FALSE;
+            new_idx = list_alloc_node(app);
+            if (new_idx >= 0) {
+                app->list_pool[new_idx].type = LIST_ELEM_LIST;
+                app->list_pool[new_idx].sublist_head = sub_head;
+            }
+        } else {
+            new_idx = list_node_from_value(app, elem);
+        }
+        if (new_idx < 0) return FALSE;
+        app->list_pool[new_idx].next = -1;
+        *next_slot = new_idx;
+        next_slot = &app->list_pool[new_idx].next;
+    }
+    *out_head = head;
+    return TRUE;
+}
+
 // FPUT: prepend `thing` as a new first element of `list`. If `list` is a
 // word, this instead prepends `thing`'s text as new leading characters,
 // producing a new word (FPUT "a "bc -> "abc") — a word is a sequence of
@@ -1286,6 +1346,58 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         Value a = parse_factor(app, ptr);
         Value b = parse_factor(app, ptr);
         return list_wrap_pair(app, a, b);
+    }
+    if (consume_keyword(ptr, "FLATTEN")) {
+        Value arg = parse_factor(app, ptr);
+        int input_head = (arg.type == VALUE_LIST) ? arg.list_head : list_node_from_value(app, arg);
+        if (arg.type != VALUE_LIST && input_head < 0) return list_pool_exhausted_error(app);
+        int head = -1;
+        int *next_slot = &head;
+        if (!list_flatten_into(app, input_head, &next_slot)) return list_pool_exhausted_error(app);
+        return list_value(head);
+    }
+    if (consume_keyword(ptr, "PARSE")) {
+        // Tokenizes any value's printed text (same rendering PRINT uses)
+        // by whitespace into a list of words -- the reverse of what
+        // PRINT/value_to_text already does for a plain word. A bracket
+        // in the source text is just another non-space character here
+        // (PARSE doesn't reconstruct nested lists), so parsing a list
+        // that itself contains a sublist yields literal "[..."/"...]"-
+        // shaped word tokens rather than a real nested list back out.
+        Value arg = parse_factor(app, ptr);
+        char text[512];
+        value_to_text(app, &arg, text, sizeof(text));
+        int head = -1;
+        int *next_slot = &head;
+        const char *p = text;
+        while (*p) {
+            while (*p && isspace((unsigned char)*p)) p++;
+            if (*p == '\0') break;
+            const char *start = p;
+            while (*p && !isspace((unsigned char)*p)) p++;
+            int node = list_alloc_node(app);
+            if (node < 0) return list_pool_exhausted_error(app);
+            size_t len = (size_t)(p - start);
+            if (len >= sizeof(app->list_pool[node].word)) len = sizeof(app->list_pool[node].word) - 1;
+            memcpy(app->list_pool[node].word, start, len);
+            app->list_pool[node].word[len] = '\0';
+            app->list_pool[node].type = LIST_ELEM_WORD;
+            app->list_pool[node].next = -1;
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+        return list_value(head);
+    }
+    if (consume_keyword(ptr, "SUBST")) {
+        Value old_val = parse_factor(app, ptr);
+        Value new_val = parse_factor(app, ptr);
+        Value thing = parse_factor(app, ptr);
+        if (thing.type != VALUE_LIST) {
+            return values_equal(app, thing, old_val) ? new_val : thing;
+        }
+        int head;
+        if (!list_subst_into(app, thing.list_head, old_val, new_val, &head)) return list_pool_exhausted_error(app);
+        return list_value(head);
     }
     if (consume_keyword(ptr, "DOT")) {
         Value a = parse_factor(app, ptr);

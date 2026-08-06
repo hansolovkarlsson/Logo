@@ -1089,6 +1089,71 @@ TEST(test_list_construction_via_make_and_nesting) {
     CHECK_STREQ(captured_output, "helloworld\na\n");
 }
 
+// --- FLATTEN, PARSE, SUBST ---
+
+TEST(test_flatten_collapses_every_level_of_nesting) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]");
+    CHECK_STREQ(captured_output, "1 2 3 4 5 6 7\n");
+}
+
+TEST(test_flatten_of_an_already_flat_list_is_unchanged) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT FLATTEN [a b c]");
+    CHECK_STREQ(captured_output, "a b c\n");
+}
+
+TEST(test_flatten_of_empty_list_is_empty) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT EMPTY? FLATTEN []");
+    CHECK_STREQ(captured_output, "TRUE\n");
+}
+
+TEST(test_flatten_of_a_bare_word_or_number_is_one_element) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT FLATTEN \"hi\nPRINT COUNT FLATTEN 5");
+    CHECK_STREQ(captured_output, "hi\n1\n");
+}
+
+TEST(test_parse_tokenizes_a_word_into_a_one_element_list) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT PARSE \"hello\nPRINT COUNT PARSE \"hello");
+    CHECK_STREQ(captured_output, "hello\n1\n");
+}
+
+TEST(test_parse_splits_the_printed_text_of_a_list_on_whitespace) {
+    LogoApp *app = new_app();
+    // PARSE tokenizes whatever PRINT would show for the argument --
+    // splitting an already-flat list's rendered text back into words is
+    // a no-op round trip; COUNT confirms three real elements came out.
+    eval_logo(app, "PRINT PARSE [red green blue]\nPRINT COUNT PARSE [red green blue]");
+    CHECK_STREQ(captured_output, "red green blue\n3\n");
+}
+
+TEST(test_subst_replaces_every_matching_element) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT SUBST \"b \"x [a b c b]");
+    CHECK_STREQ(captured_output, "a x c x\n");
+}
+
+TEST(test_subst_recurses_into_sublists) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT SUBST \"b \"x [a [b c] [d [b e]]]");
+    CHECK_STREQ(captured_output, "a [x c] [d [x e]]\n");
+}
+
+TEST(test_subst_can_replace_a_whole_matching_sublist) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT SUBST [1 2] \"x [[1 2] 3 4]");
+    CHECK_STREQ(captured_output, "x 3 4\n");
+}
+
+TEST(test_subst_on_a_bare_value_checks_it_directly) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT SUBST \"a \"x \"a\nPRINT SUBST \"a \"x \"b");
+    CHECK_STREQ(captured_output, "x\nb\n");
+}
+
 // --- DOT, CROSS ---
 
 TEST(test_dot_product_of_equal_length_lists) {
@@ -2096,6 +2161,16 @@ int main(void) {
     RUN(test_sentence_joins_with_a_space);
     RUN(test_fput_prepends_and_lput_appends);
     RUN(test_list_construction_via_make_and_nesting);
+    RUN(test_flatten_collapses_every_level_of_nesting);
+    RUN(test_flatten_of_an_already_flat_list_is_unchanged);
+    RUN(test_flatten_of_empty_list_is_empty);
+    RUN(test_flatten_of_a_bare_word_or_number_is_one_element);
+    RUN(test_parse_tokenizes_a_word_into_a_one_element_list);
+    RUN(test_parse_splits_the_printed_text_of_a_list_on_whitespace);
+    RUN(test_subst_replaces_every_matching_element);
+    RUN(test_subst_recurses_into_sublists);
+    RUN(test_subst_can_replace_a_whole_matching_sublist);
+    RUN(test_subst_on_a_bare_value_checks_it_directly);
     RUN(test_dot_product_of_equal_length_lists);
     RUN(test_dot_mismatched_length_reports_error);
     RUN(test_cross_product_of_3element_lists);

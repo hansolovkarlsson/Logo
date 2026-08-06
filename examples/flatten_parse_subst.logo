@@ -1,0 +1,21 @@
+; FLATTEN -- collapses every level of nesting into one flat list. Only
+; meaningful now that lists really nest.
+
+PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]
+PRINT FLATTEN [a b c]        ; already flat -- unchanged
+
+; PARSE -- tokenizes a value's printed text by whitespace into a list of
+; words. On a plain word this is just a one-element list; on an
+; already-flat list of simple words, splitting its printed text back up
+; is a no-op round trip.
+
+PRINT PARSE "hello
+PRINT PARSE [red green blue]
+
+; SUBST -- substitutes every occurrence of one thing for another within
+; a list, recursing into sublists too. A whole matching sublist
+; substitutes as one unit, the same as a matching leaf element.
+
+PRINT SUBST "b "x [a b c b]
+PRINT SUBST "b "x [a [b c] [d [b e]]]
+PRINT SUBST [1 2] "x [[1 2] 3 4]
