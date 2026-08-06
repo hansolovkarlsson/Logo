@@ -2320,6 +2320,12 @@ void eval_logo(LogoApp *app, const char *code) {
             app->label_count = 0;
             app->raster_op_count = 0;
         }
+        // CLEARTEXT -- clears the history pane specifically, separate
+        // from CLEAR/CLEAN's canvas-only effect. A no-op in tests
+        // (clear_history is NULL there -- no text view to clear).
+        else if (strcasecmp(token, "CLEARTEXT") == 0 || strcasecmp(token, "CT") == 0) {
+            if (app->clear_history != NULL) app->clear_history(app);
+        }
         else if (strcasecmp(token, "HOME") == 0) {
             move_turtle_to(app, HOME_X, HOME_Y);
             current_turtle(app)->angle = 0;

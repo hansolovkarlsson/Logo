@@ -293,6 +293,13 @@ typedef struct LogoApp {
     // eval_logo call, and the canvas only redraws once that returns, so
     // WAIT alone wouldn't make any earlier drawing visible first).
     void (*request_redraw)(struct LogoApp *app);
+
+    // Set by ui.c's logo_activate to empty the history pane's text
+    // buffer; NULL in tests (there's no text view to clear). CLEARTEXT
+    // calls this -- kept as a callback, same as output_sink/
+    // request_redraw above, so interpreter.c stays free of any direct
+    // GTK dependency.
+    void (*clear_history)(struct LogoApp *app);
 } LogoApp;
 
 #endif // LOGO_TYPES_H

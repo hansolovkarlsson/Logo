@@ -19,8 +19,6 @@ Ideas from a 2026-08-06 review of
 against this interpreter's existing command set — same "small,
 self-contained" character as the original Phase 1, just found later:
 
-- [ ] `CLEARTEXT` — clears the history pane specifically, separate from
-  `CLEAR`'s canvas-only effect.
 - [ ] `FLATTEN`, `PARSE`, `SUBST` — flatten nested lists into one flat
   list, tokenize a word into a list of words, and substitute occurrences
   of one thing for another within a list. `FLATTEN` specifically is only

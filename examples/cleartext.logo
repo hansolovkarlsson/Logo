@@ -1,0 +1,12 @@
+; CLEARTEXT (abbreviation CT) -- clears the history pane specifically,
+; separate from CLEAR/CLEAN's canvas-only effect. Everything printed
+; before this point disappears from the pane; the canvas/turtle are
+; untouched.
+
+PRINT "one
+PRINT "two
+PRINT "three
+
+CLEARTEXT
+
+PRINT [the pane above is now empty, just this line]

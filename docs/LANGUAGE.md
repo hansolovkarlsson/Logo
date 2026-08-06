@@ -83,6 +83,7 @@ RT 90 FD 50
 | `SETBACKGROUND` | `SETBG` | `r g b` (each 0-255) | Set the canvas's background color |
 | `CLEAR` | `CS` | — | Erase the canvas and reset the turtle's position/angle |
 | `CLEAN` | — | — | Erase the canvas only — unlike `CLEAR`/`CS`, the turtle's position/angle are untouched |
+| `CLEARTEXT` | `CT` | — | Clear the history pane — separate from `CLEAR`/`CLEAN`'s canvas-only effect |
 | `HIDETURTLE` | `HT` | — | Stop drawing the turtle marker (the trail still draws) |
 | `SHOWTURTLE` | `ST` | — | Draw the turtle marker again |
 | `WRAP` | — | — | Crossing the canvas edge wraps around to the opposite side |

@@ -38,6 +38,14 @@ static void queue_canvas_redraw(LogoApp *app) {
     gtk_widget_queue_draw(app->drawing_area);
 }
 
+// The real clear_history callback: empties the history pane's text
+// buffer. Assigned to LogoApp.clear_history in logo_activate; CLEARTEXT
+// is what calls this.
+static void clear_history_pane(LogoApp *app) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->text_view));
+    gtk_text_buffer_set_text(buffer, "", -1);
+}
+
 // Flood-fills the region containing (x0, y0) in an ARGB32 pixel buffer
 // with fill_pixel, replacing every pixel reachable from there that
 // currently matches whatever color is already at (x0, y0) -- a plain
@@ -778,6 +786,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->bg_b = 1.0;
     logo->output_sink = history_pane_output_sink;
     logo->request_redraw = queue_canvas_redraw;
+    logo->clear_history = clear_history_pane;
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;

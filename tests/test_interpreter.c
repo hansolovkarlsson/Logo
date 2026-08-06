@@ -344,6 +344,15 @@ TEST(test_clean_erases_drawing_but_leaves_the_turtle_alone) {
     CHECK_NEAR(app->turtles[0].angle, 45.0);
 }
 
+TEST(test_cleartext_is_a_safe_no_op_with_no_history_pane) {
+    // clear_history is NULL here (no GTK text view in tests, same as
+    // request_redraw) -- CLEARTEXT/CT must not crash or print anything
+    // when there's nothing to clear.
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT \"before\nCLEARTEXT\nCT\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\nafter\n");
+}
+
 TEST(test_who_reports_the_current_turtle) {
     LogoApp *app = new_app();
     eval_logo(app, "PRINT WHO\nTELL 1\nPRINT WHO\nTELL 0\nPRINT WHO");
@@ -1978,6 +1987,7 @@ int main(void) {
     RUN(test_turtles_move_independently);
     RUN(test_clear_homes_every_turtle);
     RUN(test_clean_erases_drawing_but_leaves_the_turtle_alone);
+    RUN(test_cleartext_is_a_safe_no_op_with_no_history_pane);
     RUN(test_who_reports_the_current_turtle);
     RUN(test_procedures_lists_every_defined_procedure);
     RUN(test_procedures_is_empty_when_none_are_defined);
