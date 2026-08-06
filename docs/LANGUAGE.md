@@ -227,6 +227,26 @@ PRINT HEADING           -> 45
 - Both always refer to whichever turtle `TELL` currently targets, same as
   `FD`/`RT`/etc.
 
+```
+PRINT DISTANCE [0 0] [3 4]      -> 5
+
+SETXY 0 0
+SETHEADING TOWARDS [120 90]
+FORWARD DISTANCE POS [120 90]
+PRINT POS                        -> 120 90
+```
+
+- `DISTANCE p1 p2` outputs the straight-line distance between two
+  arbitrary `[x y]` points — it isn't tied to the turtle's own position
+  (pass `POS` as one of the two points for "distance from here").
+  `TOWARDS point` outputs the heading (same 0-360 convention as
+  `HEADING`) to face directly from the turtle's *current* position
+  toward `point`. Together they answer "turn to face a target, then
+  walk exactly far enough to arrive there" in two lines, as shown above.
+- Both report an error if either argument isn't a 2-element list:
+  `DISTANCE: expected two 2-element lists` / `TOWARDS: expected a
+  2-element list`.
+
 ## Expressions
 
 Anywhere a command expects a number (`FD`, `RT`, a `REPEAT` count, a

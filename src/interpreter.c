@@ -774,6 +774,18 @@ static gboolean list_as_three_numbers(LogoApp *app, Value v, double out[3]) {
     return n == 3;
 }
 
+// Same as list_as_three_numbers, but for a 2-element [x y] point -- used
+// by DISTANCE/TOWARDS, which both work in the same [x y] point
+// convention POS already returns.
+static gboolean list_as_two_numbers(LogoApp *app, Value v, double out[2]) {
+    if (v.type != VALUE_LIST) return FALSE;
+    int n = 0;
+    for (int idx = v.list_head; idx != -1; idx = app->list_pool[idx].next, n++) {
+        if (n < 2) out[n] = value_to_number(list_node_to_value(&app->list_pool[idx]));
+    }
+    return n == 2;
+}
+
 // FPUT: prepend `thing` as a new first element of `list`. If `list` is a
 // word, this instead prepends `thing`'s text as new leading characters,
 // producing a new word (FPUT "a "bc -> "abc") — a word is a sequence of
@@ -1280,6 +1292,42 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         // [x y] as a 2-element list, reusing LIST's wrap-as-one-element
         // logic since a raw x/y pair never needs splicing.
         return list_wrap_pair(app, number_value(current_turtle(app)->x), number_value(current_turtle(app)->y));
+    }
+    if (consume_keyword(ptr, "DISTANCE")) {
+        // Plain distance between two arbitrary [x y] points -- not tied
+        // to the turtle's own position, unlike TOWARDS below. Pass POS
+        // as one of the two points for "distance from here".
+        Value a = parse_factor(app, ptr);
+        Value b = parse_factor(app, ptr);
+        double av[2], bv[2];
+        if (!list_as_two_numbers(app, a, av) || !list_as_two_numbers(app, b, bv)) {
+            append_output(app, "DISTANCE: expected two 2-element lists\n");
+            return number_value(0);
+        }
+        double dx = bv[0] - av[0];
+        double dy = bv[1] - av[1];
+        return number_value(sqrt(dx * dx + dy * dy));
+    }
+    if (consume_keyword(ptr, "TOWARDS")) {
+        // The heading (same convention as HEADING/SETHEADING/RT/LT) to
+        // face directly from the turtle's current position toward
+        // point, derived directly from move_turtle_forward's own
+        // dx/dy-vs-heading formula so SETHEADING TOWARDS point then
+        // FORWARD DISTANCE POS point actually walks straight to point.
+        // Unlike HEADING (a live, unbounded accumulator), this is a
+        // freshly computed compass bearing, so it's normalized to
+        // [0, 360) the way most Logo dialects report TOWARDS.
+        Value p = parse_factor(app, ptr);
+        double pv[2];
+        if (!list_as_two_numbers(app, p, pv)) {
+            append_output(app, "TOWARDS: expected a 2-element list\n");
+            return number_value(0);
+        }
+        double dx = pv[0] - current_turtle(app)->x;
+        double dy = pv[1] - current_turtle(app)->y;
+        double heading = atan2(dx, -dy) * 180.0 / M_PI;
+        if (heading < 0) heading += 360.0;
+        return number_value(heading);
     }
     if (**ptr == ':') {
         (*ptr)++;

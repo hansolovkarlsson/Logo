@@ -1,0 +1,22 @@
+; DISTANCE p1 p2 -- straight-line distance between two arbitrary [x y]
+; points, not tied to the turtle's own position.
+
+PRINT DISTANCE [0 0] [3 4]
+
+; TOWARDS point -- the heading (0-360, same convention as HEADING) to
+; face directly from the turtle's *current* position toward point.
+; Combine with POS to get "distance from here":
+
+SETXY 0 0
+PRINT TOWARDS [0 -100]   ; straight up -> 0
+PRINT TOWARDS [100 0]    ; straight right -> 90
+PRINT TOWARDS [0 100]    ; straight down -> 180
+PRINT TOWARDS [-100 0]   ; straight left -> 270
+
+; Useful together for "chase a target": turn to face it, then walk
+; exactly far enough to arrive there.
+
+SETXY 0 0
+SETHEADING TOWARDS [120 90]
+FORWARD DISTANCE POS [120 90]
+PRINT POS

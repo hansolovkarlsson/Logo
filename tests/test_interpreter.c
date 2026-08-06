@@ -1023,6 +1023,46 @@ TEST(test_cross_wrong_length_reports_error) {
     CHECK_CONTAINS(captured_output, "CROSS: expected two 3-element lists");
 }
 
+// --- DISTANCE, TOWARDS ---
+
+TEST(test_distance_between_two_points) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT DISTANCE [0 0] [3 4]");
+    CHECK_STREQ(captured_output, "5\n");
+}
+
+TEST(test_distance_requires_two_2element_lists) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT DISTANCE [1 2 3] [1 2]");
+    CHECK_CONTAINS(captured_output, "DISTANCE: expected two 2-element lists");
+}
+
+TEST(test_towards_reports_a_compass_heading_toward_the_point) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "SETXY 0 0\n"
+        "PRINT TOWARDS [0 -10]\n" // north
+        "PRINT TOWARDS [10 0]\n"  // east
+        "PRINT TOWARDS [0 10]\n"  // south
+        "PRINT TOWARDS [-10 0]"); // west
+    CHECK_STREQ(captured_output, "0\n90\n180\n270\n");
+}
+
+TEST(test_towards_requires_a_2element_list) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT TOWARDS [1 2 3]");
+    CHECK_CONTAINS(captured_output, "TOWARDS: expected a 2-element list");
+}
+
+TEST(test_setheading_towards_then_forward_reaches_the_point) {
+    // Round-trips DISTANCE/TOWARDS through the turtle's own movement
+    // formula rather than checking the angle math in isolation.
+    LogoApp *app = new_app();
+    eval_logo(app, "SETHEADING TOWARDS [300 200]\nFORWARD DISTANCE POS [300 200]");
+    CHECK_NEAR(app->turtles[0].x, 300.0);
+    CHECK_NEAR(app->turtles[0].y, 200.0);
+}
+
 // --- True nested lists ---
 
 TEST(test_print_nested_list_literal) {
@@ -1871,6 +1911,11 @@ int main(void) {
     RUN(test_dot_mismatched_length_reports_error);
     RUN(test_cross_product_of_3element_lists);
     RUN(test_cross_wrong_length_reports_error);
+    RUN(test_distance_between_two_points);
+    RUN(test_distance_requires_two_2element_lists);
+    RUN(test_towards_reports_a_compass_heading_toward_the_point);
+    RUN(test_towards_requires_a_2element_list);
+    RUN(test_setheading_towards_then_forward_reaches_the_point);
 
     RUN(test_print_nested_list_literal);
     RUN(test_count_of_nested_list_counts_top_level_only);

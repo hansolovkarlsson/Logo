@@ -19,9 +19,6 @@ Ideas from a 2026-08-06 review of
 against this interpreter's existing command set — same "small,
 self-contained" character as the original Phase 1, just found later:
 
-- [ ] `DISTANCE`/`TOWARDS` — distance between two points, and the
-  heading from here toward a point; small utility operators, useful for
-  anything chasing or aiming at a target.
 - [ ] `GETX`/`GETY`, `SETX`/`SETY` — single-axis complements to
   `POS`/`SETXY`, for reading or moving along just one coordinate.
 - [ ] `INT`, `TAN`, `ASIN`, `ACOS`, `LOG`, `EXP` — round out the
