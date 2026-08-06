@@ -1,0 +1,17 @@
+; Round out the arithmetic operators: TAN/ASIN/ACOS join SIN/COS/
+; ARCTAN (all degrees in, degrees out, same convention); LOG is base-10,
+; LN is natural log, EXP is e^x (LN's inverse); INT truncates towards
+; zero (unlike ROUND).
+
+PRINT TAN 45
+PRINT ASIN 1
+PRINT ACOS 0
+
+PRINT LOG 100
+PRINT LN 1
+PRINT EXP 1
+PRINT LN EXP 3      ; natural log undoes EXP -> 3
+
+PRINT INT 2.9
+PRINT INT -2.9
+PRINT ROUND -2.9    ; contrast: ROUND rounds, INT truncates

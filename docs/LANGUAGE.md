@@ -286,14 +286,21 @@ accepted:
   - `POWER a b` — `a` raised to the power `b`.
   - `SQRT a`, `ABS a`, `ROUND a` — square root, absolute value, and
     round-to-nearest-integer.
-  - `SIN a`, `COS a`, `ARCTAN a` — trig functions; `a`/the result are in
-    **degrees**, matching `RT`/`LT`/`HEADING`'s convention, not radians.
+  - `INT a` — truncates towards zero (`INT 2.9` is `2`, `INT -2.9` is
+    `-2`), unlike `ROUND` (`ROUND -2.9` is `-3`).
+  - `SIN a`, `COS a`, `ARCTAN a`, `TAN a`, `ASIN a`, `ACOS a` — trig
+    functions; `a`/the result are in **degrees**, matching `RT`/`LT`/
+    `HEADING`'s convention, not radians.
+  - `LOG a` — base-10 logarithm. `LN a` — natural logarithm. `EXP a` —
+    `e` raised to a power, `LN`'s inverse (so `LN EXP a` is `a`).
   - `RANDOM n` — a random integer in `[0, n)`.
 
 Division by zero evaluates to `0` rather than crashing or erroring.
-`SQRT` of a negative number returns C's own `NaN` rather than a special
-error — it prints as `nan`, which is visibly broken rather than a
-plausible-looking wrong number, so nothing special was added on top.
+`SQRT` of a negative number, `ASIN`/`ACOS` outside `[-1, 1]`, and
+`LOG`/`LN` of a non-positive number all return C's own `NaN` rather
+than a special error — they print as `nan`, which is visibly broken
+rather than a plausible-looking wrong number, so nothing special was
+added on top.
 
 ## Variables & scoping
 

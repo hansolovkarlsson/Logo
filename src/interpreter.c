@@ -925,11 +925,32 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
     if (consume_keyword(ptr, "ARCTAN")) {
         return number_value(atan(value_to_number(parse_factor(app, ptr))) * 180.0 / M_PI);
     }
+    if (consume_keyword(ptr, "TAN")) {
+        return number_value(tan(value_to_number(parse_factor(app, ptr)) * M_PI / 180.0));
+    }
+    if (consume_keyword(ptr, "ASIN")) {
+        return number_value(asin(value_to_number(parse_factor(app, ptr))) * 180.0 / M_PI);
+    }
+    if (consume_keyword(ptr, "ACOS")) {
+        return number_value(acos(value_to_number(parse_factor(app, ptr))) * 180.0 / M_PI);
+    }
+    if (consume_keyword(ptr, "LOG")) {
+        return number_value(log10(value_to_number(parse_factor(app, ptr))));
+    }
+    if (consume_keyword(ptr, "LN")) {
+        return number_value(log(value_to_number(parse_factor(app, ptr))));
+    }
+    if (consume_keyword(ptr, "EXP")) {
+        return number_value(exp(value_to_number(parse_factor(app, ptr))));
+    }
     if (consume_keyword(ptr, "RANDOM")) {
         return number_value(random_below(value_to_number(parse_factor(app, ptr))));
     }
     if (consume_keyword(ptr, "ROUND")) {
         return number_value(round(value_to_number(parse_factor(app, ptr))));
+    }
+    if (consume_keyword(ptr, "INT")) {
+        return number_value(trunc(value_to_number(parse_factor(app, ptr))));
     }
     if (consume_keyword(ptr, "ABS")) {
         return number_value(fabs(value_to_number(parse_factor(app, ptr))));

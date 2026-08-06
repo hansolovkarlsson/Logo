@@ -19,9 +19,6 @@ Ideas from a 2026-08-06 review of
 against this interpreter's existing command set — same "small,
 self-contained" character as the original Phase 1, just found later:
 
-- [ ] `INT`, `TAN`, `ASIN`, `ACOS`, `LOG`, `EXP` — round out the
-  arithmetic operators (`ROUND`/`SIN`/`COS`/`ARCTAN` already exist, but
-  truncation and the rest of the trig/log family don't).
 - [ ] `CLEAN` — erases drawing but leaves the turtle's position/heading
   alone, unlike `CLEAR`/`CS` (which also homes it) — a real Berkeley
   Logo distinction this interpreter doesn't have yet.

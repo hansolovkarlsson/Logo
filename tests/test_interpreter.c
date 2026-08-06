@@ -1369,6 +1369,30 @@ TEST(test_sin_cos_arctan_in_degrees) {
     CHECK_STREQ(captured_output, "1\n1\n45\n");
 }
 
+TEST(test_tan_in_degrees) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT TAN 0\nPRINT TAN 45");
+    CHECK_STREQ(captured_output, "0\n1\n");
+}
+
+TEST(test_asin_acos_report_degrees) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT ASIN 1\nPRINT ACOS 1\nPRINT ACOS 0");
+    CHECK_STREQ(captured_output, "90\n0\n90\n");
+}
+
+TEST(test_log_is_base_10_ln_is_natural_log) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT LOG 100\nPRINT LN 1\nPRINT EXP 0\nPRINT LN EXP 3");
+    CHECK_STREQ(captured_output, "2\n0\n1\n3\n");
+}
+
+TEST(test_int_truncates_towards_zero) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT INT 2.9\nPRINT INT -2.9\nPRINT INT 3");
+    CHECK_STREQ(captured_output, "2\n-2\n3\n");
+}
+
 TEST(test_random_stays_in_range) {
     LogoApp *app = new_app();
     for (int i = 0; i < 200; i++) {
@@ -1979,6 +2003,10 @@ int main(void) {
     RUN(test_sqrt_and_abs);
     RUN(test_round_to_nearest_integer);
     RUN(test_sin_cos_arctan_in_degrees);
+    RUN(test_tan_in_degrees);
+    RUN(test_asin_acos_report_degrees);
+    RUN(test_log_is_base_10_ln_is_natural_log);
+    RUN(test_int_truncates_towards_zero);
     RUN(test_random_stays_in_range);
 
     RUN(test_word_list_number_predicates);
