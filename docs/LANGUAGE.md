@@ -130,12 +130,10 @@ FILL
   whatever lines are currently drawn — with its current pen color, the
   same way a paint bucket tool works. `CLEAR` erases fills along with
   lines.
-- `FILL`'s boundary is **recomputed on every redraw** from whatever
-  lines exist at that moment, rather than frozen the instant `FILL` was
-  called: a line drawn *after* a `FILL` can retroactively become a new
-  boundary the next time the canvas redraws. This is a known,
-  intentional simplification (see `ROADMAP.md`) — in practice it only
-  matters if you keep drawing into an already-filled region afterward.
+- `FILL`'s boundary is **frozen the instant `FILL` is called**: a line
+  drawn afterward, even one that cuts straight through the filled
+  region, never retroactively changes what got filled or splits it into
+  separately-colored pieces the next time the canvas redraws.
 
 ```
 REPEAT 4 [FD 100 RT 90]

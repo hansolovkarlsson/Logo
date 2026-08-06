@@ -17,3 +17,14 @@ SETXY 325 175
 PENDOWN
 SETPENCOLOR 0 150 255
 FILL
+
+; A FILL freezes its boundary at the moment it's called -- a line drawn
+; through the filled region afterward does NOT retroactively carve it
+; into two separately-colored halves the next time the canvas redraws.
+; This vertical line spans the square's full height, splitting it into
+; a left and right half; both halves should stay fully filled, not just
+; the half containing the FILL's own (325, 175) seed point.
+PENUP
+SETXY 350 100
+PENDOWN
+SETXY 350 250

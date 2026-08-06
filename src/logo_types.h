@@ -66,13 +66,15 @@ typedef struct {
 } Label;
 
 // A FILL command: flood-fill the region containing (x, y) — the
-// turtle's position when FILL was called — with color (r, g, b). Also
-// plain data; ui.c's draw_scene does the actual rasterizing/flood-fill
-// algorithm at draw time, using whatever lines currently exist (see the
-// FILL comment in interpreter.c for the tradeoff that implies).
+// turtle's position when FILL was called — with color (r, g, b).
+// line_count_at_call freezes how many of LogoApp.lines existed at that
+// exact moment, so ui.c's incremental raster bake (see draw_scene) can
+// flood-fill against exactly the boundary that existed then, rather
+// than whatever lines happen to exist the next time the canvas redraws.
 typedef struct {
     double x, y;
     double r, g, b;
+    int line_count_at_call;
 } FillRequest;
 
 // The turtle's position, heading, pen state, current pen color/width
@@ -171,6 +173,17 @@ typedef struct LogoApp {
 
     FillRequest fills[MAX_FILLS]; // see FILL
     int fill_count;
+
+    // ui.c's persisted raster bake of FILL requests already applied
+    // (see draw_scene / bake_pending_fills in ui.c) — owned entirely by
+    // ui.c, NULL/0 in tests where nothing is ever drawn. Kept here
+    // rather than as ui.c statics so it survives across draw calls
+    // without any global state, and so a fill_count regression (CLEAR
+    // resetting it back to 0) is detectable by comparing against
+    // raster_fills_baked.
+    cairo_surface_t *fill_raster;
+    int raster_lines_baked;
+    int raster_fills_baked;
 
     Procedure procedures[MAX_PROCEDURES];
     int proc_count;

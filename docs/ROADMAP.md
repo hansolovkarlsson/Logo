@@ -23,13 +23,6 @@ scoped items first.
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).
-- [ ] `FILL` recomputes its flood-fill from whatever lines currently exist
-  on every redraw, rather than freezing a snapshot at the moment `FILL`
-  was called (see `LANGUAGE.md`'s Turtle commands section) — a deliberate
-  scope decision (the alternative needs a persisted raster layer in
-  `LogoApp`, freed/reset on `CLEAR`), not a bug, but worth fixing if it
-  ever causes a real drawing to look wrong after further lines are added
-  past an existing fill.
 - [ ] `eval_logo`'s 200-call recursion cap (`MAX_SCOPE_DEPTH`) is close to,
   but not confirmed over, a stack-safety edge under AddressSanitizer —
   found 2026-08-05 while stress-testing `RUN`/`APPLY`. `eval_logo` is one

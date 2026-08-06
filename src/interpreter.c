@@ -1858,14 +1858,12 @@ void eval_logo(LogoApp *app, const char *code) {
             }
         }
         // 3c''''''. FILL — flood-fills the region containing the turtle,
-        // bounded by whatever lines are currently drawn, with the
-        // turtle's current pen color. Same "record plain data, let ui.c
-        // do the actual Cairo/rasterizing work" split as LABEL — except
-        // ui.c recomputes the flood-fill from *current* lines on every
-        // redraw rather than freezing a snapshot at this exact moment,
-        // so a line drawn after this FILL can still retroactively become
-        // a new boundary the next time the canvas redraws. See
-        // docs/LANGUAGE.md for that tradeoff spelled out.
+        // bounded by whatever lines are drawn as of this exact moment,
+        // with the turtle's current pen color. Same "record plain data,
+        // let ui.c do the actual Cairo/rasterizing work" split as
+        // LABEL; line_count_at_call freezes the boundary so a line
+        // drawn after this FILL can't retroactively change what it
+        // filled (see ui.c's bake_pending_fills).
         else if (strcasecmp(token, "FILL") == 0) {
             if (app->fill_count < MAX_FILLS) {
                 Turtle *t = current_turtle(app);
@@ -1875,6 +1873,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 fill->r = t->pen_r;
                 fill->g = t->pen_g;
                 fill->b = t->pen_b;
+                fill->line_count_at_call = app->line_count;
             }
         }
         // 3c'''''''. WAIT expr — pauses for expr seconds (this

@@ -82,48 +82,69 @@ static void flood_fill_pixels(unsigned char *data, int stride, int width, int he
     g_free(stack_y);
 }
 
-// Renders the background and every recorded line segment into an
-// offscreen raster surface, then flood-fills each pending FILL request
-// into it (see the FILL comment in interpreter.c: this recomputes from
-// *current* lines on every redraw, not a snapshot frozen at the moment
-// FILL was called), and composites the result onto `cr`. Only used when
-// there's at least one FILL pending -- the plain vector path below is
-// unchanged and just as cheap when there isn't.
-static void draw_background_and_lines_with_fills(LogoApp *app, cairo_t *cr) {
-    cairo_surface_t *offscreen = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
-    cairo_t *ocr = cairo_create(offscreen);
-
-    cairo_set_source_rgb(ocr, app->bg_r, app->bg_g, app->bg_b);
-    cairo_paint(ocr);
-    for (int i = 0; i < app->line_count; i++) {
-        cairo_set_source_rgb(ocr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
-        cairo_set_line_width(ocr, app->lines[i].width);
-        cairo_move_to(ocr, app->lines[i].x1, app->lines[i].y1);
-        cairo_line_to(ocr, app->lines[i].x2, app->lines[i].y2);
-        cairo_stroke(ocr);
+// Ensures app->fill_raster reflects every FILL request recorded so far.
+// Each fill is baked in using exactly the lines that existed at the
+// moment it was called (FillRequest.line_count_at_call), so a line
+// drawn *after* a FILL can never retroactively carve up a region that
+// FILL already settled -- unlike recomputing every fill from scratch
+// against whatever lines currently exist, which is what this used to
+// do (see docs/ROADMAP.md's old note about that tradeoff). A drop in
+// fill_count (CLEAR/CS resetting it back to 0) is detected by comparing
+// against raster_fills_baked and invalidates the whole raster so it
+// gets rebuilt from nothing next time a FILL happens.
+static void bake_pending_fills(LogoApp *app) {
+    if (app->fill_count < app->raster_fills_baked) {
+        if (app->fill_raster != NULL) {
+            cairo_surface_destroy(app->fill_raster);
+            app->fill_raster = NULL;
+        }
+        app->raster_lines_baked = 0;
+        app->raster_fills_baked = 0;
     }
-    cairo_destroy(ocr);
+    if (app->raster_fills_baked >= app->fill_count) return;
 
-    cairo_surface_flush(offscreen);
-    unsigned char *data = cairo_image_surface_get_data(offscreen);
-    int stride = cairo_image_surface_get_stride(offscreen);
-    int width = cairo_image_surface_get_width(offscreen);
-    int height = cairo_image_surface_get_height(offscreen);
+    if (app->fill_raster == NULL) {
+        app->fill_raster = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
+        cairo_t *ocr = cairo_create(app->fill_raster);
+        cairo_set_source_rgb(ocr, app->bg_r, app->bg_g, app->bg_b);
+        cairo_paint(ocr);
+        cairo_destroy(ocr);
+    }
 
-    for (int i = 0; i < app->fill_count; i++) {
+    int width = cairo_image_surface_get_width(app->fill_raster);
+    int height = cairo_image_surface_get_height(app->fill_raster);
+
+    while (app->raster_fills_baked < app->fill_count) {
+        FillRequest *fill = &app->fills[app->raster_fills_baked];
+
+        if (fill->line_count_at_call > app->raster_lines_baked) {
+            cairo_t *ocr = cairo_create(app->fill_raster);
+            for (int i = app->raster_lines_baked; i < fill->line_count_at_call; i++) {
+                cairo_set_source_rgb(ocr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
+                cairo_set_line_width(ocr, app->lines[i].width);
+                cairo_move_to(ocr, app->lines[i].x1, app->lines[i].y1);
+                cairo_line_to(ocr, app->lines[i].x2, app->lines[i].y2);
+                cairo_stroke(ocr);
+            }
+            cairo_destroy(ocr);
+            app->raster_lines_baked = fill->line_count_at_call;
+        }
+
+        cairo_surface_flush(app->fill_raster);
+        unsigned char *data = cairo_image_surface_get_data(app->fill_raster);
+        int stride = cairo_image_surface_get_stride(app->fill_raster);
+
         // Pen colors are already clamped to [0, 1] when set (SETPENCOLOR);
         // fully opaque, so ARGB32's premultiplication is a no-op here.
-        unsigned char r = (unsigned char)(app->fills[i].r * 255.0 + 0.5);
-        unsigned char g = (unsigned char)(app->fills[i].g * 255.0 + 0.5);
-        unsigned char b = (unsigned char)(app->fills[i].b * 255.0 + 0.5);
+        unsigned char r = (unsigned char)(fill->r * 255.0 + 0.5);
+        unsigned char g = (unsigned char)(fill->g * 255.0 + 0.5);
+        unsigned char b = (unsigned char)(fill->b * 255.0 + 0.5);
         uint32_t fill_pixel = ((uint32_t)0xFF << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
-        flood_fill_pixels(data, stride, width, height, (int)app->fills[i].x, (int)app->fills[i].y, fill_pixel);
-    }
-    cairo_surface_mark_dirty(offscreen);
+        flood_fill_pixels(data, stride, width, height, (int)fill->x, (int)fill->y, fill_pixel);
+        cairo_surface_mark_dirty(app->fill_raster);
 
-    cairo_set_source_surface(cr, offscreen, 0, 0);
-    cairo_paint(cr);
-    cairo_surface_destroy(offscreen);
+        app->raster_fills_baked++;
+    }
 }
 
 // Paints the background, every recorded line segment, then every active
@@ -132,19 +153,25 @@ static void draw_background_and_lines_with_fills(LogoApp *app, cairo_t *cr) {
 // on-screen canvas (draw_cb) and PNG export (export_canvas_to_png), so
 // both render identically.
 static void draw_scene(LogoApp *app, cairo_t *cr) {
-    if (app->fill_count > 0) {
-        draw_background_and_lines_with_fills(app, cr);
+    bake_pending_fills(app);
+
+    if (app->fill_raster != NULL) {
+        cairo_set_source_surface(cr, app->fill_raster, 0, 0);
+        cairo_paint(cr);
     } else {
         cairo_set_source_rgb(cr, app->bg_r, app->bg_g, app->bg_b);
         cairo_paint(cr);
+    }
 
-        for (int i = 0; i < app->line_count; i++) {
-            cairo_set_source_rgb(cr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
-            cairo_set_line_width(cr, app->lines[i].width);
-            cairo_move_to(cr, app->lines[i].x1, app->lines[i].y1);
-            cairo_line_to(cr, app->lines[i].x2, app->lines[i].y2);
-            cairo_stroke(cr);
-        }
+    // Lines not yet baked into fill_raster (nothing has FILLed since
+    // they were drawn) -- always redrawn fresh as plain vector strokes,
+    // same as the whole line list was before any FILL ever happened.
+    for (int i = app->raster_lines_baked; i < app->line_count; i++) {
+        cairo_set_source_rgb(cr, app->lines[i].r, app->lines[i].g, app->lines[i].b);
+        cairo_set_line_width(cr, app->lines[i].width);
+        cairo_move_to(cr, app->lines[i].x1, app->lines[i].y1);
+        cairo_line_to(cr, app->lines[i].x2, app->lines[i].y2);
+        cairo_stroke(cr);
     }
 
     cairo_set_font_size(cr, 14);
