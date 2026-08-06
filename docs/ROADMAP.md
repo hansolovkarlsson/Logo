@@ -12,28 +12,88 @@ complexity/risk rather than a strict priority order. Later phases don't
 strictly depend on earlier ones, but roughly track "how big a bet is this"
 — treat this as a menu to pick from, not a committed queue.
 
-### Phase 2 — New data types, background/sprite images
+### Phase 2 — Small, self-contained additions
 
-- [ ] Property lists (key/value records) — Berkeley Logo's `PLIST`;
-  also a natural stepping stone toward the OOP idea in Phase 4, since a
-  prototype "object" is essentially a plist with a type tag.
-- [ ] Load a background image onto the canvas.
+Ideas from a 2026-08-06 review of
+[Terrapin Logo's command reference](https://resources.terrapinlogo.com/logo/commands/)
+against this interpreter's existing command set — same "small,
+self-contained" character as the original Phase 1, just found later:
+
+- [ ] `FOR [var start end step] [block]` — a counted loop that exposes
+  the loop variable directly, unlike `REPEAT` (count only, no variable)
+  or `WHILE` (manual increment). `FOREVER [block]` alongside it — an
+  infinite loop that only stops via `STOP`, useful for a game-loop-style
+  script.
+- [ ] `DISTANCE`/`TOWARDS` — distance between two points, and the
+  heading from here toward a point; small utility operators, useful for
+  anything chasing or aiming at a target.
+- [ ] `GETX`/`GETY`, `SETX`/`SETY` — single-axis complements to
+  `POS`/`SETXY`, for reading or moving along just one coordinate.
+- [ ] `INT`, `TAN`, `ASIN`, `ACOS`, `LOG`, `EXP` — round out the
+  arithmetic operators (`ROUND`/`SIN`/`COS`/`ARCTAN` already exist, but
+  truncation and the rest of the trig/log family don't).
+- [ ] `CLEAN` — erases drawing but leaves the turtle's position/heading
+  alone, unlike `CLEAR`/`CS` (which also homes it) — a real Berkeley
+  Logo distinction this interpreter doesn't have yet.
+- [ ] `CLEARTEXT` — clears the history pane specifically, separate from
+  `CLEAR`'s canvas-only effect.
+- [ ] `WHO` — reports which turtle `TELL` currently has selected.
+- [ ] `PICK list` — a random element from a list; trivial given
+  `RANDOM`/`ITEM`/`COUNT` already exist.
+- [ ] `FLATTEN`, `PARSE`, `SUBST` — flatten nested lists into one flat
+  list, tokenize a word into a list of words, and substitute occurrences
+  of one thing for another within a list. `FLATTEN` specifically is only
+  meaningful now that lists really nest.
+- [ ] `FILLARRAY array value` — fill every slot of an array with one
+  value in a single call, rather than looping `SETITEM` manually.
+- [ ] `PROCEDURES`/`NAMES` — list every currently-defined procedure/
+  variable name; workspace introspection alongside Phase 1's `SHOW`.
+- [ ] `TEXT "name` — like `SHOW`, but returns a procedure's body as
+  *data* (a list) instead of printing it — the complementary
+  read-as-data half of what `SHOW` already prints.
+- [ ] `THING word` — reads a variable by a name that's itself a
+  computed word (`THING WORD "item :n`), unlike `:name` which only
+  takes a literal name — a genuine reflective capability `:name` alone
+  can't provide.
+
+### Phase 3 — New data types, background/sprite images
+
+- [ ] Property lists (key/value records) — Berkeley Logo's `PLIST`
+  (real command names: `GPROP`/`PPROP`/`REMPROP`); also a natural
+  stepping stone toward the OOP idea in Phase 5, since a prototype
+  "object" is essentially a plist with a type tag.
+- [ ] Load a background image onto the canvas (Terrapin's `LOADPIC`;
+  `SAVEPIC` for the reverse).
 - [ ] Load part of an image onto part of the canvas (a sprite-sheet
   style blit) — `gdk-pixbuf`/Cairo are already linked (used for PNG
   export today), so this slots in next to existing drawing code rather
   than needing a new dependency.
-- [ ] Sprites controlled by turtles — swap a turtle's drawn triangle
-  for a loaded image; a fairly direct extension of the existing
-  per-turtle drawing (see "Multiple turtles" in `LANGUAGE.md`).
+- [ ] Sprites controlled by turtles (Terrapin's `STAMP`) — swap a
+  turtle's drawn triangle for a loaded image; a fairly direct extension
+  of the existing per-turtle drawing (see "Multiple turtles" in
+  `LANGUAGE.md`).
 - [ ] Animated sprites (frame-cycling) — needs some notion of a timer/
   tick driving redraws, similar in spirit to `WAIT`'s existing
   redraw-and-drain-events technique but recurring rather than one-shot.
+- [ ] A real debugger — breakpoints/step execution, a call-stack trace,
+  and per-call timing (Terrapin's `PAUSE`/`CONTINUE`/`BACKTRACE`/
+  `EXECTIME`) — a substantial standalone feature area on its own, not a
+  quick add alongside the rest of this phase.
+- [ ] General file I/O beyond today's procedure-only `LOAD`/`SAVE` —
+  reading/writing arbitrary files and listing directory contents
+  (Terrapin's `OPEN`/`CLOSE`/`CREATE`/`DELETE`/`DIRECTORY`).
+- [ ] A resizable canvas (Terrapin's `SETEXTENT`/`EXTENT`) — needs
+  `CANVAS_WIDTH`/`CANVAS_HEIGHT` (currently `#define`d constants baked
+  into turtle-position math, `WRAP`/`FENCE` boundary checks, and the
+  raster surfaces built for `FILL`/`ERASERECT`) to become a
+  runtime-configurable size instead — a bigger lift than it looks at
+  first.
 
-### Phase 3 — Interactive input (one shared architectural blocker)
+### Phase 4 — Interactive input (one shared architectural blocker)
 
 `eval_logo` runs synchronously start-to-finish, so anything that needs to
 *pause* a running script and wait on a live event shares the same
-underlying problem — worth solving once rather than three separate times:
+underlying problem — worth solving once rather than four separate times:
 
 - [ ] A "wait for a keypress" pause, as an alternative to `WAIT`'s
   time-based one (carried over from the original roadmap) — the entry
@@ -44,6 +104,9 @@ underlying problem — worth solving once rather than three separate times:
 - [ ] Joystick/game-controller input — a genuinely new dependency (no
   game-controller library linked today) on top of the same
   pause-and-resume problem.
+- [ ] Mouse position/click input (Terrapin's `MOUSE`/`BUTTON`) — shares
+  the same pause-and-resume problem as the rest of this phase, and
+  arguably more useful than a joystick for a desktop app.
 
 Sound doesn't share the pausing problem above, but is the other genuinely
 new dependency (no audio library linked today) in this same "game engine"
@@ -51,7 +114,7 @@ direction:
 
 - [ ] Sound effects/playback.
 
-### Phase 4 — Large architectural bets (need a design discussion first, not just scoping)
+### Phase 5 — Large architectural bets (need a design discussion first, not just scoping)
 
 - [ ] Prototype-style object orientation, no classes — everything is an
   object (`Integer.New`-style construction), message-passing closer to
@@ -85,8 +148,9 @@ direction:
   if a real (non-ASan) crash from deep recursion is ever reported.
 - [ ] User-defined procedure parameters coerce every argument to a plain
   number, even a list/word/array — found 2026-08-06 while adding arrays
-  (`Phase 2`). `TO test :x PRINT :x END` then `test [1 2 3]` prints `0`,
-  not `1 2 3`: `call_procedure` binds every parameter as `VALUE_NUMBER`
+  (the "new data types" phase above). `TO test :x PRINT :x END` then
+  `test [1 2 3]` prints `0`, not `1 2 3`: `call_procedure` binds every
+  parameter as `VALUE_NUMBER`
   (`arg_vals` is a plain `double[MAX_PARAMS]`), so a list/word/array
   argument is silently number-coerced at the call boundary — the same
   way a bare word or list evaluates to `0` in any other numeric context,
