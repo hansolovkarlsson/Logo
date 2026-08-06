@@ -1,0 +1,32 @@
+; FOR [var start limit step] runs a counted loop that exposes the loop
+; variable directly, unlike REPEAT (count only) or WHILE (manual
+; increment). step is optional and defaults to +1, or -1 when the
+; limit is below the start.
+
+FOR [i 1 5] [PRINT :i]
+FOR [i 5 1] [PRINT :i]
+FOR [i 0 10 5] [PRINT :i]
+
+; Bounds can be any expression, not just literals.
+
+MAKE "n 3
+FOR [i 1 :n * 2] [PRINT :i]
+
+; FOREVER [block] loops until STOP is called inside it -- useful for a
+; game-loop-style script. STOP works both inside a procedure...
+
+TO countdown
+  MAKE "i 5
+  FOREVER [
+    PRINT :i
+    MAKE "i :i - 1
+    IF :i < 1 [STOP]
+  ]
+END
+countdown
+
+; ...and directly at the top level, which is the only way to stop a
+; bare FOREVER there (there's no condition to fall false).
+
+MAKE "j 0
+FOREVER [MAKE "j :j + 1 PRINT :j IF :j = 3 [STOP]]

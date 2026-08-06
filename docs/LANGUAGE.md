@@ -626,11 +626,16 @@ PRINT fact 5           -> 120
   a procedure's `OUTPUT` value is simply discarded, no error either way
   — `double 5` alone on a line just runs it.
 - `OUTPUT`/`STOP` can appear anywhere inside the procedure, including
-  nested inside any number of `REPEAT`/`IF`/`WHILE` blocks, and still
-  end the *whole call* — not just the block they're textually inside.
-  Both are only valid inside an active procedure call; used at the top
-  level, `OUTPUT`/`STOP` print `OUTPUT: can only be used inside a
-  procedure` / `STOP: can only be used inside a procedure`.
+  nested inside any number of `REPEAT`/`IF`/`WHILE`/`FOR`/`FOREVER`
+  blocks, and still end the *whole call* — not just the block they're
+  textually inside.
+- `OUTPUT` needs an active procedure call to hand its value back to, so
+  it's an error at the top level: `OUTPUT: can only be used inside a
+  procedure`. `STOP` has no such requirement — it's also the only way to
+  escape a `FOREVER` typed directly at the top level (there's no
+  condition to fall false there), so a bare top-level `STOP` is legal:
+  it just quietly ends the rest of that run, the same way it ends the
+  rest of a procedure call, with nothing printed either way.
 
 ### CATCH, THROW
 
@@ -801,6 +806,40 @@ WHILE :i < 4 [FD 80 RT 90 MAKE "i :i + 1]
 - As a safety net against runaway loops freezing the app, `WHILE` stops
   itself after 1,000,000 iterations and prints a warning to the history
   pane rather than hanging.
+
+```
+FOR [i 1 5] [PRINT :i]
+FOR [i 5 1] [PRINT :i]
+FOR [i 0 10 5] [PRINT :i]
+```
+
+- `FOR [var start limit step] [block]` is a counted loop that exposes the
+  loop variable directly as `:var`, unlike `REPEAT` (count only, no
+  variable) or `WHILE` (a condition you update by hand). `step` is
+  optional: it defaults to `1`, or `-1` when `limit` is less than `start`,
+  same as Berkeley Logo. `start`/`limit`/`step` can be any expression, not
+  just literals. A `step` of `0` is an error rather than an infinite loop.
+- Same 1,000,000-iteration safety net as `WHILE`, for a range that never
+  reaches its limit.
+
+```
+TO countdown
+  MAKE "i 5
+  FOREVER [
+    PRINT :i
+    MAKE "i :i - 1
+    IF :i < 1 [STOP]
+  ]
+END
+```
+
+- `FOREVER [block]` runs `block` forever — the only way out is `STOP` (or
+  a procedure's `OUTPUT`, or `THROW`) inside it, same as any other loop
+  body. Useful for a game-loop-style script that runs until some
+  in-script condition decides to stop it. Unlike `OUTPUT`, `STOP` works
+  directly at the top level too (see "OUTPUT, STOP" below) specifically
+  so a bare top-level `FOREVER` has a real way to end, rather than only
+  the same 1,000,000-iteration safety net as `WHILE`/`FOR`.
 
 ## Output
 

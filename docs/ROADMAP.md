@@ -19,11 +19,6 @@ Ideas from a 2026-08-06 review of
 against this interpreter's existing command set — same "small,
 self-contained" character as the original Phase 1, just found later:
 
-- [ ] `FOR [var start end step] [block]` — a counted loop that exposes
-  the loop variable directly, unlike `REPEAT` (count only, no variable)
-  or `WHILE` (manual increment). `FOREVER [block]` alongside it — an
-  infinite loop that only stops via `STOP`, useful for a game-loop-style
-  script.
 - [ ] `DISTANCE`/`TOWARDS` — distance between two points, and the
   heading from here toward a point; small utility operators, useful for
   anything chasing or aiming at a target.

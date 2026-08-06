@@ -1774,6 +1774,90 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, "WHILE: expected [ block ]\n");
             }
         }
+        // 2c. FOR LOOPS: FOR [var start limit step] [block] — step is
+        // optional and defaults to +1 (or -1 if limit < start), same as
+        // Berkeley Logo. Unlike REPEAT (count only) or WHILE (manual
+        // increment), the loop variable itself is set via MAKE's own
+        // set_var each iteration, so it reads back as an ordinary :var
+        // inside the block — same non-scoping behavior as REPEAT/WHILE's
+        // blocks (no push_scope), so MAKE-ing over an outer variable of
+        // the same name has the same effect it always would.
+        else if (strcasecmp(token, "FOR") == 0) {
+            char header[256] = {0};
+            const char *after_header = extract_block(ptr, header, sizeof(header));
+
+            if (after_header != NULL) {
+                ptr = after_header;
+                char varname[64] = {0};
+                const char *hptr = header;
+                int header_bytes = 0;
+
+                if (sscanf(hptr, "%63s%n", varname, &header_bytes) == 1) {
+                    hptr += header_bytes;
+                    double start = value_to_number(parse_expr(app, &hptr));
+                    double limit = value_to_number(parse_expr(app, &hptr));
+                    hptr = skip_whitespace(hptr);
+                    double step;
+                    if (*hptr != '\0') {
+                        step = value_to_number(parse_expr(app, &hptr));
+                    } else {
+                        step = (limit >= start) ? 1 : -1;
+                    }
+
+                    char block_body[4096] = {0};
+                    const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
+
+                    if (after_block != NULL) {
+                        ptr = after_block;
+                        if (step == 0) {
+                            append_output(app, "FOR: step must not be 0\n");
+                        } else {
+                            int iterations = 0;
+                            for (double i = start; (step > 0) ? (i <= limit) : (i >= limit); i += step) {
+                                if (iterations >= MAX_WHILE_ITERATIONS) {
+                                    append_output(app, "FOR: stopped after too many iterations\n");
+                                    break;
+                                }
+                                set_var(app, varname, i);
+                                eval_logo(app, block_body);
+                                if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
+                                iterations++;
+                            }
+                        }
+                    } else {
+                        append_output(app, "FOR: expected [ block ]\n");
+                    }
+                } else {
+                    append_output(app, "FOR: expected [ var start limit step ]\n");
+                }
+            } else {
+                append_output(app, "FOR: expected [ var start limit step ]\n");
+            }
+        }
+        // 2d. FOREVER LOOPS: FOREVER [block] — an infinite loop, only
+        // escaped via STOP (or OUTPUT/THROW) inside the block; useful for
+        // a game-loop-style script. Capped by the same iteration ceiling
+        // as WHILE so a script that forgets its own STOP doesn't hang.
+        else if (strcasecmp(token, "FOREVER") == 0) {
+            char block_body[4096] = {0};
+            const char *after_block = extract_block(ptr, block_body, sizeof(block_body));
+
+            if (after_block != NULL) {
+                ptr = after_block;
+                int iterations = 0;
+                for (;;) {
+                    if (iterations >= MAX_WHILE_ITERATIONS) {
+                        append_output(app, "FOREVER: stopped after too many iterations\n");
+                        break;
+                    }
+                    eval_logo(app, block_body);
+                    if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
+                    iterations++;
+                }
+            } else {
+                append_output(app, "FOREVER: expected [ block ]\n");
+            }
+        }
         // 3. BASIC TURTLE COMMANDS
         else if (strcasecmp(token, "FORWARD") == 0 || strcasecmp(token, "FD") == 0) {
             double val = value_to_number(parse_expr(app, &ptr));
@@ -1934,8 +2018,18 @@ void eval_logo(LogoApp *app, const char *code) {
         // loop condition above and call_procedure's comment) rather than
         // unwinding the C call stack directly, so either can appear
         // anywhere inside the procedure — including nested inside any
-        // number of REPEAT/IF/WHILE blocks — and still stop the whole
-        // call, not just the block it's textually inside.
+        // number of REPEAT/IF/WHILE/FOR/FOREVER blocks — and still stop
+        // the whole call, not just the block it's textually inside.
+        //
+        // OUTPUT requires an active procedure call to hand its value
+        // back to (store_output_value has nowhere to put it otherwise),
+        // but STOP has no such requirement: unlike OUTPUT, it's also the
+        // only way to escape a top-level FOREVER (there's no condition
+        // to fall false, and there's no enclosing call for STOP to end)
+        // — so STOP is legal anywhere, including directly at the REPL,
+        // and just ends whatever's currently running, caught either by
+        // call_procedure (inside a procedure) or by eval_logo's own
+        // eval_depth-reaching-0 recovery below (at the true top level).
         else if (strcasecmp(token, "OUTPUT") == 0 || strcasecmp(token, "OP") == 0) {
             if (app->scope_depth <= 0) {
                 append_output(app, "OUTPUT: can only be used inside a procedure\n");
@@ -1946,11 +2040,7 @@ void eval_logo(LogoApp *app, const char *code) {
             }
         }
         else if (strcasecmp(token, "STOP") == 0) {
-            if (app->scope_depth <= 0) {
-                append_output(app, "STOP: can only be used inside a procedure\n");
-            } else {
-                app->stop_requested = TRUE;
-            }
+            app->stop_requested = TRUE;
         }
         // 3b'''. THROW tag / CATCH tag [instructions] — structured
         // non-local exit, tag-matched rather than always stopping
@@ -2299,6 +2389,17 @@ void eval_logo(LogoApp *app, const char *code) {
         append_output(app, app->throw_tag);
         append_output(app, "\n");
         app->throw_requested = FALSE;
+    }
+    // A STOP with no enclosing procedure call (call_procedure resets it
+    // at its own boundary otherwise -- see its comment) reaches here
+    // instead: the true outermost call, once it's unwound all the way
+    // back up, is what quietly clears it, the same way the recovery
+    // above does for an uncaught THROW -- just silently, since a bare
+    // top-level STOP (e.g. ending a FOREVER typed directly at the REPL,
+    // where there's no condition to fall false and nothing else to end)
+    // is ordinary control flow, not an error to report.
+    if (app->eval_depth == 0 && app->stop_requested) {
+        app->stop_requested = FALSE;
     }
 }
 

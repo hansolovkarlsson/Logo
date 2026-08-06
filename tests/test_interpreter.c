@@ -462,10 +462,29 @@ TEST(test_output_outside_procedure_reports_error) {
     CHECK_CONTAINS(captured_output, "OUTPUT: can only be used inside a procedure");
 }
 
-TEST(test_stop_outside_procedure_reports_error) {
+TEST(test_stop_outside_procedure_ends_the_run_silently) {
+    // Unlike OUTPUT (which needs a procedure call to hand its value
+    // back to), STOP is legal directly at the REPL/top level -- it's
+    // the only way to escape a bare FOREVER typed there. It silently
+    // ends the rest of the current run rather than reporting an error.
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT \"before\nSTOP\nPRINT \"unreachable");
+    CHECK_STREQ(captured_output, "before\n");
+}
+
+TEST(test_stop_recovers_cleanly_for_the_next_top_level_run) {
+    // A top-level STOP must not leave stop_requested set afterward --
+    // otherwise every subsequent command would silently become a no-op.
     LogoApp *app = new_app();
     eval_logo(app, "STOP");
-    CHECK_CONTAINS(captured_output, "STOP: can only be used inside a procedure");
+    eval_logo(app, "PRINT \"still-works");
+    CHECK_STREQ(captured_output, "still-works\n");
+}
+
+TEST(test_forever_stops_via_stop_directly_at_top_level) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"i 0\nFOREVER [MAKE \"i :i + 1 PRINT :i IF :i = 3 [STOP]]");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
 }
 
 TEST(test_recursive_procedure_using_output) {
@@ -698,6 +717,83 @@ TEST(test_while_loop) {
     LogoApp *app = new_app();
     eval_logo(app, "MAKE \"i 0\nWHILE :i < 3 [PRINT :i MAKE \"i :i + 1]");
     CHECK_STREQ(captured_output, "0\n1\n2\n");
+}
+
+TEST(test_for_loop_counts_up_with_default_step) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOR [i 1 3] [PRINT :i]");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
+TEST(test_for_loop_counts_down_with_default_step) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOR [i 3 1] [PRINT :i]");
+    CHECK_STREQ(captured_output, "3\n2\n1\n");
+}
+
+TEST(test_for_loop_with_explicit_step) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOR [i 0 10 5] [PRINT :i]");
+    CHECK_STREQ(captured_output, "0\n5\n10\n");
+}
+
+TEST(test_for_loop_bounds_can_be_expressions) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"n 2\nFOR [i 1 :n + 1] [PRINT :i]");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
+TEST(test_for_step_zero_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOR [i 1 3 0] [PRINT :i]");
+    CHECK_CONTAINS(captured_output, "FOR: step must not be 0");
+}
+
+TEST(test_for_unterminated_header_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOR [i 1 3\nPRINT \"unreachable");
+    CHECK_CONTAINS(captured_output, "FOR: expected [ var start limit step ]");
+}
+
+TEST(test_for_unterminated_block_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOR [i 1 3] [PRINT :i");
+    CHECK_CONTAINS(captured_output, "FOR: expected [ block ]");
+}
+
+TEST(test_for_iteration_limit_reports_error) {
+    // MAX_WHILE_ITERATIONS is 1,000,000; a range that never ends (step
+    // pointed the wrong way relative to an astronomically distant limit
+    // isn't needed here -- an ordinary huge range already exercises it)
+    // should stop itself rather than hanging forever.
+    LogoApp *app = new_app();
+    eval_logo(app, "FOR [i 1 999999999] []");
+    CHECK_CONTAINS(captured_output, "FOR: stopped after too many iterations");
+}
+
+TEST(test_forever_loop_stops_via_stop) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO countup\n"
+        "MAKE \"i 0\n"
+        "FOREVER [MAKE \"i :i + 1 PRINT :i IF :i = 3 [STOP]]\n"
+        "END\n"
+        "countup");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
+TEST(test_forever_unterminated_block_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FOREVER [PRINT \"hi");
+    CHECK_CONTAINS(captured_output, "FOREVER: expected [ block ]");
+}
+
+TEST(test_forever_iteration_limit_reports_error) {
+    // Same MAX_WHILE_ITERATIONS ceiling as WHILE/FOR, applied to a loop
+    // with no exit condition at all.
+    LogoApp *app = new_app();
+    eval_logo(app, "FOREVER []");
+    CHECK_CONTAINS(captured_output, "FOREVER: stopped after too many iterations");
 }
 
 TEST(test_true_false_literals_print_and_store) {
@@ -1693,7 +1789,9 @@ int main(void) {
     RUN(test_output_used_as_a_plain_statement_discards_the_value);
     RUN(test_calling_a_procedure_that_never_outputs_as_a_value_reports_error);
     RUN(test_output_outside_procedure_reports_error);
-    RUN(test_stop_outside_procedure_reports_error);
+    RUN(test_stop_outside_procedure_ends_the_run_silently);
+    RUN(test_stop_recovers_cleanly_for_the_next_top_level_run);
+    RUN(test_forever_stops_via_stop_directly_at_top_level);
     RUN(test_recursive_procedure_using_output);
     RUN(test_output_value_can_be_a_word_or_list);
     RUN(test_catch_catches_a_matching_throw);
@@ -1729,6 +1827,17 @@ int main(void) {
     RUN(test_if_ifelse_comparisons);
     RUN(test_boolean_and_or_not);
     RUN(test_while_loop);
+    RUN(test_for_loop_counts_up_with_default_step);
+    RUN(test_for_loop_counts_down_with_default_step);
+    RUN(test_for_loop_with_explicit_step);
+    RUN(test_for_loop_bounds_can_be_expressions);
+    RUN(test_for_step_zero_reports_error);
+    RUN(test_for_unterminated_header_reports_error);
+    RUN(test_for_unterminated_block_reports_error);
+    RUN(test_for_iteration_limit_reports_error);
+    RUN(test_forever_loop_stops_via_stop);
+    RUN(test_forever_unterminated_block_reports_error);
+    RUN(test_forever_iteration_limit_reports_error);
     RUN(test_true_false_literals_print_and_store);
     RUN(test_true_false_case_insensitive);
     RUN(test_if_while_treat_the_word_false_as_falsy);
