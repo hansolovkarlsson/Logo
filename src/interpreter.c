@@ -1293,6 +1293,12 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         // logic since a raw x/y pair never needs splicing.
         return list_wrap_pair(app, number_value(current_turtle(app)->x), number_value(current_turtle(app)->y));
     }
+    if (consume_keyword(ptr, "GETX")) {
+        return number_value(current_turtle(app)->x);
+    }
+    if (consume_keyword(ptr, "GETY")) {
+        return number_value(current_turtle(app)->y);
+    }
     if (consume_keyword(ptr, "DISTANCE")) {
         // Plain distance between two arbitrary [x y] points -- not tied
         // to the turtle's own position, unlike TOWARDS below. Pass POS
@@ -1927,6 +1933,14 @@ void eval_logo(LogoApp *app, const char *code) {
             double x = value_to_number(parse_expr(app, &ptr));
             double y = value_to_number(parse_expr(app, &ptr));
             move_turtle_to(app, x, y);
+        }
+        else if (strcasecmp(token, "SETX") == 0) {
+            double x = value_to_number(parse_expr(app, &ptr));
+            move_turtle_to(app, x, current_turtle(app)->y);
+        }
+        else if (strcasecmp(token, "SETY") == 0) {
+            double y = value_to_number(parse_expr(app, &ptr));
+            move_turtle_to(app, current_turtle(app)->x, y);
         }
         else if (strcasecmp(token, "SETHEADING") == 0 || strcasecmp(token, "SETH") == 0) {
             current_turtle(app)->angle = value_to_number(parse_expr(app, &ptr));

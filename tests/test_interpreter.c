@@ -282,6 +282,24 @@ TEST(test_pos_and_heading_follow_the_current_turtle) {
     CHECK_STREQ(captured_output, "250 200\n90\n250 250\n0\n");
 }
 
+TEST(test_getx_gety_read_back_single_axes) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FD 100\nPRINT GETX\nPRINT GETY");
+    CHECK_STREQ(captured_output, "250\n150\n");
+}
+
+TEST(test_setx_sety_move_along_a_single_axis_only) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETXY 400 300\nSETX 10\nPRINT POS\nSETY 20\nPRINT POS");
+    CHECK_STREQ(captured_output, "10 300\n10 20\n");
+}
+
+TEST(test_setx_sety_draw_a_line_when_pen_is_down) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETXY 400 300\nSETX 10\nSETY 20");
+    CHECK(app->line_count == 3); // SETXY's jump, then SETX's, then SETY's
+}
+
 // --- Multiple turtles ---
 
 TEST(test_tell_creates_and_switches_turtles) {
@@ -1803,6 +1821,9 @@ int main(void) {
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);
     RUN(test_heading_can_be_saved_and_restored);
     RUN(test_pos_and_heading_follow_the_current_turtle);
+    RUN(test_getx_gety_read_back_single_axes);
+    RUN(test_setx_sety_move_along_a_single_axis_only);
+    RUN(test_setx_sety_draw_a_line_when_pen_is_down);
 
     RUN(test_tell_creates_and_switches_turtles);
     RUN(test_turtles_move_independently);

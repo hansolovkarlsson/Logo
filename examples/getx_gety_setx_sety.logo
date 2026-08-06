@@ -1,0 +1,15 @@
+; GETX/GETY -- single-axis complements to POS, for reading just one
+; coordinate without needing to pull it out of a 2-element list.
+
+FD 100
+PRINT GETX
+PRINT GETY
+
+; SETX/SETY -- single-axis complements to SETXY, for moving along just
+; one coordinate while leaving the other alone.
+
+SETXY 0 0
+SETX 100
+PRINT POS   ; only x moved
+SETY 50
+PRINT POS   ; only y moved

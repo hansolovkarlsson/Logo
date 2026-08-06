@@ -68,6 +68,8 @@ RT 90 FD 50
 | `RIGHT` | `RT` | expr | Turn clockwise by `expr` degrees |
 | `LEFT` | `LT` | expr | Turn counter-clockwise by `expr` degrees |
 | `SETXY` | — | `x y` | Jump directly to an absolute position, drawing if pen is down; heading unchanged |
+| `SETX` | — | expr | Jump to a new x, leaving y unchanged; drawing if pen is down |
+| `SETY` | — | expr | Jump to a new y, leaving x unchanged; drawing if pen is down |
 | `SETHEADING` | `SETH` | expr | Set the turtle's absolute heading (no movement) |
 | `HOME` | — | — | `SETXY` back to the start position and `SETHEADING 0`, drawing if pen is down |
 | `ARC` | — | `angle radius` | Draw a circle/arc of `radius` centered on the turtle; the turtle doesn't move |
@@ -226,6 +228,25 @@ PRINT HEADING           -> 45
   `SETHEADING` already accumulate it.
 - Both always refer to whichever turtle `TELL` currently targets, same as
   `FD`/`RT`/etc.
+
+```
+FD 100
+PRINT GETX              -> 250
+PRINT GETY              -> 150
+
+SETX 10
+SETY 20
+PRINT POS                -> 10 20
+```
+
+- `GETX`/`GETY` are single-axis complements to `POS`, outputting just one
+  coordinate as a plain number instead of a 2-element list — handy when
+  only one axis is needed and unpacking `POS` with `FIRST`/`LAST` would
+  be more than the call site needs.
+- `SETX`/`SETY` are single-axis complements to `SETXY`, jumping along
+  just one coordinate while leaving the other (and the heading)
+  unchanged — drawing a connecting line if the pen is down, same as
+  `SETXY` itself.
 
 ```
 PRINT DISTANCE [0 0] [3 4]      -> 5
