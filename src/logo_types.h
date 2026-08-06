@@ -109,15 +109,17 @@ typedef struct {
 } Procedure;
 
 // A variable's value is a number, a word (single-token string, no
-// spaces), or a list — see the "Words & lists" section of
-// docs/LANGUAGE.md. Arithmetic (parse_expr and everything built on it,
-// in interpreter.c) coerces a word by reading the number its text starts
-// with, falling back to 0 if it doesn't start with one at all (a list
-// coerces to 0, having no meaningful numeric reading).
+// spaces), a list, or an array — see the "Words & lists" and "Arrays"
+// sections of docs/LANGUAGE.md. Arithmetic (parse_expr and everything
+// built on it, in interpreter.c) coerces a word by reading the number
+// its text starts with, falling back to 0 if it doesn't start with one
+// at all (a list or array coerces to 0, having no meaningful numeric
+// reading).
 typedef enum {
     VALUE_NUMBER,
     VALUE_WORD,
     VALUE_LIST,
+    VALUE_ARRAY,
 } ValueType;
 
 // A variable binding: a global (MAKE "name value / :name) or one entry in
@@ -125,9 +127,12 @@ typedef enum {
 typedef struct {
     char name[32];
     ValueType type;
-    double number;
+    double number;   // type == VALUE_ARRAY: the array's length instead
     char word[512];
     int list_head; // type == VALUE_LIST: index into LogoApp.list_pool, -1 = empty list
+                    // type == VALUE_ARRAY: start index of `number` contiguous list_pool
+                    // cells (see ARRAY in interpreter.c) -- direct index math, not a
+                    // linked chain, which is the whole point of an array over a list.
 } Variable;
 
 // One element of a Logo list ([a [b c] d]): a number, a word, or a

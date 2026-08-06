@@ -1034,6 +1034,89 @@ TEST(test_sentence_splices_but_list_wraps) {
     CHECK_STREQ(captured_output, "1 2 3 4\n[1 2] [3 4]\n");
 }
 
+// --- Arrays ---
+
+TEST(test_array_create_and_read_default_elements) {
+    LogoApp *app = new_app();
+    // Every slot defaults to an empty list, matching real Logo's ARRAY --
+    // printing one is just a blank line.
+    eval_logo(app, "MAKE \"a ARRAY 3\nPRINT ITEM 1 :a\nPRINT COUNT :a\nPRINT ARRAY? :a");
+    CHECK_STREQ(captured_output, "\n3\nTRUE\n");
+}
+
+TEST(test_array_size_must_be_at_least_1) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 0");
+    CHECK_CONTAINS(captured_output, "ARRAY: size must be at least 1");
+}
+
+TEST(test_setitem_mutates_in_place) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "MAKE \"a ARRAY 3\n"
+        "SETITEM 1 :a \"x\n"
+        "SETITEM 2 :a \"y\n"
+        "SETITEM 3 :a \"z\n"
+        "PRINT :a");
+    CHECK_STREQ(captured_output, "{x y z}\n"); // arrays print with braces, unlike lists
+}
+
+TEST(test_setitem_can_store_a_list_element) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 1\nSETITEM 1 :a [1 2 3]\nPRINT ITEM 1 :a");
+    CHECK_STREQ(captured_output, "1 2 3\n");
+}
+
+TEST(test_setitem_index_out_of_range) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 3\nSETITEM 0 :a \"x");
+    CHECK_CONTAINS(captured_output, "SETITEM: index out of range");
+    captured_output[0] = '\0';
+    eval_logo(app, "SETITEM 4 :a \"x");
+    CHECK_CONTAINS(captured_output, "SETITEM: index out of range");
+}
+
+TEST(test_setitem_on_non_array_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETITEM 1 [1 2 3] \"x");
+    CHECK_CONTAINS(captured_output, "SETITEM: expected an array");
+}
+
+TEST(test_setitem_rejects_nesting_an_array) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 2\nMAKE \"b ARRAY 2\nSETITEM 1 :a :b");
+    CHECK_CONTAINS(captured_output, "SETITEM: can't store an array inside an array");
+}
+
+TEST(test_array_item_out_of_range_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 3\nPRINT ITEM 0 :a");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+    captured_output[0] = '\0';
+    eval_logo(app, "PRINT ITEM 4 :a");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+}
+
+TEST(test_array_predicates) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"a ARRAY 3\nPRINT ARRAY? :a\nPRINT ARRAY? [1 2 3]\nPRINT ARRAY? 5");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\nFALSE\n");
+}
+
+TEST(test_make_b_a_aliases_the_same_mutable_array) {
+    // The one deliberate exception to this language's otherwise
+    // immutable values: assigning an array to another variable shares
+    // the same underlying storage, so SETITEM through either is visible
+    // from both.
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "MAKE \"a ARRAY 2\n"
+        "MAKE \"b :a\n"
+        "SETITEM 1 :b 42\n"
+        "PRINT ITEM 1 :a");
+    CHECK_STREQ(captured_output, "42\n");
+}
+
 TEST(test_fput_a_list_creates_genuine_nesting) {
     LogoApp *app = new_app();
     eval_logo(app, "PRINT FPUT [1 2] [3 4]");
@@ -1694,6 +1777,16 @@ int main(void) {
     RUN(test_butlast_preserves_a_sublist_element);
 
     RUN(test_sentence_splices_but_list_wraps);
+    RUN(test_array_create_and_read_default_elements);
+    RUN(test_array_size_must_be_at_least_1);
+    RUN(test_setitem_mutates_in_place);
+    RUN(test_setitem_can_store_a_list_element);
+    RUN(test_setitem_index_out_of_range);
+    RUN(test_setitem_on_non_array_reports_error);
+    RUN(test_setitem_rejects_nesting_an_array);
+    RUN(test_array_item_out_of_range_reports_error);
+    RUN(test_array_predicates);
+    RUN(test_make_b_a_aliases_the_same_mutable_array);
     RUN(test_fput_a_list_creates_genuine_nesting);
     RUN(test_lput_a_list_creates_genuine_nesting);
     RUN(test_make_aliases_a_nested_list);

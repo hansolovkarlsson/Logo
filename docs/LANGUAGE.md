@@ -449,6 +449,52 @@ PRINT FPUT "a "bc                -> abc
   WORD "b "c`) and, like the list operators above, work anywhere an
   argument is expected — including plain arithmetic.
 
+### Arrays
+
+```
+MAKE "a ARRAY 3
+SETITEM 1 :a "red
+SETITEM 2 :a "green
+SETITEM 3 :a "blue
+PRINT :a               -> {red green blue}
+PRINT ITEM 2 :a        -> green
+PRINT COUNT :a         -> 3
+```
+
+- `ARRAY size` creates a new array of `size` slots (`size` must be at
+  least 1), each defaulting to an empty list, matching real Logo.
+  Unlike a list, an array is stored as directly-indexed slots rather
+  than a linked chain — reaching slot `n` is one step, not a walk past
+  the first `n - 1` elements, which is the whole reason to reach for an
+  array over a list.
+- `ITEM index array` reads a slot (1-indexed, same convention as
+  `ITEM` on a list/word) and `SETITEM index array value` overwrites one
+  in place. `SETITEM`'s `value` can be a number, word, or list — but not
+  another array (see below) — and prints `SETITEM: index out of range`
+  for an out-of-bounds `index`, or `SETITEM: expected an array` if given
+  something other than an array.
+- `ARRAY?` reports (`TRUE`/`FALSE`) whether a value is an array, and
+  `COUNT` reports its length — same conventions as the other type
+  predicates and `COUNT` on a list/word.
+- **Arrays are the one mutable, reference-like value in this
+  language.** Every other value here is copy-on-build — `MAKE "b :a`
+  for a list just aliases the same (never-mutated) underlying nodes, so
+  the aliasing is invisible. An array is different: `MAKE "b :a` shares
+  the *same* underlying slots, so `SETITEM` through either `:a` or `:b`
+  is visible from both — assigning an array doesn't copy it.
+- An array always prints inside `{ }`, even as `PRINT`'s own top-level
+  value — unlike a list, whose own outermost brackets are never shown
+  that way (see "Output" below). This matches real Logo's own
+  convention of printing arrays and lists distinctly.
+- Arrays are more limited than lists: `FIRST`/`BUTFIRST`/`LAST`/
+  `BUTLAST`/`MEMBER?`/`WORD`/`SENTENCE`/`LIST`/`FPUT`/`LPUT`/`MAP`/
+  `FILTER`/`REDUCE`/`FOREACH` don't support them — only `ARRAY`/`ITEM`/
+  `SETITEM`/`ARRAY?`/`COUNT` do. An array also can't be nested inside
+  another array's slot (`SETITEM` prints `SETITEM: can't store an array
+  inside an array`) or passed as a user-defined procedure's argument —
+  like every value, an argument is coerced to a plain number at the
+  call boundary (see `ROADMAP.md`'s Robustness section).
+
 ### DOT, CROSS
 
 ```
@@ -874,6 +920,11 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   `CROSS` prints `CROSS: expected two 3-element lists` if either
   argument isn't a list with exactly 3 elements (see "DOT, CROSS"
   above).
+- `ARRAY` prints `ARRAY: size must be at least 1` for a size less than
+  1. `SETITEM` prints `SETITEM: expected an array` if not given an
+  array, `SETITEM: index out of range` for an out-of-bounds index, or
+  `SETITEM: can't store an array inside an array` if `value` is itself
+  an array (see "Arrays" above).
 - Every internal text buffer (procedure bodies, block bodies, words,
   variable values, file paths, REPL history entries) is fixed-size but
   generously sized for normal use; input that would overflow one is

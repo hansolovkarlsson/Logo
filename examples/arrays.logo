@@ -1,0 +1,32 @@
+; ARRAY size creates a fixed-size, directly-indexed array -- every slot
+; defaults to an empty list, matching real Logo.
+
+MAKE "colors ARRAY 3
+PRINT COUNT :colors
+PRINT ARRAY? :colors
+PRINT ARRAY? [1 2 3]
+
+; Unlike a list, an array is mutable: SETITEM overwrites a slot in
+; place (1-indexed, same convention as ITEM everywhere else).
+
+SETITEM 1 :colors "red
+SETITEM 2 :colors "green
+SETITEM 3 :colors "blue
+PRINT :colors           ; arrays print with braces, unlike lists
+PRINT ITEM 2 :colors
+
+; Arrays are the one reference-like value in this language: assigning
+; one to another variable shares the same underlying slots, rather
+; than copying them the way a list assignment does.
+
+MAKE "also_colors :colors
+SETITEM 1 :also_colors "purple
+PRINT :colors           ; the change through :also_colors shows here too
+
+; Errors are reported rather than silently doing the wrong thing.
+
+MAKE "bad ARRAY 0
+SETITEM 0 :colors "x
+SETITEM 4 :colors "x
+SETITEM 1 [1 2 3] "x
+SETITEM 1 :colors ARRAY 2

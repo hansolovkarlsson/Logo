@@ -350,6 +350,22 @@ static void set_var_word(LogoApp *app, const char *name, const char *word) {
     }
 }
 
+// Set a variable to an array (MAKE "name ARRAY n / another array
+// variable's value), same binding rules as set_var. Unlike
+// set_var_list, this is a genuine alias to *mutable* shared storage:
+// MAKE "b :a then SETITEM 1 :b 99 also changes what :a sees, since both
+// variables now point at the same list_pool cells -- arrays are a
+// deliberate, documented exception to this language's otherwise
+// immutable values (see the ARRAY comment in parse_factor).
+static void set_var_array(LogoApp *app, const char *name, int start, int length) {
+    Variable *v = find_or_create_var(app, name);
+    if (v != NULL) {
+        v->type = VALUE_ARRAY;
+        v->list_head = start;
+        v->number = length;
+    }
+}
+
 // --- EXPRESSION EVALUATION (numbers, words, lists, :variables, + - * / (), comparisons) ---
 //
 // A single Value type flows through the whole expression evaluator: every
@@ -361,9 +377,10 @@ static void set_var_word(LogoApp *app, const char *name, const char *word) {
 
 typedef struct {
     ValueType type;
-    double number;
+    double number;   // type == VALUE_ARRAY: the array's length instead
     char word[512];
     int list_head; // type == VALUE_LIST: index into app->list_pool, -1 = empty
+                    // type == VALUE_ARRAY: start index of `number` contiguous cells
 } Value;
 
 static Value number_value(double n) {
@@ -389,6 +406,14 @@ static Value list_value(int head) {
     return v;
 }
 
+static Value array_value(int start, int length) {
+    Value v = {0};
+    v.type = VALUE_ARRAY;
+    v.list_head = start;
+    v.number = length;
+    return v;
+}
+
 // TRUE/FALSE, as words rather than a distinct value type -- see the
 // TRUE/FALSE keyword literals and the type predicates (WORD?/LIST?/
 // NUMBER?/EMPTY?/MEMBER?) in parse_factor, and is_truthy below.
@@ -407,6 +432,11 @@ static Value bool_value(gboolean b) {
 static gboolean is_truthy(Value v) {
     if (v.type == VALUE_LIST) return v.list_head != -1;
     if (v.type == VALUE_WORD) return v.word[0] != '\0' && strcasecmp(v.word, "FALSE") != 0;
+    // Falls through here for VALUE_NUMBER and VALUE_ARRAY alike: a
+    // number is true iff nonzero, and an array's `number` field holds
+    // its length (see array_value) -- always >= 1 by construction (see
+    // ARRAY's size check in parse_factor), so this is always true for a
+    // real array without needing its own branch.
     return v.number != 0;
 }
 
@@ -444,6 +474,31 @@ static double value_to_number(Value v) {
     return (end != v.word) ? n : 0;
 }
 
+// Forward-declared: list_elements_to_text below recurses into a nested
+// LIST_ELEM_LIST element via this, and array_elements_to_text (also
+// below) shares the same per-node rendering for its own cells.
+static void list_elements_to_text(LogoApp *app, int head, char *out, size_t out_size);
+
+// Append one list/array cell's rendering to `out` -- shared by
+// list_elements_to_text (walks a chain via node->next) and
+// array_elements_to_text (walks a contiguous index range instead), so
+// the two storage shapes still render each element identically.
+static void append_node_text(LogoApp *app, const ListNode *node, char *out, size_t out_size) {
+    if (node->type == LIST_ELEM_NUMBER) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%g", node->number);
+        strncat(out, buf, out_size - strlen(out) - 1);
+    } else if (node->type == LIST_ELEM_LIST) {
+        strncat(out, "[", out_size - strlen(out) - 1);
+        char sub[512];
+        list_elements_to_text(app, node->sublist_head, sub, sizeof(sub));
+        strncat(out, sub, out_size - strlen(out) - 1);
+        strncat(out, "]", out_size - strlen(out) - 1);
+    } else {
+        strncat(out, node->word, out_size - strlen(out) - 1);
+    }
+}
+
 // Render a list's elements into `out`, space-separated, without
 // enclosing brackets at this level — matching how a bracketed list
 // literal has always printed at the top level (PRINT [a b] -> "a b").
@@ -456,30 +511,35 @@ static void list_elements_to_text(LogoApp *app, int head, char *out, size_t out_
     for (int idx = head; idx != -1; idx = app->list_pool[idx].next) {
         if (!first) strncat(out, " ", out_size - strlen(out) - 1);
         first = FALSE;
-        ListNode *node = &app->list_pool[idx];
-        if (node->type == LIST_ELEM_NUMBER) {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "%g", node->number);
-            strncat(out, buf, out_size - strlen(out) - 1);
-        } else if (node->type == LIST_ELEM_LIST) {
-            strncat(out, "[", out_size - strlen(out) - 1);
-            char sub[512];
-            list_elements_to_text(app, node->sublist_head, sub, sizeof(sub));
-            strncat(out, sub, out_size - strlen(out) - 1);
-            strncat(out, "]", out_size - strlen(out) - 1);
-        } else {
-            strncat(out, node->word, out_size - strlen(out) - 1);
-        }
+        append_node_text(app, &app->list_pool[idx], out, out_size);
     }
 }
 
+// Render an array's `length` cells (starting at `start`) into `out`,
+// space-separated and enclosed in { } -- unlike a list, an array's own
+// braces show even as PRINT's top-level value, since real Logo prints
+// arrays distinctly from lists to keep the two concrete types visually
+// distinguishable.
+static void array_elements_to_text(LogoApp *app, int start, int length, char *out, size_t out_size) {
+    out[0] = '\0';
+    strncat(out, "{", out_size - strlen(out) - 1);
+    for (int i = 0; i < length; i++) {
+        if (i > 0) strncat(out, " ", out_size - strlen(out) - 1);
+        append_node_text(app, &app->list_pool[start + i], out, out_size);
+    }
+    strncat(out, "}", out_size - strlen(out) - 1);
+}
+
 // Render a Value as text: a word as-is, a number formatted the same way
-// PRINT shows it, a list via list_elements_to_text above.
+// PRINT shows it, a list via list_elements_to_text above, an array via
+// array_elements_to_text.
 static void value_to_text(LogoApp *app, const Value *v, char *out, size_t out_size) {
     if (v->type == VALUE_WORD) {
         snprintf(out, out_size, "%s", v->word);
     } else if (v->type == VALUE_LIST) {
         list_elements_to_text(app, v->list_head, out, out_size);
+    } else if (v->type == VALUE_ARRAY) {
+        array_elements_to_text(app, v->list_head, (int)v->number, out, out_size);
     } else {
         snprintf(out, out_size, "%g", v->number);
     }
@@ -936,6 +996,9 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         if (arg.type == VALUE_WORD) {
             return number_value((double)strlen(arg.word));
         }
+        if (arg.type == VALUE_ARRAY) {
+            return number_value(arg.number); // an array's `number` holds its length
+        }
         return number_value(1); // a bare number counts as a one-element list
     }
     if (consume_keyword(ptr, "BUTLAST")) {
@@ -951,6 +1014,35 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             return result;
         }
         return list_value(-1); // BUTLAST of a bare number is empty
+    }
+    // ARRAY size — a fixed-size, directly-indexed sibling to lists:
+    // `size` contiguous cells in app->list_pool (each defaulting to an
+    // empty list, matching real Logo's ARRAY), reached by index math
+    // (list_pool[start + i]) instead of walking a next-pointer chain --
+    // that's the whole reason to reach for ARRAY over a list, since
+    // ITEM on a list is an O(n) walk. Unlike every other value in this
+    // language, an array is *mutable*: SETITEM changes a cell in place,
+    // and MAKE "b :a aliases the same cells :a has rather than copying
+    // them, so SETITEM through either variable is visible from both
+    // (see set_var_array). This can't be passed into a user-defined
+    // procedure's parameter today -- like lists and words, an argument
+    // is always coerced to a plain number at the call boundary (see
+    // docs/ROADMAP.md's Robustness section).
+    if (consume_keyword(ptr, "ARRAY")) {
+        int size = (int)value_to_number(parse_factor(app, ptr));
+        if (size < 1) {
+            append_output(app, "ARRAY: size must be at least 1\n");
+            return word_value("");
+        }
+        int start = app->list_pool_count;
+        for (int i = 0; i < size; i++) {
+            int idx = list_alloc_node(app);
+            if (idx < 0) return list_pool_exhausted_error(app);
+            app->list_pool[idx].type = LIST_ELEM_LIST;
+            app->list_pool[idx].sublist_head = -1;
+            app->list_pool[idx].next = -1; // unused for arrays -- kept tidy, not chain-walked
+        }
+        return array_value(start, size);
     }
     if (consume_keyword(ptr, "ITEM")) {
         int index = (int)value_to_number(parse_factor(app, ptr));
@@ -971,6 +1063,15 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             }
             char ch[2] = {thing.word[index - 1], '\0'};
             return word_value(ch);
+        }
+        if (thing.type == VALUE_ARRAY) {
+            // Direct index math, not a chain walk -- the whole point of
+            // an array over a list (see the ARRAY comment below).
+            if (index < 1 || index > (int)thing.number) {
+                append_output(app, "ITEM: index out of range\n");
+                return word_value("");
+            }
+            return list_node_to_value(&app->list_pool[thing.list_head + (index - 1)]);
         }
         // A bare number counts as a one-element list -- only index 1 is valid.
         if (index == 1) return thing;
@@ -1016,6 +1117,10 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
     if (consume_keyword(ptr, "NUMBER?")) {
         Value arg = parse_factor(app, ptr);
         return bool_value(arg.type == VALUE_NUMBER);
+    }
+    if (consume_keyword(ptr, "ARRAY?")) {
+        Value arg = parse_factor(app, ptr);
+        return bool_value(arg.type == VALUE_ARRAY);
     }
     if (consume_keyword(ptr, "MAP")) {
         Value template_val = parse_factor(app, ptr);
@@ -1189,6 +1294,7 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         if (v != NULL) {
             if (v->type == VALUE_WORD) return word_value(v->word);
             if (v->type == VALUE_LIST) return list_value(v->list_head);
+            if (v->type == VALUE_ARRAY) return array_value(v->list_head, (int)v->number);
             return number_value(v->number);
         }
         return number_value(0);
@@ -1746,11 +1852,42 @@ void eval_logo(LogoApp *app, const char *code) {
                     set_var_word(app, varname + 1, val.word);
                 } else if (val.type == VALUE_LIST) {
                     set_var_list(app, varname + 1, val.list_head);
+                } else if (val.type == VALUE_ARRAY) {
+                    set_var_array(app, varname + 1, val.list_head, (int)val.number);
                 } else {
                     set_var(app, varname + 1, val.number);
                 }
             } else {
                 append_output(app, "MAKE: expected a \"name\n");
+            }
+        }
+        // 3a'''. SETITEM index array value — the one in-place mutation
+        // in this language: overwrites the index'th cell (1-indexed,
+        // same convention as ITEM) of an array in place. Every other
+        // value here is immutable/copy-on-build; arrays are the
+        // deliberate exception (see the ARRAY comment in parse_factor).
+        else if (strcasecmp(token, "SETITEM") == 0) {
+            int index = (int)value_to_number(parse_expr(app, &ptr));
+            Value array_val = parse_expr(app, &ptr);
+            Value new_val = parse_expr(app, &ptr);
+            if (array_val.type != VALUE_ARRAY) {
+                append_output(app, "SETITEM: expected an array\n");
+            } else if (index < 1 || index > (int)array_val.number) {
+                append_output(app, "SETITEM: index out of range\n");
+            } else if (new_val.type == VALUE_ARRAY) {
+                append_output(app, "SETITEM: can't store an array inside an array\n");
+            } else {
+                ListNode *node = &app->list_pool[array_val.list_head + (index - 1)];
+                if (new_val.type == VALUE_NUMBER) {
+                    node->type = LIST_ELEM_NUMBER;
+                    node->number = new_val.number;
+                } else if (new_val.type == VALUE_LIST) {
+                    node->type = LIST_ELEM_LIST;
+                    node->sublist_head = new_val.list_head;
+                } else {
+                    node->type = LIST_ELEM_WORD;
+                    snprintf(node->word, sizeof(node->word), "%s", new_val.word);
+                }
             }
         }
         // 3b'. LOCAL "name — a variable scoped to the current call,
