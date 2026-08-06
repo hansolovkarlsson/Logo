@@ -85,6 +85,7 @@ RT 90 FD 50
 | `WINDOW` | — | — | No canvas boundary at all (the default) |
 | `LABEL` | — | word/list | Draw text at the turtle's position, in its pen color |
 | `FILL` | — | — | Flood-fill the region containing the turtle, bounded by drawn lines, with its pen color |
+| `ERASERECT` | — | `width height` | Paint a rectangle centered on the turtle in the background color |
 | `WAIT` | — | expr (seconds) | Pause before the next command, without freezing the window |
 
 `SETXY`/`HOME` draw a connecting line if the pen is down, same as
@@ -134,6 +135,13 @@ FILL
   drawn afterward, even one that cuts straight through the filled
   region, never retroactively changes what got filled or splits it into
   separately-colored pieces the next time the canvas redraws.
+- `ERASERECT width height` paints a `width`-by-`height` rectangle,
+  centered on the turtle's current position, in the canvas's background
+  color — a punch-out rather than a draw. `CLEAR` erases these along
+  with fills and lines. Like `FILL`, it's frozen the instant it's
+  called: a line drawn afterward through the erased area draws right
+  through it rather than being retroactively erased itself, and doesn't
+  bring back whatever the rectangle erased either.
 
 ```
 REPEAT 4 [FD 100 RT 90]
@@ -441,33 +449,76 @@ PRINT FPUT "a "bc                -> abc
   WORD "b "c`) and, like the list operators above, work anywhere an
   argument is expected — including plain arithmetic.
 
+### DOT, CROSS
+
+```
+PRINT DOT [1 2 3] [4 5 6]     -> 32   (1*4 + 2*5 + 3*6)
+PRINT CROSS [1 0 0] [0 1 0]   -> 0 0 1
+```
+
+- `DOT a b` computes the dot product of two numeric lists of the same
+  length — the sum of each pair of elements multiplied together.
+  Prints `DOT: expected two lists` if either argument isn't a list, or
+  `DOT: lists must be the same length` if their lengths differ.
+- `CROSS a b` computes the 3D cross product of two numeric lists,
+  returning a new 3-element list. Only defined for 3-element vectors,
+  so it prints `CROSS: expected two 3-element lists` for anything else
+  (including a length that isn't exactly 3).
+- Both coerce each element the same way any other numeric context does
+  (see "Words & lists" above) — a word element reads as the number its
+  text starts with, falling back to `0`.
+
+### TRUE, FALSE
+
+```
+PRINT TRUE
+PRINT FALSE
+MAKE "flag TRUE
+IF :flag [PRINT "yes]
+```
+
+- `TRUE` and `FALSE` are real values — printable, storable in a
+  variable with `MAKE`, and passable around like any other word. They're
+  words rather than a distinct value type (real Logo doesn't have one
+  either): `TRUE`/`FALSE` are just special-cased, case-insensitive
+  keyword literals, same spelling either way (`PRINT true` also prints
+  `TRUE`).
+- `IF`/`WHILE` (and the comparisons/`AND`/`OR`/`NOT` inside their
+  condition) treat the word `FALSE` as false, and everything else
+  (including `TRUE`, any other non-empty word, or a nonzero number) as
+  true — the same non-empty-word-is-true convention as before, with one
+  added special case for the literal word `FALSE`.
+- Comparisons (`=`, `<`, etc.) and `AND`/`OR`/`NOT` themselves are
+  unchanged — they only exist inside `IF`/`WHILE`'s own condition slot
+  (see Conditionals below), not as general expression values. There's no
+  `PRINT :a = :b` or `MAKE "bigger :a > :b` — only `IF :a = :b [...]`.
+
 ### Type & membership predicates
 
 ```
-PRINT WORD? "hi           -> 1
-PRINT LIST? [1 2]         -> 1
-PRINT NUMBER? 5           -> 1
-PRINT EMPTY? []           -> 1
-PRINT EMPTY? [1]          -> 0
-PRINT MEMBER? "b [a b c]  -> 1
-PRINT MEMBER? "ell "hello -> 1
+PRINT WORD? "hi           -> TRUE
+PRINT LIST? [1 2]         -> TRUE
+PRINT NUMBER? 5           -> TRUE
+PRINT EMPTY? []           -> TRUE
+PRINT EMPTY? [1]          -> FALSE
+PRINT MEMBER? "b [a b c]  -> TRUE
+PRINT MEMBER? "ell "hello -> TRUE
 
 IF WORD? "hi [PRINT "yes]
 ```
 
 - `WORD?`, `LIST?`, and `NUMBER?` each take one argument and report
-  (`1`/`0`) whether it's that kind of value — the only way to ask "what
-  kind of value is this?" from inside a running program.
+  (`TRUE`/`FALSE`) whether it's that kind of value — the only way to ask
+  "what kind of value is this?" from inside a running program.
 - `EMPTY?` reports whether a list (`[]`) or word (`""`) is empty; a
-  number is never "empty" (always `0`).
+  number is never "empty" (always `FALSE`).
 - `MEMBER? thing container` reports whether `thing` is one of
   `container`'s top-level elements (a list), or a substring of it (a
   word — so `MEMBER? "ell "hello` is true, not just single-character
   checks); a bare number `container` is treated as a one-element list,
   same convention as `FIRST`/`COUNT`/etc.
-- Like every other operator here, all five return a plain number
-  (`1`/`0`) rather than a special boolean type — the same convention
-  `=`/`<`/etc. already use, so they work directly in `IF`/`WHILE` or
+- All five return `TRUE`/`FALSE` (see "TRUE, FALSE" above) rather than a
+  special boolean type, so they work directly in `IF`/`WHILE` or
   combined with `AND`/`OR`/`NOT`.
 
 ## Procedures
@@ -489,6 +540,9 @@ rect 100 40
 - Defining a `TO` with a name that already exists **overwrites** the
   existing procedure in place — handy for fixing a typo and re-running the
   definition. `ERASE "name` removes a procedure entirely.
+- `SHOW "name` prints a procedure's own definition back out, exactly as
+  `SAVE` would write it to a file — `TO name :params`, its body, then
+  `END`. Prints `SHOW: no such procedure "name` if it isn't defined.
 - Procedures can call other procedures, including recursively.
 
 ### OUTPUT, STOP
@@ -734,6 +788,10 @@ PRINT [hello there, this prints as one line]
   value here), while `PRINT LIST FIRST [[1 2] 3] "x` prints `[1 2] x`
   (bracketed, now that it's nested one level inside the 2-element list
   `LIST` just built).
+- `TYPE <expr>` works exactly like `PRINT`, but **without** the trailing
+  newline — several `TYPE`s (or a `TYPE` followed by a `PRINT`) build up
+  one line of output piece by piece: `TYPE "a` then `TYPE "b` then
+  `PRINT "c` prints `abc` on one line, not three.
 
 ## Files
 
@@ -778,9 +836,10 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   prints `[ list ]: missing closing ] or too long` if it's unterminated
   or oversized, rather than silently treated as ending at the input's
   end.
-- `MAKE`, `ERASE`, `LOAD`, and `SAVE` each print `<COMMAND>: expected a
-  "name`/`"path` if the required quoted word is missing. `ERASE` also
-  prints `ERASE: no such procedure "<name>` if the name isn't defined.
+- `MAKE`, `ERASE`, `SHOW`, `LOAD`, and `SAVE` each print `<COMMAND>:
+  expected a "name`/`"path` if the required quoted word is missing.
+  `ERASE`/`SHOW` also print `<COMMAND>: no such procedure "<name>` if
+  the name isn't defined.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than
@@ -810,6 +869,11 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   anywhere prints `THROW: no CATCH found for "tag` and execution recovers
   at the next top-level command, rather than aborting the rest of the
   running script (see "CATCH, THROW" above).
+- `DOT` prints `DOT: expected two lists` if either argument isn't a
+  list, or `DOT: lists must be the same length` if their lengths differ.
+  `CROSS` prints `CROSS: expected two 3-element lists` if either
+  argument isn't a list with exactly 3 elements (see "DOT, CROSS"
+  above).
 - Every internal text buffer (procedure bodies, block bodies, words,
   variable values, file paths, REPL history entries) is fixed-size but
   generously sized for normal use; input that would overflow one is

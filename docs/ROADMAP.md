@@ -12,29 +12,6 @@ complexity/risk rather than a strict priority order. Later phases don't
 strictly depend on earlier ones, but roughly track "how big a bet is this"
 — treat this as a menu to pick from, not a committed queue.
 
-### Phase 1 — Small, self-contained additions
-
-- [ ] `SHOW` (or similar) to print a user-defined procedure's own
-  definition back out — cheap, since `Procedure.body` is already stored
-  as text (the same data `SAVE` already serializes to a file).
-- [ ] `TYPE` (or similar) — prints without a trailing newline, unlike
-  `PRINT`/`PR` which always appends one.
-- [ ] `DOT`/`CROSS` list operators — dot and cross product of two
-  numeric lists (`DOT [1 2 3] [2 3 4]`, `CROSS [1 2 3] [2 3 4]`). Fits
-  the existing two-argument prefix-operator pattern (`MOD`/`POWER`)
-  exactly. `CROSS` is only mathematically defined for 3-element lists —
-  needs a decision on what happens otherwise (report an error, most
-  likely).
-- [ ] Erase part of the canvas — a rectangular "paint over in the
-  background color" command, using the same drawing machinery as
-  `FILL`/`LABEL` rather than anything new.
-- [ ] A real boolean result for comparisons/`AND`/`OR`/`NOT` — `TRUE`/
-  `FALSE` instead of `1`/`0`. Real Logo doesn't have a distinct boolean
-  *type* either (UCBLogo just treats the words `true`/`false`
-  specially) — likely lighter to add as special-cased words that `IF`/
-  `WHILE` recognize, rather than a new `ValueType`, though it still
-  touches every comparison/condition call site.
-
 ### Phase 2 — New data types, background/sprite images
 
 - [ ] Arrays — fixed-size, O(1) random-access storage, as a real

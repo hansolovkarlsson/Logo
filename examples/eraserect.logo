@@ -1,0 +1,23 @@
+; ERASERECT width height paints a rectangle centered on the turtle in
+; the canvas's background color -- a punch-out, not a draw.
+
+REPEAT 4 [FD 150 RT 90]
+PENUP
+SETXY 325 175
+PENDOWN
+SETPENCOLOR 0 150 255
+FILL
+
+; Erase a hole out of the middle of the square just filled.
+PENUP
+SETXY 325 175
+PENDOWN
+ERASERECT 60 60
+
+; Like FILL, ERASERECT freezes at the moment it's called: a line drawn
+; afterward through the erased hole doesn't retroactively undo it, and
+; doesn't get erased either -- it draws right through where the hole is.
+PENUP
+SETXY 250 175
+PENDOWN
+SETXY 400 175

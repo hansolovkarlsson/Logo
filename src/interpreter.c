@@ -266,6 +266,22 @@ static Procedure* find_procedure(LogoApp *app, const char *name) {
     return NULL;
 }
 
+// Appends one procedure's "TO name :params\n<body>\nEND\n" rendering to
+// `out` — the shared text SAVE (serialize_procedures, below) writes for
+// every procedure to a file, and SHOW writes to the history pane for
+// just the one procedure asked for.
+static void append_procedure_text(GString *out, Procedure *proc) {
+    g_string_append(out, "TO ");
+    g_string_append(out, proc->name);
+    for (int p = 0; p < proc->param_count; p++) {
+        g_string_append_c(out, ' ');
+        g_string_append(out, proc->param_names[p]); // already includes leading ':'
+    }
+    g_string_append_c(out, '\n');
+    g_string_append(out, proc->body);
+    g_string_append(out, "\nEND\n");
+}
+
 // Find a variable binding by name (case-insensitive). Searches the scope
 // stack from the innermost active call outward, so a procedure's own
 // parameter shadows a same-named variable from an outer call or a
@@ -371,6 +387,27 @@ static Value list_value(int head) {
     v.type = VALUE_LIST;
     v.list_head = head;
     return v;
+}
+
+// TRUE/FALSE, as words rather than a distinct value type -- see the
+// TRUE/FALSE keyword literals and the type predicates (WORD?/LIST?/
+// NUMBER?/EMPTY?/MEMBER?) in parse_factor, and is_truthy below.
+static Value bool_value(gboolean b) {
+    return word_value(b ? "TRUE" : "FALSE");
+}
+
+// A value's truthiness for IF/WHILE and parse_comparison's no-relational-
+// -operator fallback: a number is true iff nonzero, a list iff non-empty,
+// and a word iff it's non-empty AND not literally the word FALSE (case-
+// insensitive, like every other keyword match here) -- the one special
+// case, so that WORD?/LIST?/NUMBER?/EMPTY?/MEMBER? (which now return
+// TRUE/FALSE words instead of 1/0) still work correctly in IF/WHILE,
+// e.g. IF EMPTY? :x [...] must not run just because the word "FALSE"
+// happens to be non-empty text.
+static gboolean is_truthy(Value v) {
+    if (v.type == VALUE_LIST) return v.list_head != -1;
+    if (v.type == VALUE_WORD) return v.word[0] != '\0' && strcasecmp(v.word, "FALSE") != 0;
+    return v.number != 0;
 }
 
 // Stash/recover a Value in LogoApp's plain output_* fields (see the
@@ -663,6 +700,20 @@ static Value list_wrap_pair(LogoApp *app, Value a, Value b) {
     return list_value(node_a);
 }
 
+// Fills out[0..2] with a list's first three elements' numeric values
+// (each coerced the same way any other numeric context coerces a
+// word/number/list element) and returns TRUE only if the list has
+// *exactly* three elements — CROSS's "same length" check, since a 3D
+// cross product is only defined for 3-element vectors.
+static gboolean list_as_three_numbers(LogoApp *app, Value v, double out[3]) {
+    if (v.type != VALUE_LIST) return FALSE;
+    int n = 0;
+    for (int idx = v.list_head; idx != -1; idx = app->list_pool[idx].next, n++) {
+        if (n < 3) out[n] = value_to_number(list_node_to_value(&app->list_pool[idx]));
+    }
+    return n == 3;
+}
+
 // FPUT: prepend `thing` as a new first element of `list`. If `list` is a
 // word, this instead prepends `thing`'s text as new leading characters,
 // producing a new word (FPUT "a "bc -> "abc") — a word is a sequence of
@@ -932,10 +983,10 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         if (container.type == VALUE_LIST) {
             for (int idx = container.list_head; idx != -1; idx = app->list_pool[idx].next) {
                 if (values_equal(app, thing, list_node_to_value(&app->list_pool[idx]))) {
-                    return number_value(1);
+                    return bool_value(TRUE);
                 }
             }
-            return number_value(0);
+            return bool_value(FALSE);
         }
         if (container.type == VALUE_WORD) {
             // A word's "elements" are its characters -- membership is
@@ -943,28 +994,28 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             // not just single-character checks.
             char thing_text[512];
             value_to_text(app, &thing, thing_text, sizeof(thing_text));
-            return number_value(strstr(container.word, thing_text) != NULL ? 1 : 0);
+            return bool_value(strstr(container.word, thing_text) != NULL);
         }
         // A bare number counts as a one-element list.
-        return number_value(values_equal(app, thing, container) ? 1 : 0);
+        return bool_value(values_equal(app, thing, container));
     }
     if (consume_keyword(ptr, "EMPTY?")) {
         Value arg = parse_factor(app, ptr);
-        if (arg.type == VALUE_LIST) return number_value(arg.list_head == -1 ? 1 : 0);
-        if (arg.type == VALUE_WORD) return number_value(arg.word[0] == '\0' ? 1 : 0);
-        return number_value(0); // a number is never "empty"
+        if (arg.type == VALUE_LIST) return bool_value(arg.list_head == -1);
+        if (arg.type == VALUE_WORD) return bool_value(arg.word[0] == '\0');
+        return bool_value(FALSE); // a number is never "empty"
     }
     if (consume_keyword(ptr, "WORD?")) {
         Value arg = parse_factor(app, ptr);
-        return number_value(arg.type == VALUE_WORD ? 1 : 0);
+        return bool_value(arg.type == VALUE_WORD);
     }
     if (consume_keyword(ptr, "LIST?")) {
         Value arg = parse_factor(app, ptr);
-        return number_value(arg.type == VALUE_LIST ? 1 : 0);
+        return bool_value(arg.type == VALUE_LIST);
     }
     if (consume_keyword(ptr, "NUMBER?")) {
         Value arg = parse_factor(app, ptr);
-        return number_value(arg.type == VALUE_NUMBER ? 1 : 0);
+        return bool_value(arg.type == VALUE_NUMBER);
     }
     if (consume_keyword(ptr, "MAP")) {
         Value template_val = parse_factor(app, ptr);
@@ -1067,6 +1118,52 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         Value a = parse_factor(app, ptr);
         Value b = parse_factor(app, ptr);
         return list_wrap_pair(app, a, b);
+    }
+    if (consume_keyword(ptr, "DOT")) {
+        Value a = parse_factor(app, ptr);
+        Value b = parse_factor(app, ptr);
+        if (a.type != VALUE_LIST || b.type != VALUE_LIST) {
+            append_output(app, "DOT: expected two lists\n");
+            return number_value(0);
+        }
+        double sum = 0;
+        int idx_a = a.list_head, idx_b = b.list_head;
+        while (idx_a != -1 && idx_b != -1) {
+            sum += value_to_number(list_node_to_value(&app->list_pool[idx_a]))
+                 * value_to_number(list_node_to_value(&app->list_pool[idx_b]));
+            idx_a = app->list_pool[idx_a].next;
+            idx_b = app->list_pool[idx_b].next;
+        }
+        if (idx_a != -1 || idx_b != -1) {
+            append_output(app, "DOT: lists must be the same length\n");
+            return number_value(0);
+        }
+        return number_value(sum);
+    }
+    if (consume_keyword(ptr, "CROSS")) {
+        Value a = parse_factor(app, ptr);
+        Value b = parse_factor(app, ptr);
+        double av[3], bv[3];
+        if (!list_as_three_numbers(app, a, av) || !list_as_three_numbers(app, b, bv)) {
+            append_output(app, "CROSS: expected two 3-element lists\n");
+            return list_value(-1);
+        }
+        double cx = av[1] * bv[2] - av[2] * bv[1];
+        double cy = av[2] * bv[0] - av[0] * bv[2];
+        double cz = av[0] * bv[1] - av[1] * bv[0];
+        int n0 = list_node_from_value(app, number_value(cx));
+        int n1 = list_node_from_value(app, number_value(cy));
+        int n2 = list_node_from_value(app, number_value(cz));
+        if (n0 < 0 || n1 < 0 || n2 < 0) return list_pool_exhausted_error(app);
+        app->list_pool[n0].next = n1;
+        app->list_pool[n1].next = n2;
+        return list_value(n0);
+    }
+    if (consume_keyword(ptr, "TRUE")) {
+        return word_value("TRUE");
+    }
+    if (consume_keyword(ptr, "FALSE")) {
+        return word_value("FALSE");
     }
     if (consume_keyword(ptr, "HEADING")) {
         // The raw stored angle, same convention SETHEADING/RT/LT already
@@ -1220,8 +1317,7 @@ static double parse_comparison(LogoApp *app, const char **ptr) {
         return left.number > right.number;
     }
 
-    if (left.type == VALUE_LIST) return left.list_head != -1;
-    return left.type == VALUE_WORD ? (left.word[0] != '\0') : (left.number != 0);
+    return is_truthy(left);
 }
 
 // NOT <bool> | comparison — NOT binds tighter than AND/OR and can nest
@@ -1502,6 +1598,28 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, "SAVE: expected a \"path\n");
             }
         }
+        // 1e. SHOW "name — print a user-defined procedure's own TO ...
+        // END definition back to the history pane, reusing the exact
+        // same rendering SAVE writes to a file (append_procedure_text).
+        else if (strcasecmp(token, "SHOW") == 0) {
+            char name_buf[64] = {0};
+            if (sscanf(ptr, "%63s%n", name_buf, &read_bytes) == 1 && name_buf[0] == '"') {
+                ptr += read_bytes;
+                Procedure *proc = find_procedure(app, name_buf + 1);
+                if (proc != NULL) {
+                    GString *text = g_string_new(NULL);
+                    append_procedure_text(text, proc);
+                    append_output(app, text->str);
+                    g_string_free(text, TRUE);
+                } else {
+                    append_output(app, "SHOW: no such procedure \"");
+                    append_output(app, name_buf + 1);
+                    append_output(app, "\n");
+                }
+            } else {
+                append_output(app, "SHOW: expected a \"name\n");
+            }
+        }
         // 2. REPEAT LOOPS
         else if (strcasecmp(token, "REPEAT") == 0) {
             int count = (int)value_to_number(parse_expr(app, &ptr));
@@ -1779,7 +1897,7 @@ void eval_logo(LogoApp *app, const char *code) {
         else if (strcasecmp(token, "CLEAR") == 0 || strcasecmp(token, "CS") == 0) {
             app->line_count = 0;
             app->label_count = 0;
-            app->fill_count = 0;
+            app->raster_op_count = 0;
             for (int i = 0; i < app->turtle_count; i++) {
                 app->turtles[i].x = HOME_X;
                 app->turtles[i].y = HOME_Y;
@@ -1865,15 +1983,35 @@ void eval_logo(LogoApp *app, const char *code) {
         // drawn after this FILL can't retroactively change what it
         // filled (see ui.c's bake_pending_fills).
         else if (strcasecmp(token, "FILL") == 0) {
-            if (app->fill_count < MAX_FILLS) {
+            if (app->raster_op_count < MAX_RASTER_OPS) {
                 Turtle *t = current_turtle(app);
-                FillRequest *fill = &app->fills[app->fill_count++];
-                fill->x = t->x;
-                fill->y = t->y;
-                fill->r = t->pen_r;
-                fill->g = t->pen_g;
-                fill->b = t->pen_b;
-                fill->line_count_at_call = app->line_count;
+                RasterOp *op = &app->raster_ops[app->raster_op_count++];
+                op->kind = RASTER_OP_FILL;
+                op->x = t->x;
+                op->y = t->y;
+                op->r = t->pen_r;
+                op->g = t->pen_g;
+                op->b = t->pen_b;
+                op->line_count_at_call = app->line_count;
+            }
+        }
+        // 3c''''''a. ERASERECT w h — paints a w-by-h rectangle centered
+        // on the turtle in the background color, same call-time-frozen
+        // treatment as FILL just above (and the same reason: sharing
+        // RasterOp/bake_pending_fills means a line drawn after this
+        // ERASERECT can't retroactively change what got erased either).
+        else if (strcasecmp(token, "ERASERECT") == 0) {
+            double w = value_to_number(parse_expr(app, &ptr));
+            double h = value_to_number(parse_expr(app, &ptr));
+            if (app->raster_op_count < MAX_RASTER_OPS) {
+                Turtle *t = current_turtle(app);
+                RasterOp *op = &app->raster_ops[app->raster_op_count++];
+                op->kind = RASTER_OP_ERASE_RECT;
+                op->x = t->x;
+                op->y = t->y;
+                op->w = w;
+                op->h = h;
+                op->line_count_at_call = app->line_count;
             }
         }
         // 3c'''''''. WAIT expr — pauses for expr seconds (this
@@ -1915,6 +2053,15 @@ void eval_logo(LogoApp *app, const char *code) {
             value_to_text(app, &val, line, sizeof(line));
             append_output(app, line);
             append_output(app, "\n");
+        }
+        // 3d'. TYPE <expr> — same as PRINT, but without the trailing
+        // newline, so several TYPEs (or a TYPE followed by a PRINT) can
+        // build up one line of output piece by piece.
+        else if (strcasecmp(token, "TYPE") == 0) {
+            Value val = parse_expr(app, &ptr);
+            char line[512];
+            value_to_text(app, &val, line, sizeof(line));
+            append_output(app, line);
         }
         // 3e. RUN thing — executes a stored word/list as Logo source,
         // exactly as if it had been typed directly: the thing that makes
@@ -2052,16 +2199,8 @@ gboolean is_input_complete(const char *text) {
 char *serialize_procedures(LogoApp *app) {
     GString *out = g_string_new(NULL);
     for (int i = 0; i < app->proc_count; i++) {
-        Procedure *proc = &app->procedures[i];
-        g_string_append(out, "TO ");
-        g_string_append(out, proc->name);
-        for (int p = 0; p < proc->param_count; p++) {
-            g_string_append_c(out, ' ');
-            g_string_append(out, proc->param_names[p]); // already includes leading ':'
-        }
+        append_procedure_text(out, &app->procedures[i]);
         g_string_append_c(out, '\n');
-        g_string_append(out, proc->body);
-        g_string_append(out, "\nEND\n\n");
     }
     return g_string_free(out, FALSE);
 }

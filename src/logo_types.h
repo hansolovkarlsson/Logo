@@ -18,7 +18,7 @@
 
 #define MAX_LINES 10000
 #define MAX_LABELS 1000
-#define MAX_FILLS 500
+#define MAX_RASTER_OPS 500
 #define MAX_PROCEDURES 50
 #define MAX_VARIABLES 100
 #define MAX_WHILE_ITERATIONS 1000000
@@ -65,17 +65,28 @@ typedef struct {
     char text[256];
 } Label;
 
-// A FILL command: flood-fill the region containing (x, y) — the
-// turtle's position when FILL was called — with color (r, g, b).
+// A canvas-mutating operation that needs to freeze its effect at the
+// moment it's called, rather than being recomputed against whatever
+// lines happen to exist the next time the canvas redraws: FILL (flood-
+// fill the region containing (x, y) with color (r, g, b)) or ERASERECT
+// (paint a w-by-h rectangle centered on (x, y) in the background
+// color). Both are baked into LogoApp.fill_raster by ui.c's
+// bake_pending_fills in the order they were called.
 // line_count_at_call freezes how many of LogoApp.lines existed at that
-// exact moment, so ui.c's incremental raster bake (see draw_scene) can
-// flood-fill against exactly the boundary that existed then, rather
-// than whatever lines happen to exist the next time the canvas redraws.
+// exact moment, so a fill's flood boundary (or an erase's overwrite)
+// only ever sees the lines that existed then.
+typedef enum {
+    RASTER_OP_FILL,
+    RASTER_OP_ERASE_RECT,
+} RasterOpKind;
+
 typedef struct {
-    double x, y;
-    double r, g, b;
+    RasterOpKind kind;
+    double x, y;       // FILL: flood-fill seed point. ERASE_RECT: rectangle center.
+    double r, g, b;     // FILL only: fill color.
+    double w, h;        // ERASE_RECT only: rectangle size.
     int line_count_at_call;
-} FillRequest;
+} RasterOp;
 
 // The turtle's position, heading, pen state, current pen color/width
 // (color 0.0-1.0 per channel; set via SETPENCOLOR/SETPC and
@@ -171,19 +182,19 @@ typedef struct LogoApp {
     Label labels[MAX_LABELS]; // see LABEL
     int label_count;
 
-    FillRequest fills[MAX_FILLS]; // see FILL
-    int fill_count;
+    RasterOp raster_ops[MAX_RASTER_OPS]; // see FILL, ERASERECT
+    int raster_op_count;
 
-    // ui.c's persisted raster bake of FILL requests already applied
-    // (see draw_scene / bake_pending_fills in ui.c) — owned entirely by
-    // ui.c, NULL/0 in tests where nothing is ever drawn. Kept here
-    // rather than as ui.c statics so it survives across draw calls
-    // without any global state, and so a fill_count regression (CLEAR
-    // resetting it back to 0) is detectable by comparing against
-    // raster_fills_baked.
+    // ui.c's persisted raster bake of FILL/ERASERECT requests already
+    // applied (see draw_scene / bake_pending_fills in ui.c) — owned
+    // entirely by ui.c, NULL/0 in tests where nothing is ever drawn.
+    // Kept here rather than as ui.c statics so it survives across draw
+    // calls without any global state, and so a raster_op_count
+    // regression (CLEAR resetting it back to 0) is detectable by
+    // comparing against raster_ops_baked.
     cairo_surface_t *fill_raster;
     int raster_lines_baked;
-    int raster_fills_baked;
+    int raster_ops_baked;
 
     Procedure procedures[MAX_PROCEDURES];
     int proc_count;

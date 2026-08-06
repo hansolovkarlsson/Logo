@@ -1,0 +1,18 @@
+; TYPE prints like PRINT, but without a trailing newline -- several
+; TYPEs (or a TYPE followed by a PRINT) build up one line piece by piece.
+
+TYPE "Hello,
+TYPE "
+PRINT "world!
+
+; SHOW prints a user-defined procedure's own TO ... END definition back
+; out, exactly as SAVE would write it to a file.
+
+TO square :size
+  REPEAT 4 [FD :size RT 90]
+END
+SHOW "square
+
+; An undefined procedure name reports an error instead of a crash.
+
+SHOW "nope

@@ -1,0 +1,13 @@
+; DOT computes the dot product of two equal-length numeric lists.
+
+PRINT DOT [1 2 3] [4 5 6]        ; 1*4 + 2*5 + 3*6 = 32
+
+; CROSS computes the 3D cross product of two 3-element numeric lists,
+; returning a new 3-element list.
+
+PRINT CROSS [1 0 0] [0 1 0]      ; the x and y axes cross to the z axis
+
+; Mismatched lengths are reported rather than silently misinterpreted.
+
+PRINT DOT [1 2] [1 2 3]
+PRINT CROSS [1 2] [1 2 3]

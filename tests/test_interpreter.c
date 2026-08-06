@@ -210,18 +210,34 @@ TEST(test_clear_erases_labels) {
 TEST(test_fill_records_position_and_color) {
     LogoApp *app = new_app();
     eval_logo(app, "SETPENCOLOR 0 200 0\nFD 50\nFILL");
-    CHECK(app->fill_count == 1);
-    CHECK_NEAR(app->fills[0].x, 250.0);
-    CHECK_NEAR(app->fills[0].y, 200.0);
-    CHECK_NEAR(app->fills[0].r, 0.0);
-    CHECK_NEAR(app->fills[0].g, 200.0 / 255.0);
-    CHECK_NEAR(app->fills[0].b, 0.0);
+    CHECK(app->raster_op_count == 1);
+    CHECK(app->raster_ops[0].kind == RASTER_OP_FILL);
+    CHECK_NEAR(app->raster_ops[0].x, 250.0);
+    CHECK_NEAR(app->raster_ops[0].y, 200.0);
+    CHECK_NEAR(app->raster_ops[0].r, 0.0);
+    CHECK_NEAR(app->raster_ops[0].g, 200.0 / 255.0);
+    CHECK_NEAR(app->raster_ops[0].b, 0.0);
 }
 
 TEST(test_clear_erases_fills) {
     LogoApp *app = new_app();
     eval_logo(app, "FILL\nCLEAR");
-    CHECK(app->fill_count == 0);
+    CHECK(app->raster_op_count == 0);
+}
+
+// --- ERASERECT ---
+// Same "record plain data, Cairo does the actual rasterizing in ui.c"
+// split as FILL -- these check the data ERASERECT records for it.
+
+TEST(test_eraserect_records_position_and_size) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FD 50\nERASERECT 40 60");
+    CHECK(app->raster_op_count == 1);
+    CHECK(app->raster_ops[0].kind == RASTER_OP_ERASE_RECT);
+    CHECK_NEAR(app->raster_ops[0].x, 250.0);
+    CHECK_NEAR(app->raster_ops[0].y, 200.0);
+    CHECK_NEAR(app->raster_ops[0].w, 40.0);
+    CHECK_NEAR(app->raster_ops[0].h, 60.0);
 }
 
 // --- WAIT ---
@@ -684,6 +700,29 @@ TEST(test_while_loop) {
     CHECK_STREQ(captured_output, "0\n1\n2\n");
 }
 
+TEST(test_true_false_literals_print_and_store) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT TRUE\nPRINT FALSE\nMAKE \"flag TRUE\nPRINT :flag");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\nTRUE\n");
+}
+
+TEST(test_true_false_case_insensitive) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT true\nPRINT false");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\n");
+}
+
+TEST(test_if_while_treat_the_word_false_as_falsy) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "IF TRUE [PRINT \"a]\n"
+        "IF FALSE [PRINT \"should-not-print]\n"
+        "MAKE \"flag FALSE\n"
+        "IF :flag [PRINT \"also-should-not-print]\n"
+        "IF NOT :flag [PRINT \"b]");
+    CHECK_STREQ(captured_output, "a\nb\n");
+}
+
 // --- Words ---
 
 TEST(test_word_variable_and_comparison) {
@@ -860,6 +899,32 @@ TEST(test_list_construction_via_make_and_nesting) {
         "PRINT :greeting\n"
         "PRINT FIRST FPUT \"a [b c]");
     CHECK_STREQ(captured_output, "helloworld\na\n");
+}
+
+// --- DOT, CROSS ---
+
+TEST(test_dot_product_of_equal_length_lists) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT DOT [1 2 3] [4 5 6]");
+    CHECK_STREQ(captured_output, "32\n"); // 1*4 + 2*5 + 3*6
+}
+
+TEST(test_dot_mismatched_length_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT DOT [1 2] [1 2 3]");
+    CHECK_CONTAINS(captured_output, "DOT: lists must be the same length");
+}
+
+TEST(test_cross_product_of_3element_lists) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT CROSS [1 0 0] [0 1 0]");
+    CHECK_STREQ(captured_output, "0 0 1\n");
+}
+
+TEST(test_cross_wrong_length_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT CROSS [1 2] [1 2 3]");
+    CHECK_CONTAINS(captured_output, "CROSS: expected two 3-element lists");
 }
 
 // --- True nested lists ---
@@ -1099,7 +1164,7 @@ TEST(test_word_list_number_predicates) {
         "PRINT NUMBER? 5\n"
         "PRINT NUMBER? \"hi\n"
         "PRINT NUMBER? [1 2]");
-    CHECK_STREQ(captured_output, "1\n0\n0\n1\n0\n0\n1\n0\n0\n");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\nFALSE\nTRUE\nFALSE\nFALSE\nTRUE\nFALSE\nFALSE\n");
 }
 
 TEST(test_empty_predicate) {
@@ -1110,7 +1175,7 @@ TEST(test_empty_predicate) {
         "PRINT EMPTY? \"\n"
         "PRINT EMPTY? \"a\n"
         "PRINT EMPTY? 5");
-    CHECK_STREQ(captured_output, "1\n0\n1\n0\n0\n");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\nTRUE\nFALSE\nFALSE\n");
 }
 
 TEST(test_member_on_list_and_number) {
@@ -1121,13 +1186,13 @@ TEST(test_member_on_list_and_number) {
         "PRINT MEMBER? 2 [1 2 3]\n"
         "PRINT MEMBER? 5 5\n"
         "PRINT MEMBER? 5 6");
-    CHECK_STREQ(captured_output, "1\n0\n1\n1\n0\n");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\nTRUE\nTRUE\nFALSE\n");
 }
 
 TEST(test_member_on_word_is_substring) {
     LogoApp *app = new_app();
     eval_logo(app, "PRINT MEMBER? \"ell \"hello\nPRINT MEMBER? \"xyz \"hello");
-    CHECK_STREQ(captured_output, "1\n0\n");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\n");
 }
 
 TEST(test_predicates_usable_in_conditions) {
@@ -1213,6 +1278,31 @@ TEST(test_ifelse_selects_true_and_false_branches) {
     LogoApp *app = new_app();
     eval_logo(app, "IFELSE 1 = 1 [PRINT \"a] [PRINT \"b]\nIFELSE 1 = 2 [PRINT \"a] [PRINT \"b]");
     CHECK_STREQ(captured_output, "a\nb\n");
+}
+
+// --- TYPE, SHOW ---
+
+TEST(test_type_prints_without_trailing_newline) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TYPE \"a\nTYPE \"b\nPRINT \"c");
+    CHECK_STREQ(captured_output, "abc\n");
+}
+
+TEST(test_show_prints_a_procedures_definition) {
+    // A trailing blank line before END is expected here: proc->body
+    // captures everything up to END, including its own trailing
+    // newline, and append_procedure_text (shared with SAVE) always adds
+    // one more before "END" -- pre-existing SAVE-format behavior, not
+    // something SHOW introduces.
+    LogoApp *app = new_app();
+    eval_logo(app, "TO square :size\nREPEAT 4 [FD :size RT 90]\nEND\nSHOW \"square");
+    CHECK_STREQ(captured_output, "TO square :size\nREPEAT 4 [FD :size RT 90]\n\nEND\n");
+}
+
+TEST(test_show_undefined_procedure_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SHOW \"nope");
+    CHECK_CONTAINS(captured_output, "SHOW: no such procedure \"nope");
 }
 
 // --- REPL input completeness (is_input_complete) ---
@@ -1485,6 +1575,7 @@ int main(void) {
 
     RUN(test_fill_records_position_and_color);
     RUN(test_clear_erases_fills);
+    RUN(test_eraserect_records_position_and_size);
 
     RUN(test_wait_zero_or_negative_returns_immediately);
     RUN(test_wait_pauses_for_at_least_the_requested_duration);
@@ -1555,6 +1646,9 @@ int main(void) {
     RUN(test_if_ifelse_comparisons);
     RUN(test_boolean_and_or_not);
     RUN(test_while_loop);
+    RUN(test_true_false_literals_print_and_store);
+    RUN(test_true_false_case_insensitive);
+    RUN(test_if_while_treat_the_word_false_as_falsy);
 
     RUN(test_word_variable_and_comparison);
     RUN(test_make_multiword_string_from_bracket_list);
@@ -1581,6 +1675,10 @@ int main(void) {
     RUN(test_sentence_joins_with_a_space);
     RUN(test_fput_prepends_and_lput_appends);
     RUN(test_list_construction_via_make_and_nesting);
+    RUN(test_dot_product_of_equal_length_lists);
+    RUN(test_dot_mismatched_length_reports_error);
+    RUN(test_cross_product_of_3element_lists);
+    RUN(test_cross_wrong_length_reports_error);
 
     RUN(test_print_nested_list_literal);
     RUN(test_count_of_nested_list_counts_top_level_only);
@@ -1632,6 +1730,9 @@ int main(void) {
     RUN(test_if_false_condition_runs_nothing);
     RUN(test_if_with_literal_else_keyword);
     RUN(test_ifelse_selects_true_and_false_branches);
+    RUN(test_type_prints_without_trailing_newline);
+    RUN(test_show_prints_a_procedures_definition);
+    RUN(test_show_undefined_procedure_reports_error);
 
     RUN(test_is_input_complete_simple_command);
     RUN(test_is_input_complete_unbalanced_bracket);

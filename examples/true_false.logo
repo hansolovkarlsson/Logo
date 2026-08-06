@@ -1,0 +1,26 @@
+; TRUE/FALSE are real values -- printable, storable, and usable anywhere
+; a word can be.
+
+PRINT TRUE
+PRINT FALSE
+MAKE "flag TRUE
+PRINT :flag
+
+; The type/membership predicates now return TRUE/FALSE instead of 1/0.
+
+PRINT WORD? "hi
+PRINT LIST? [1 2]
+PRINT NUMBER? "hi
+PRINT EMPTY? []
+PRINT MEMBER? "b [a b c]
+
+; IF/WHILE treat the word FALSE as false, same as an empty word or a
+; zero number -- so a predicate's TRUE/FALSE result still works exactly
+; like the old 1/0 did.
+
+IF WORD? "hi [PRINT "yes-a-word]
+IF NOT NUMBER? "hi [PRINT "confirmed-not-a-number]
+
+MAKE "done FALSE
+IF :done [PRINT "should-not-print]
+IF NOT :done [PRINT "not-done-yet]
