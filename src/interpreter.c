@@ -786,6 +786,38 @@ static gboolean list_as_two_numbers(LogoApp *app, Value v, double out[2]) {
     return n == 2;
 }
 
+// Tokenizes `text` by whitespace into a list of words -- the shared
+// core of PARSE (any value's printed text) and TEXT (a procedure's own
+// raw source body). Pure text split, not bracket- or quote-aware: a
+// "quoted word or a [bracketed block] in the source keeps its
+// punctuation as literal characters glued onto whichever token it's
+// part of, rather than being reinterpreted the way eval_logo's own
+// reader would. Sets *out_head and returns TRUE, or returns FALSE if
+// the pool fills up partway through.
+static gboolean list_tokenize_words(LogoApp *app, const char *text, int *out_head) {
+    int head = -1;
+    int *next_slot = &head;
+    const char *p = text;
+    while (*p) {
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p == '\0') break;
+        const char *start = p;
+        while (*p && !isspace((unsigned char)*p)) p++;
+        int node = list_alloc_node(app);
+        if (node < 0) return FALSE;
+        size_t len = (size_t)(p - start);
+        if (len >= sizeof(app->list_pool[node].word)) len = sizeof(app->list_pool[node].word) - 1;
+        memcpy(app->list_pool[node].word, start, len);
+        app->list_pool[node].word[len] = '\0';
+        app->list_pool[node].type = LIST_ELEM_WORD;
+        app->list_pool[node].next = -1;
+        *next_slot = node;
+        next_slot = &app->list_pool[node].next;
+    }
+    *out_head = head;
+    return TRUE;
+}
+
 // FLATTEN: recursively collects every leaf (number/word) reachable from
 // `list_head`'s chain into one flat chain, appended via *next_slot --
 // only meaningful now that lists really nest (see the ListNode comment
@@ -1367,26 +1399,35 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         Value arg = parse_factor(app, ptr);
         char text[512];
         value_to_text(app, &arg, text, sizeof(text));
-        int head = -1;
-        int *next_slot = &head;
-        const char *p = text;
-        while (*p) {
-            while (*p && isspace((unsigned char)*p)) p++;
-            if (*p == '\0') break;
-            const char *start = p;
-            while (*p && !isspace((unsigned char)*p)) p++;
-            int node = list_alloc_node(app);
-            if (node < 0) return list_pool_exhausted_error(app);
-            size_t len = (size_t)(p - start);
-            if (len >= sizeof(app->list_pool[node].word)) len = sizeof(app->list_pool[node].word) - 1;
-            memcpy(app->list_pool[node].word, start, len);
-            app->list_pool[node].word[len] = '\0';
-            app->list_pool[node].type = LIST_ELEM_WORD;
-            app->list_pool[node].next = -1;
-            *next_slot = node;
-            next_slot = &app->list_pool[node].next;
-        }
+        int head;
+        if (!list_tokenize_words(app, text, &head)) return list_pool_exhausted_error(app);
         return list_value(head);
+    }
+    if (consume_keyword(ptr, "TEXT")) {
+        // The read-as-data complement to SHOW: rather than printing a
+        // procedure's own TO ... END definition, outputs its raw body
+        // text tokenized into a flat list of words -- same whitespace
+        // tokenizing PARSE does above, not a full re-parse of Logo
+        // syntax, so a "quoted word or a [bracketed block] in the body
+        // keeps its punctuation as literal characters within a token
+        // rather than being reinterpreted as eval_logo itself would.
+        char name_buf[64] = {0};
+        int name_bytes = 0;
+        if (sscanf(*ptr, "%63s%n", name_buf, &name_bytes) == 1 && name_buf[0] == '"') {
+            *ptr += name_bytes;
+            Procedure *proc = find_procedure(app, name_buf + 1);
+            if (proc == NULL) {
+                append_output(app, "TEXT: no such procedure \"");
+                append_output(app, name_buf + 1);
+                append_output(app, "\n");
+                return list_value(-1);
+            }
+            int head;
+            if (!list_tokenize_words(app, proc->body, &head)) return list_pool_exhausted_error(app);
+            return list_value(head);
+        }
+        append_output(app, "TEXT: expected a \"name\n");
+        return list_value(-1);
     }
     if (consume_keyword(ptr, "SUBST")) {
         Value old_val = parse_factor(app, ptr);

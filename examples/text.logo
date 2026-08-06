@@ -1,0 +1,23 @@
+; TEXT -- the read-as-data complement to SHOW: rather than printing a
+; procedure's own TO ... END definition, outputs its raw body text
+; tokenized into a flat list of words (the same whitespace tokenizing
+; PARSE does -- not a full re-parse of Logo syntax).
+
+TO square :size
+  REPEAT 4 [FD :size RT 90]
+END
+
+SHOW "square
+PRINT TEXT "square
+PRINT COUNT TEXT "square
+
+; A "quoted word or a [bracketed block] in the body keeps its
+; punctuation as literal characters within a token, rather than being
+; reinterpreted the way eval_logo itself would:
+
+TO demo
+  PRINT "hi
+END
+
+PRINT ITEM 1 TEXT "demo   ; PRINT
+PRINT ITEM 2 TEXT "demo   ; "hi, quote character included literally

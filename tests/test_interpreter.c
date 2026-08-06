@@ -1765,6 +1765,42 @@ TEST(test_show_undefined_procedure_reports_error) {
     CHECK_CONTAINS(captured_output, "SHOW: no such procedure \"nope");
 }
 
+TEST(test_text_returns_a_procedures_body_as_a_flat_word_list) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO square :size\nREPEAT 4 [FD :size RT 90]\nEND\n"
+        "PRINT TEXT \"square\n"
+        "PRINT COUNT TEXT \"square");
+    // Printed text round-trips exactly, but it's 6 separate word
+    // tokens, not one real nested sublist for [FD :size RT 90] -- see
+    // the next test for that distinction made concrete.
+    CHECK_STREQ(captured_output, "REPEAT 4 [FD :size RT 90]\n6\n");
+}
+
+TEST(test_text_tokens_keep_quote_and_bracket_punctuation_literal) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO demo\nPRINT \"hi\nEND\n"
+        "PRINT ITEM 1 TEXT \"demo\n"
+        "PRINT ITEM 2 TEXT \"demo");
+    // TEXT is a plain whitespace tokenize of the source, not a real
+    // parse: the "hi token keeps its literal quote character rather
+    // than being reinterpreted as the quoted word hi.
+    CHECK_STREQ(captured_output, "PRINT\n\"hi\n");
+}
+
+TEST(test_text_undefined_procedure_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT TEXT \"nope");
+    CHECK_CONTAINS(captured_output, "TEXT: no such procedure \"nope");
+}
+
+TEST(test_text_without_quoted_name_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT TEXT 5");
+    CHECK_CONTAINS(captured_output, "TEXT: expected a \"name");
+}
+
 // --- REPL input completeness (is_input_complete) ---
 
 TEST(test_is_input_complete_simple_command) {
@@ -2255,6 +2291,10 @@ int main(void) {
     RUN(test_type_prints_without_trailing_newline);
     RUN(test_show_prints_a_procedures_definition);
     RUN(test_show_undefined_procedure_reports_error);
+    RUN(test_text_returns_a_procedures_body_as_a_flat_word_list);
+    RUN(test_text_tokens_keep_quote_and_bracket_punctuation_literal);
+    RUN(test_text_undefined_procedure_reports_error);
+    RUN(test_text_without_quoted_name_reports_error);
 
     RUN(test_is_input_complete_simple_command);
     RUN(test_is_input_complete_unbalanced_bracket);

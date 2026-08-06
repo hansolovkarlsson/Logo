@@ -12,17 +12,6 @@ complexity/risk rather than a strict priority order. Later phases don't
 strictly depend on earlier ones, but roughly track "how big a bet is this"
 — treat this as a menu to pick from, not a committed queue.
 
-### Phase 2 — Small, self-contained additions
-
-Ideas from a 2026-08-06 review of
-[Terrapin Logo's command reference](https://resources.terrapinlogo.com/logo/commands/)
-against this interpreter's existing command set — same "small,
-self-contained" character as the original Phase 1, just found later:
-
-- [ ] `TEXT "name` — like `SHOW`, but returns a procedure's body as
-  *data* (a list) instead of printing it — the complementary
-  read-as-data half of what `SHOW` already prints.
-
 ### Phase 3 — New data types, background/sprite images
 
 - [ ] Property lists (key/value records) — Berkeley Logo's `PLIST`

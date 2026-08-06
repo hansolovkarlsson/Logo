@@ -696,6 +696,16 @@ rect 100 40
 - `SHOW "name` prints a procedure's own definition back out, exactly as
   `SAVE` would write it to a file — `TO name :params`, its body, then
   `END`. Prints `SHOW: no such procedure "name` if it isn't defined.
+- `TEXT "name` is the read-as-data complement to `SHOW`: instead of
+  printing the definition, it outputs the procedure's raw body text
+  tokenized into a flat list of words — the same whitespace tokenizing
+  `PARSE` does (see "FLATTEN, PARSE, SUBST" above), not a full re-parse
+  of Logo syntax. A `"quoted word or a `[bracketed block]` in the body
+  keeps its punctuation as literal characters within a token, rather
+  than being reinterpreted the way `eval_logo` itself would — so `TEXT`
+  of a body containing `PRINT "hi` gives a two-word list whose second
+  word is the literal text `"hi`, quote character included, not the
+  word `hi`. Prints `TEXT: no such procedure "name` if it isn't defined.
 - Procedures can call other procedures, including recursively.
 - `PROCEDURES` outputs a list of every currently-defined procedure's
   name, in definition order — workspace introspection alongside `SHOW`.
