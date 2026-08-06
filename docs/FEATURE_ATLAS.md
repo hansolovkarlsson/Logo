@@ -9,6 +9,13 @@ Legend: 🟢 standard Logo, missing here — 🟣 rare, one or two dialects ever
 
 ## 🟢 The common repertoire
 
+**Status: all shipped.** This section is a point-in-time survey from
+2026-08-05 — every item below has since been implemented (working
+through them one by one is what most of `ROADMAP.md`'s history is);
+see `docs/LANGUAGE.md` for how each one actually works today. Left
+as-written below for the historical record of what this survey found
+missing at the time, not as a current gap list.
+
 Everything below is unremarkable in Logo terms — it's in the Berkeley Logo manual,
 the closest thing the language has to a spec. None of it is exotic; it's just not
 built yet.
@@ -124,10 +131,9 @@ and I/O in place of a canvas.
 
 ## Closing note
 
-Everything in "the common repertoire" would slot into `ROADMAP.md` the same way
-nested lists and substrings did — worth scoping one at a time rather than all at
-once. `POS`/`HEADING` and `ITEM`/`BUTLAST` stand out as the cheapest, most
-obviously-missing pieces if you want a place to start.
+"The common repertoire" is done (see the status note at the top of that
+section) — it slotted into `ROADMAP.md` one item at a time, the same way
+nested lists and substrings did before this survey even existed.
 
 "Uncharted territory" is here for context, not a backlog — each one is closer to
 a research project than a pull request.

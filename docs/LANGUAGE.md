@@ -506,9 +506,9 @@ END
 PRINT fact 5           -> 120
 ```
 
-- `OUTPUT expr` ends the current procedure call and hands `expr` back as
-  its value — like a `return` statement. That's what lets a procedure
-  call be used as a value anywhere an argument is expected
+- `OUTPUT expr` (or `OP expr`) ends the current procedure call and hands
+  `expr` back as its value — like a `return` statement. That's what lets
+  a procedure call be used as a value anywhere an argument is expected
   (`PRINT double 5`, `MAKE "x double 5`), the same way `FIRST`/`WORD`/
   etc. already can. A same-named built-in always wins over a
   user-defined procedure at this "used as a value" position, same
@@ -601,10 +601,9 @@ APPLY "add2 [3 4]        -> 7
   from `arglist`, instead of parsed positionally from the command line.
   The list's element count must exactly match the procedure's parameter
   count — `APPLY: wrong number of inputs for procedure "name` otherwise.
-- Both are commands (not operators usable inside an expression like
-  `FIRST`/`WORD`/etc. are) — that's tied to procedures not yet being
-  able to return a value (see `ROADMAP.md`'s `OUTPUT`/`STOP` item), which
-  is what an expression-usable `RUN`/`APPLY` would need to output.
+- Both are commands, not operators usable inside an expression the way
+  `FIRST`/`WORD`/etc. are — there's no `PRINT RUN [...]` or
+  `MAKE "x APPLY "name [...]` that captures a value back out of them.
 - A self-referential `RUN` (e.g. `MAKE "x [RUN :x]` then `RUN :x`) is
   capped and reported as `RUN: too deeply nested, ignored` rather than
   crashing — this is a much lower, separate limit from ordinary
@@ -626,8 +625,7 @@ FOREACH [PRINT ?] [1 2 3]
   accumulator-so-far and current-element, since it needs two slots) —
   and a list (a bare word/number is treated as a one-element list, same
   convention as `FIRST`/`COUNT`/etc.). There's no procedure-name template
-  form (`MAP "double :list`) yet — that needs procedures to be able to
-  return a value first (`OUTPUT`/`STOP`, see `ROADMAP.md`).
+  form (`MAP "double :list`) — only the bracketed-expression form above.
 - `MAP` builds a new list by substituting `?` and evaluating the
   template as an **expression** once per element. `FILTER` substitutes
   and evaluates the template as a **condition** (so comparisons like
@@ -825,7 +823,7 @@ What's still silent: a word that doesn't start with a number, used where
 a number is expected, reads as `0` rather than erroring (see Words
 above), and any parse error inside a numeric expression itself (an
 unparseable expression just evaluates to `0`, same as always) — see
-`ROADMAP.md`.
+"Known limitations" below.
 
 ## Interface
 
@@ -866,7 +864,7 @@ unparseable expression just evaluates to `0`, same as always) — see
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
   Text Size, applied to both the history pane and the entry box.
 
-## Known limitations (intentional, tracked in `ROADMAP.md`)
+## Known limitations (intentional, permanent design choices)
 
 - A word that doesn't start with a number, used where a number is
   expected, silently coerces to `0` rather than erroring — see "Errors"
