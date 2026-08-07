@@ -177,9 +177,11 @@ static double random_below(double n) {
 #define MIN_PEN_WIDTH 0.5
 #define MAX_PEN_WIDTH 20.0
 
-// Where CLEAR and HOME send the turtle back to.
-#define HOME_X 250.0
-#define HOME_Y 250.0
+// Where CLEAR and HOME send the turtle back to -- the canvas's current
+// center, not a fixed point, now that SETCANVASSIZE can change
+// canvas_width/height at runtime.
+static double home_x(LogoApp *app) { return app->canvas_width / 2.0; }
+static double home_y(LogoApp *app) { return app->canvas_height / 2.0; }
 
 // The turtle currently being controlled by FD/RT/SETXY/etc. — see TELL.
 static Turtle* current_turtle(LogoApp *app) {
@@ -188,9 +190,9 @@ static Turtle* current_turtle(LogoApp *app) {
 
 // Reset `t` to the default turtle state: home position, heading 0, pen
 // down, default color/width, visible.
-void init_turtle(Turtle *t) {
+void init_turtle(LogoApp *app, Turtle *t) {
     *t = (Turtle){
-        .x = HOME_X, .y = HOME_Y, .angle = 0, .pen_down = 1,
+        .x = home_x(app), .y = home_y(app), .angle = 0, .pen_down = 1,
         .pen_r = 0.1, .pen_g = 0.1, .pen_b = 0.1, .pen_width = 2.0,
         .visible = 1, .sprite_index = -1, .sprite_frame = 0,
     };
@@ -225,8 +227,8 @@ static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
     Turtle *t = current_turtle(app);
 
     if (app->edge_mode == EDGE_WRAP) {
-        double wrapped_x = wrap_coord(new_x, CANVAS_WIDTH);
-        double wrapped_y = wrap_coord(new_y, CANVAS_HEIGHT);
+        double wrapped_x = wrap_coord(new_x, app->canvas_width);
+        double wrapped_y = wrap_coord(new_y, app->canvas_height);
         if (wrapped_x != new_x || wrapped_y != new_y) {
             // The pen lifts across the wrap itself -- no line drawn for
             // this jump, rather than a diagonal line teleporting across
@@ -236,9 +238,9 @@ static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
             return;
         }
     } else if (app->edge_mode == EDGE_FENCE) {
-        if (new_x < 0 || new_x > CANVAS_WIDTH || new_y < 0 || new_y > CANVAS_HEIGHT) {
-            new_x = clamp_range(new_x, 0, CANVAS_WIDTH);
-            new_y = clamp_range(new_y, 0, CANVAS_HEIGHT);
+        if (new_x < 0 || new_x > app->canvas_width || new_y < 0 || new_y > app->canvas_height) {
+            new_x = clamp_range(new_x, 0, app->canvas_width);
+            new_y = clamp_range(new_y, 0, app->canvas_height);
             append_output(app, "FENCE: turtle stopped at the canvas edge\n");
         }
     }
@@ -1511,6 +1513,10 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         // logic since a raw x/y pair never needs splicing.
         return list_wrap_pair(app, number_value(current_turtle(app)->x), number_value(current_turtle(app)->y));
     }
+    if (consume_keyword(ptr, "CANVASSIZE")) {
+        // [width height], same 2-element-list convention as POS.
+        return list_wrap_pair(app, number_value(app->canvas_width), number_value(app->canvas_height));
+    }
     if (consume_keyword(ptr, "GETX")) {
         return number_value(current_turtle(app)->x);
     }
@@ -2314,7 +2320,7 @@ void eval_logo(LogoApp *app, const char *code) {
             } else {
                 if (index >= app->turtle_count) {
                     for (int i = app->turtle_count; i <= index; i++) {
-                        init_turtle(&app->turtles[i]);
+                        init_turtle(app, &app->turtles[i]);
                     }
                     app->turtle_count = index + 1;
                 }
@@ -2596,9 +2602,48 @@ void eval_logo(LogoApp *app, const char *code) {
             app->label_count = 0;
             app->raster_op_count = 0;
             for (int i = 0; i < app->turtle_count; i++) {
-                app->turtles[i].x = HOME_X;
-                app->turtles[i].y = HOME_Y;
+                app->turtles[i].x = home_x(app);
+                app->turtles[i].y = home_y(app);
                 app->turtles[i].angle = 0;
+            }
+        }
+        // SETCANVASSIZE width height — resizes the canvas at runtime
+        // (Terrapin's SETEXTENT, renamed for clarity). Same reset as
+        // CLEAR/CS just above (the old drawing/raster don't fit a
+        // different size, so there's nothing sensible to preserve), plus
+        // the actual resize: interpreter.c only updates canvas_width/
+        // height and requests it (staying Cairo/GTK-free, same
+        // convention as every other GUI-side effect); ui.c's
+        // resize_canvas callback resizes the real widget and drops
+        // bg_image, which doesn't fit the new size either. fill_raster
+        // needs no attention here — bake_pending_fills already detects
+        // CLEAR's raster_op_count reset and rebuilds it at whatever
+        // canvas_width/height currently is, so resetting raster_op_count
+        // is enough to cover it too. NULL in tests, same convention as
+        // LOADPIC.
+        else if (strcasecmp(token, "SETCANVASSIZE") == 0) {
+            double width = value_to_number(parse_expr(app, &ptr));
+            double height = value_to_number(parse_expr(app, &ptr));
+            if (width < MIN_CANVAS_SIZE || width > MAX_CANVAS_SIZE ||
+                height < MIN_CANVAS_SIZE || height > MAX_CANVAS_SIZE) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "SETCANVASSIZE: width and height must be %d-%d\n",
+                         (int)MIN_CANVAS_SIZE, (int)MAX_CANVAS_SIZE);
+                append_output(app, msg);
+            } else {
+                app->canvas_width = width;
+                app->canvas_height = height;
+                app->line_count = 0;
+                app->label_count = 0;
+                app->raster_op_count = 0;
+                for (int i = 0; i < app->turtle_count; i++) {
+                    app->turtles[i].x = home_x(app);
+                    app->turtles[i].y = home_y(app);
+                    app->turtles[i].angle = 0;
+                }
+                if (app->resize_canvas != NULL) {
+                    app->resize_canvas(app, width, height);
+                }
             }
         }
         // CLEAN -- CLEAR's drawing-erase half only, leaving every
@@ -2616,7 +2661,7 @@ void eval_logo(LogoApp *app, const char *code) {
             if (app->clear_history != NULL) app->clear_history(app);
         }
         else if (strcasecmp(token, "HOME") == 0) {
-            move_turtle_to(app, HOME_X, HOME_Y);
+            move_turtle_to(app, home_x(app), home_y(app));
             current_turtle(app)->angle = 0;
         }
         else if (strcasecmp(token, "PENUP") == 0 || strcasecmp(token, "PU") == 0) {

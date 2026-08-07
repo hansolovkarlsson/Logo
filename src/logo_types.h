@@ -10,11 +10,17 @@
 
 #include <gtk/gtk.h>
 
-// The canvas's logical size — matches ui.c's drawing_area size request.
-// Shared by interpreter.c (WRAP/FENCE boundary checks, FILL's fill
-// requests) and ui.c (the actual Cairo rendering/rasterizing).
-#define CANVAS_WIDTH 500.0
-#define CANVAS_HEIGHT 500.0
+// The canvas's logical size at startup (LogoApp.canvas_width/height —
+// see below) — SETCANVASSIZE changes it at runtime, matching ui.c's
+// drawing_area size request. MIN/MAX_CANVAS_SIZE bound what
+// SETCANVASSIZE will accept: small enough that a canvas is never
+// degenerate, and capped so a full ARGB32 raster (CANVAS_WIDTH *
+// CANVAS_HEIGHT * 4 bytes, see LogoApp.fill_raster) can't balloon into
+// a very large allocation from one command.
+#define DEFAULT_CANVAS_WIDTH 500.0
+#define DEFAULT_CANVAS_HEIGHT 500.0
+#define MIN_CANVAS_SIZE 50.0
+#define MAX_CANVAS_SIZE 4000.0
 
 #define MAX_LINES 10000
 #define MAX_LABELS 1000
@@ -336,6 +342,14 @@ typedef struct LogoApp {
     // SETBACKGROUND/SETBG). A canvas-wide property, not the turtle's.
     double bg_r, bg_g, bg_b;
 
+    // The canvas's current logical size (SETCANVASSIZE/CANVASSIZE),
+    // starting at DEFAULT_CANVAS_WIDTH/HEIGHT. Read directly by
+    // interpreter.c (WRAP/FENCE boundary checks, turtle homing) and by
+    // ui.c (fill_raster's dimensions, LOADPIC's scale target, and the
+    // real drawing_area widget's size via resize_canvas below).
+    double canvas_width;
+    double canvas_height;
+
     // What happens when a turtle's move would cross the canvas edge (see
     // WRAP/FENCE/WINDOW) — a single canvas-wide setting, not per-turtle.
     // EDGE_WINDOW (the zero value, so it's the default) matches the
@@ -350,6 +364,11 @@ typedef struct LogoApp {
 
     GtkWidget *window;
     GtkWidget *drawing_area;
+    // The horizontal split between drawing_area and the REPL box —
+    // stored so resize_canvas below can move the divider to match a new
+    // SETCANVASSIZE width (drawing_area's own size_request alone won't
+    // grow the paned's start-child allocation).
+    GtkWidget *paned;
     GtkWidget *text_view;
     GtkWidget *entry;
 
@@ -405,6 +424,17 @@ typedef struct LogoApp {
     // format, or the sprite table is full). NULL in tests, same
     // convention as load_background_image.
     gboolean (*load_sprite_image)(struct LogoApp *app, const char *name, const char *path, int cols, int rows);
+
+    // Set by ui.c's logo_activate: SETCANVASSIZE's real implementation --
+    // resizes drawing_area/paned to match the new canvas_width/height
+    // (already updated by the time this is called) and drops bg_image
+    // (a LOADPIC'd background no longer matches the new size, and unlike
+    // fill_raster there's no lazy-invalidation check for it elsewhere).
+    // fill_raster itself needs no attention here: bake_pending_fills
+    // already detects SETCANVASSIZE's raster_op_count reset the same way
+    // it detects CLEAR's, and rebuilds it at whatever canvas_width/height
+    // now is. NULL in tests, same convention as load_background_image.
+    void (*resize_canvas)(struct LogoApp *app, double width, double height);
 } LogoApp;
 
 #endif // LOGO_TYPES_H

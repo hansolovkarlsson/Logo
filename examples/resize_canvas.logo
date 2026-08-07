@@ -1,0 +1,20 @@
+; SETCANVASSIZE/CANVASSIZE: a resizable canvas (Terrapin's SETEXTENT/
+; EXTENT, renamed for clarity). The actual widget resize is GTK, in
+; ui.c, so this example only shows the visible effect when run from
+; the actual app, not the headless test driver -- but the state changes
+; (canvas size, turtle re-homing) happen the same way either way.
+
+PRINT CANVASSIZE   ; the default: 500 500
+
+SETCANVASSIZE 800 400   ; wider, shorter -- same reset as CLEAR/CS: the
+                        ; old drawing doesn't fit a different size, so
+                        ; lines/fills are cleared and every turtle goes
+                        ; back to the new center
+
+PRINT CANVASSIZE   ; 800 400
+PRINT POS          ; 400 200 -- the new center
+
+REPEAT 4 [FD 150 RT 90]   ; a square, sized and centered for the new canvas
+
+SETCANVASSIZE 10 10   ; too small (must be 50-4000) -- reports an error
+                      ; and leaves the 800x400 canvas untouched

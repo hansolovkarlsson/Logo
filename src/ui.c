@@ -155,7 +155,7 @@ static void bake_pending_fills(LogoApp *app) {
     if (app->raster_ops_baked >= app->raster_op_count) return;
 
     if (app->fill_raster == NULL) {
-        app->fill_raster = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
+        app->fill_raster = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)app->canvas_width, (int)app->canvas_height);
         cairo_t *ocr = cairo_create(app->fill_raster);
         // A LOADPIC'd background image is the base layer if one's been
         // loaded (see load_canvas_background_image) -- otherwise the
@@ -307,7 +307,7 @@ static cairo_surface_t *decode_image_native(const char *path) {
 // before. Returns FALSE, leaving any existing background image
 // untouched, if the file can't be read or decoded.
 static gboolean load_canvas_background_image(LogoApp *app, const char *path) {
-    cairo_surface_t *surface = decode_and_scale_image(path, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
+    cairo_surface_t *surface = decode_and_scale_image(path, (int)app->canvas_width, (int)app->canvas_height);
     if (surface == NULL) return FALSE;
 
     if (app->bg_image != NULL) cairo_surface_destroy(app->bg_image);
@@ -404,8 +404,8 @@ static gboolean export_canvas_to_png(LogoApp *app, const char *path) {
     int width = gtk_widget_get_width(app->drawing_area);
     int height = gtk_widget_get_height(app->drawing_area);
     if (width <= 0 || height <= 0) {
-        width = 500;
-        height = 500;
+        width = (int)app->canvas_width;
+        height = (int)app->canvas_height;
     }
 
     cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
@@ -416,6 +416,24 @@ static gboolean export_canvas_to_png(LogoApp *app, const char *path) {
     cairo_surface_destroy(surface);
 
     return status == CAIRO_STATUS_SUCCESS;
+}
+
+// The real resize_canvas callback (SETCANVASSIZE): resizes the drawing
+// area and moves the paned divider to match, and drops bg_image -- a
+// LOADPIC'd background was scaled to the old size and no longer fits.
+// fill_raster needs no attention here (see logo_types.h's comment on
+// resize_canvas): bake_pending_fills already rebuilds it lazily once
+// SETCANVASSIZE resets raster_op_count, the same way it already does
+// for CLEAR.
+static void resize_canvas_widget(LogoApp *app, double width, double height) {
+    gtk_widget_set_size_request(app->drawing_area, (int)width, (int)height);
+    if (app->paned != NULL) {
+        gtk_paned_set_position(GTK_PANED(app->paned), (int)width);
+    }
+    if (app->bg_image != NULL) {
+        cairo_surface_destroy(app->bg_image);
+        app->bg_image = NULL;
+    }
 }
 
 // --- BRACKET MATCHING (entry box) ---
@@ -952,7 +970,9 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     (void)user_data;
 
     LogoApp *logo = g_new0(LogoApp, 1);
-    init_turtle(&logo->turtles[0]);
+    logo->canvas_width = DEFAULT_CANVAS_WIDTH;
+    logo->canvas_height = DEFAULT_CANVAS_HEIGHT;
+    init_turtle(logo, &logo->turtles[0]);
     logo->turtle_count = 1;
     logo->current_turtle = 0;
     logo->bg_r = 1.0;
@@ -964,17 +984,19 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->load_background_image = load_canvas_background_image;
     logo->save_canvas_image = export_canvas_to_png;
     logo->load_sprite_image = load_named_sprite_image;
+    logo->resize_canvas = resize_canvas_widget;
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;
     gtk_window_set_title(GTK_WINDOW(window), "Logo Turtle Engine with Procedures");
-    gtk_window_set_default_size(GTK_WINDOW(window), 1010, 500);
+    gtk_window_set_default_size(GTK_WINDOW(window), 1010, (int)logo->canvas_height);
 
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    logo->paned = paned;
     gtk_window_set_child(GTK_WINDOW(window), paned);
 
     logo->drawing_area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(logo->drawing_area, 500, 500);
+    gtk_widget_set_size_request(logo->drawing_area, (int)logo->canvas_width, (int)logo->canvas_height);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(logo->drawing_area), draw_cb, logo, NULL);
     gtk_paned_set_start_child(GTK_PANED(paned), logo->drawing_area);
     gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
@@ -1044,7 +1066,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
 
     gtk_paned_set_end_child(GTK_PANED(paned), repl_box);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
-    gtk_paned_set_position(GTK_PANED(paned), 500);
+    gtk_paned_set_position(GTK_PANED(paned), (int)logo->canvas_width);
 
     // Text size: CSS provider driven by the View menu / accelerators below.
     logo->css_provider = gtk_css_provider_new();

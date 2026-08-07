@@ -37,7 +37,9 @@ static void capture_sink(LogoApp *app, const char *text) {
 // the OS reclaims everything at exit.
 static LogoApp* new_app(void) {
     LogoApp *app = calloc(1, sizeof(LogoApp));
-    init_turtle(&app->turtles[0]);
+    app->canvas_width = DEFAULT_CANVAS_WIDTH;
+    app->canvas_height = DEFAULT_CANVAS_HEIGHT;
+    init_turtle(app, &app->turtles[0]);
     app->turtle_count = 1;
     app->current_turtle = 0;
     app->bg_r = app->bg_g = app->bg_b = 1.0;
@@ -385,6 +387,56 @@ TEST(test_wait_pauses_for_at_least_the_requested_duration) {
     eval_logo(app, "WAIT 0.02"); // kept short so the suite stays fast
     gint64 elapsed = g_get_monotonic_time() - start;
     CHECK(elapsed >= 20000); // microseconds; never faster than requested
+}
+
+// --- SETCANVASSIZE/CANVASSIZE (resizable canvas) ---
+// The actual widget resize is GTK, in ui.c, tested manually in the
+// running app (resize_canvas is NULL here, same convention as the other
+// GUI-side-effect callbacks); these check the runtime canvas_width/
+// height state itself and everything in interpreter.c that depends on
+// it (turtle homing, WRAP/FENCE boundaries).
+
+TEST(test_canvassize_defaults_to_500_by_500) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT CANVASSIZE");
+    CHECK_STREQ(captured_output, "500 500\n");
+}
+
+TEST(test_setcanvassize_changes_the_size) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETCANVASSIZE 800 300\nPRINT CANVASSIZE");
+    CHECK_STREQ(captured_output, "800 300\n");
+}
+
+TEST(test_setcanvassize_too_small_reports_error_and_leaves_size_unchanged) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETCANVASSIZE 10 10\nPRINT CANVASSIZE");
+    CHECK_CONTAINS(captured_output, "SETCANVASSIZE: width and height must be 50-4000");
+    CHECK_CONTAINS(captured_output, "500 500");
+}
+
+TEST(test_setcanvassize_too_large_reports_error_and_leaves_size_unchanged) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETCANVASSIZE 5000 5000\nPRINT CANVASSIZE");
+    CHECK_CONTAINS(captured_output, "SETCANVASSIZE: width and height must be 50-4000");
+    CHECK_CONTAINS(captured_output, "500 500");
+}
+
+TEST(test_setcanvassize_recenters_turtles_and_clears_drawing) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FD 50\nRT 45\nFILL\nSETCANVASSIZE 800 600");
+    CHECK_NEAR(app->turtles[0].x, 400.0); // new center: 800 / 2
+    CHECK_NEAR(app->turtles[0].y, 300.0); // new center: 600 / 2
+    CHECK_NEAR(app->turtles[0].angle, 0.0);
+    CHECK(app->line_count == 0);
+    CHECK(app->raster_op_count == 0);
+}
+
+TEST(test_setcanvassize_changes_the_wrap_boundary) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETCANVASSIZE 200 200\nWRAP SETXY 250 100");
+    CHECK_NEAR(app->turtles[0].x, 50.0); // 250 mod 200, not the old 500
+    CHECK_NEAR(app->turtles[0].y, 100.0);
 }
 
 // --- POS/HEADING (turtle state queries) ---
@@ -2322,6 +2374,13 @@ int main(void) {
 
     RUN(test_wait_zero_or_negative_returns_immediately);
     RUN(test_wait_pauses_for_at_least_the_requested_duration);
+
+    RUN(test_canvassize_defaults_to_500_by_500);
+    RUN(test_setcanvassize_changes_the_size);
+    RUN(test_setcanvassize_too_small_reports_error_and_leaves_size_unchanged);
+    RUN(test_setcanvassize_too_large_reports_error_and_leaves_size_unchanged);
+    RUN(test_setcanvassize_recenters_turtles_and_clears_drawing);
+    RUN(test_setcanvassize_changes_the_wrap_boundary);
 
     RUN(test_pos_reads_back_turtle_position);
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);

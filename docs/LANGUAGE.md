@@ -1183,6 +1183,31 @@ SETSPRITE "NONE
   as `SETSPRITEFRAME`. Call `STAMPSPRITE` yourself in between if you
   also want a permanent copy of some frame.
 
+## Resizable canvas
+
+```
+SETCANVASSIZE 800 400
+PRINT CANVASSIZE
+```
+
+- `SETCANVASSIZE width height` changes the canvas's size at runtime
+  (Terrapin's `SETEXTENT`, renamed for clarity). Both must be within
+  50–4000; otherwise prints `SETCANVASSIZE: width and height must be
+  50-4000` and leaves the current size untouched.
+- On success, it resets the canvas the same way `CLEAR`/`CS` does —
+  every line, fill, and stamp is erased, and every turtle goes back to
+  home — since none of that fits a canvas of a different size. Home
+  itself moves too: it's always the current canvas's center
+  (`width / 2`, `height / 2`), not a fixed point, so `HOME` and a fresh
+  turtle both land in the right place after a resize.
+- `CANVASSIZE` reads the current size back as a `[width height]` list,
+  the same 2-element-list convention as `POS`. Starts at `500 500`.
+- `WRAP`/`FENCE`'s boundary and a background image loaded via `LOADPIC`
+  both follow the current canvas size — resizing recomputes the
+  wrap/fence edges immediately, and drops any loaded background image
+  (it was scaled to the old size and wouldn't fit the new one; load it
+  again with `LOADPIC` afterward if you still want it).
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than
@@ -1214,6 +1239,9 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   `ANIMATESPRITE` prints the same "no sprite set" message (as
   `ANIMATESPRITE: no sprite set (use SETSPRITE first)`) under the same
   condition.
+- `SETCANVASSIZE` prints `SETCANVASSIZE: width and height must be
+  50-4000` if either argument is outside that range, leaving the
+  canvas's current size untouched.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than

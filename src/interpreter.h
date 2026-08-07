@@ -30,6 +30,6 @@ char *serialize_procedures(LogoApp *app);
 // Reset `t` to the default turtle state: home position, heading 0, pen
 // down, default color/width. Used for turtle 0 at startup (ui.c) and any
 // turtle TELL creates on first use.
-void init_turtle(Turtle *t);
+void init_turtle(LogoApp *app, Turtle *t);
 
 #endif // INTERPRETER_H

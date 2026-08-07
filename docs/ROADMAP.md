@@ -21,12 +21,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
 - [ ] General file I/O beyond today's procedure-only `LOAD`/`SAVE` —
   reading/writing arbitrary files and listing directory contents
   (Terrapin's `OPEN`/`CLOSE`/`CREATE`/`DELETE`/`DIRECTORY`).
-- [ ] A resizable canvas (Terrapin's `SETEXTENT`/`EXTENT`) — needs
-  `CANVAS_WIDTH`/`CANVAS_HEIGHT` (currently `#define`d constants baked
-  into turtle-position math, `WRAP`/`FENCE` boundary checks, and the
-  raster surfaces built for `FILL`/`ERASERECT`) to become a
-  runtime-configurable size instead — a bigger lift than it looks at
-  first.
 
 ### Phase 4 — Interactive input (one shared architectural blocker)
 
