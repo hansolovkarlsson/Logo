@@ -36,6 +36,13 @@
 #define MAX_TURTLES 10
 #define MAX_LIST_NODES 8192
 #define MAX_PLIST_ENTRIES 200
+#define MAX_TURTLE_SPRITES 20
+// Every sprite is scaled into this fixed square box on load (LOADSPRITE)
+// — matches how LOADPIC scales to the whole canvas, just at turtle
+// scale. No per-sprite variable sizing for now; a turtle's shape is
+// always SPRITE_SIZE x SPRITE_SIZE, same as its default triangle is
+// always the same fixed size today.
+#define SPRITE_SIZE 40.0
 
 // What happens when a turtle's move would cross the canvas edge (see
 // WRAP/FENCE/WINDOW in interpreter.c). EDGE_WINDOW is the zero value —
@@ -76,16 +83,24 @@ typedef struct {
 // line_count_at_call freezes how many of LogoApp.lines existed at that
 // exact moment, so a fill's flood boundary (or an erase's overwrite)
 // only ever sees the lines that existed then.
+// RASTER_OP_STAMP (STAMPSPRITE) joins FILL/ERASE_RECT here for the same
+// reason: a turtle's shape stamped onto the background needs to freeze
+// at the exact moment STAMPSPRITE was called (position, heading, and
+// which sprite), not be redrawn later against whatever the turtle's
+// current state happens to be.
 typedef enum {
     RASTER_OP_FILL,
     RASTER_OP_ERASE_RECT,
+    RASTER_OP_STAMP,
 } RasterOpKind;
 
 typedef struct {
     RasterOpKind kind;
-    double x, y;       // FILL: flood-fill seed point. ERASE_RECT: rectangle center.
+    double x, y;       // FILL: flood-fill seed point. ERASE_RECT/STAMP: center.
     double r, g, b;     // FILL only: fill color.
     double w, h;        // ERASE_RECT only: rectangle size.
+    double angle;       // STAMP only: heading, same convention as Turtle.angle.
+    int sprite_index;   // STAMP only: index into LogoApp.sprite_images, -1 = default triangle.
     int line_count_at_call;
 } RasterOp;
 
@@ -99,6 +114,10 @@ typedef struct {
     double pen_r, pen_g, pen_b;
     double pen_width;
     int visible;
+    // -1 = the default triangle; otherwise an index into
+    // LogoApp.sprite_images, set by SETSPRITE (see LOADSPRITE/SETSPRITE/
+    // STAMPSPRITE in interpreter.c).
+    int sprite_index;
 } Turtle;
 
 // A user-defined procedure (TO ... END).
@@ -231,6 +250,17 @@ typedef struct LogoApp {
     // base layer, under fill_raster/lines/turtles, whenever it's set.
     cairo_surface_t *bg_image;
 
+    // Named turtle shapes loaded by LOADSPRITE (see
+    // load_named_sprite_image in ui.c), pre-scaled to SPRITE_SIZE and
+    // pre-converted to premultiplied ARGB32, same convention as
+    // bg_image. sprite_images entries are owned entirely by ui.c and
+    // always NULL in tests; sprite_names/sprite_count are plain data,
+    // safe for interpreter.c to read directly (SETSPRITE's name lookup)
+    // even though only ui.c ever populates them.
+    char sprite_names[MAX_TURTLE_SPRITES][32];
+    cairo_surface_t *sprite_images[MAX_TURTLE_SPRITES];
+    int sprite_count;
+
     Procedure procedures[MAX_PROCEDURES];
     int proc_count;
 
@@ -348,6 +378,16 @@ typedef struct LogoApp {
     // as PNG menu action uses. Returns FALSE on failure. NULL in tests,
     // same convention as load_background_image.
     gboolean (*save_canvas_image)(struct LogoApp *app, const char *path);
+
+    // Set by ui.c's logo_activate: LOADSPRITE's real implementation --
+    // decodes an image file the same way load_background_image does,
+    // but scaled to SPRITE_SIZE and registered under `name` in
+    // sprite_names/sprite_images (overwriting an existing entry with
+    // that name, or taking a new slot up to MAX_TURTLE_SPRITES).
+    // Returns FALSE on failure (bad path, unrecognized format, or the
+    // sprite table is full). NULL in tests, same convention as
+    // load_background_image.
+    gboolean (*load_sprite_image)(struct LogoApp *app, const char *name, const char *path);
 } LogoApp;
 
 #endif // LOGO_TYPES_H

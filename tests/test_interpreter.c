@@ -240,6 +240,70 @@ TEST(test_eraserect_records_position_and_size) {
     CHECK_NEAR(app->raster_ops[0].h, 60.0);
 }
 
+// --- LOADSPRITE / SETSPRITE / STAMPSPRITE ---
+// The actual image decoding is gdk-pixbuf, in ui.c, tested manually in
+// the running app (load_sprite_image is NULL here, same convention as
+// load_background_image); these check interpreter.c's own parsing,
+// lookup, and the raster op STAMPSPRITE records for it.
+
+TEST(test_loadsprite_without_quote_name_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOADSPRITE turtle \"turtle.png");
+    CHECK_CONTAINS(captured_output, "LOADSPRITE: expected a \"name");
+}
+
+TEST(test_loadsprite_without_quote_path_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOADSPRITE \"turtle path");
+    CHECK_CONTAINS(captured_output, "LOADSPRITE: expected a \"path");
+}
+
+TEST(test_loadsprite_is_a_safe_no_op_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT \"before\nLOADSPRITE \"turtle \"turtle.png\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\nafter\n");
+}
+
+TEST(test_setsprite_without_quote_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETSPRITE name");
+    CHECK_CONTAINS(captured_output, "SETSPRITE: expected a \"name");
+}
+
+TEST(test_setsprite_of_unknown_name_reports_error_and_leaves_default) {
+    // load_sprite_image is NULL in tests, so no sprite is ever actually
+    // registered -- SETSPRITE "anything (other than "NONE) should always
+    // fail to find one here.
+    LogoApp *app = new_app();
+    eval_logo(app, "SETSPRITE \"turtle");
+    CHECK_CONTAINS(captured_output, "SETSPRITE: no such sprite \"turtle");
+    CHECK(app->turtles[0].sprite_index == -1);
+}
+
+TEST(test_setsprite_none_is_a_silent_reset_to_default) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETSPRITE \"none");
+    CHECK_STREQ(captured_output, "");
+    CHECK(app->turtles[0].sprite_index == -1);
+}
+
+TEST(test_stampsprite_records_position_heading_and_sprite) {
+    LogoApp *app = new_app();
+    eval_logo(app, "FD 50\nRT 30\nSTAMPSPRITE");
+    CHECK(app->raster_op_count == 1);
+    CHECK(app->raster_ops[0].kind == RASTER_OP_STAMP);
+    CHECK_NEAR(app->raster_ops[0].x, 250.0);
+    CHECK_NEAR(app->raster_ops[0].y, 200.0);
+    CHECK_NEAR(app->raster_ops[0].angle, 30.0);
+    CHECK(app->raster_ops[0].sprite_index == -1); // no sprite set -- default triangle
+}
+
+TEST(test_clear_erases_stamps_too) {
+    LogoApp *app = new_app();
+    eval_logo(app, "STAMPSPRITE\nCLEAR");
+    CHECK(app->raster_op_count == 0);
+}
+
 // --- WAIT ---
 
 TEST(test_wait_zero_or_negative_returns_immediately) {
@@ -2172,6 +2236,14 @@ int main(void) {
     RUN(test_fill_records_position_and_color);
     RUN(test_clear_erases_fills);
     RUN(test_eraserect_records_position_and_size);
+    RUN(test_loadsprite_without_quote_name_reports_error);
+    RUN(test_loadsprite_without_quote_path_reports_error);
+    RUN(test_loadsprite_is_a_safe_no_op_with_no_gui);
+    RUN(test_setsprite_without_quote_reports_error);
+    RUN(test_setsprite_of_unknown_name_reports_error_and_leaves_default);
+    RUN(test_setsprite_none_is_a_silent_reset_to_default);
+    RUN(test_stampsprite_records_position_heading_and_sprite);
+    RUN(test_clear_erases_stamps_too);
 
     RUN(test_wait_zero_or_negative_returns_immediately);
     RUN(test_wait_pauses_for_at_least_the_requested_duration);

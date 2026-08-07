@@ -90,6 +90,31 @@ static void flood_fill_pixels(unsigned char *data, int stride, int width, int he
     g_free(stack_y);
 }
 
+// Paints one turtle's shape (a LOADSPRITE/SETSPRITE image, or the
+// default triangle) at (x, y) rotated to `angle` — shared by
+// draw_scene's live turtle loop and bake_pending_fills' STAMPSPRITE
+// baking below, so a stamped copy always looks exactly like the turtle
+// did at the moment it was stamped.
+static void draw_turtle_shape(LogoApp *app, cairo_t *cr, double x, double y, double angle, int sprite_index) {
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    cairo_rotate(cr, angle * M_PI / 180.0);
+
+    if (sprite_index >= 0 && sprite_index < app->sprite_count && app->sprite_images[sprite_index] != NULL) {
+        cairo_set_source_surface(cr, app->sprite_images[sprite_index], -SPRITE_SIZE / 2.0, -SPRITE_SIZE / 2.0);
+        cairo_paint(cr);
+    } else {
+        cairo_set_source_rgb(cr, 0.1, 0.7, 0.3);
+        cairo_move_to(cr, 0, -10);
+        cairo_line_to(cr, 7, 10);
+        cairo_line_to(cr, -7, 10);
+        cairo_close_path(cr);
+        cairo_fill(cr);
+    }
+
+    cairo_restore(cr);
+}
+
 // Ensures app->fill_raster reflects every FILL/ERASERECT request
 // recorded so far. Each op is baked in using exactly the lines that
 // existed at the moment it was called (RasterOp.line_count_at_call), so
@@ -155,6 +180,10 @@ static void bake_pending_fills(LogoApp *app) {
             cairo_rectangle(ocr, op->x - op->w / 2.0, op->y - op->h / 2.0, op->w, op->h);
             cairo_fill(ocr);
             cairo_destroy(ocr);
+        } else if (op->kind == RASTER_OP_STAMP) {
+            cairo_t *ocr = cairo_create(app->fill_raster);
+            draw_turtle_shape(app, ocr, op->x, op->y, op->angle, op->sprite_index);
+            cairo_destroy(ocr);
         } else { // RASTER_OP_FILL
             cairo_surface_flush(app->fill_raster);
             unsigned char *data = cairo_image_surface_get_data(app->fill_raster);
@@ -175,28 +204,26 @@ static void bake_pending_fills(LogoApp *app) {
     }
 }
 
-// The real load_background_image callback (LOADPIC): decodes any
-// gdk-pixbuf-supported image format, scales it to fill the canvas
-// exactly, and converts it into a premultiplied ARGB32 Cairo surface —
-// draw_scene's native format, so painting it each redraw is a single
-// cairo_paint call rather than a decode. Stored persistently on the app
-// (like fill_raster) so it survives across redraws; a fresh LOADPIC
-// replaces (and frees) whatever was loaded before. Returns FALSE,
-// leaving any existing background image untouched, if the file can't be
-// read or decoded.
-static gboolean load_canvas_background_image(LogoApp *app, const char *path) {
+// Decodes any gdk-pixbuf-supported image file, scales it to exactly
+// width x height, and converts it into a premultiplied ARGB32 Cairo
+// surface — draw_scene's native format, so painting it each redraw is a
+// single cairo_paint call rather than a decode. Shared by
+// load_canvas_background_image (LOADPIC, canvas-sized) and
+// load_named_sprite_image (LOADSPRITE, SPRITE_SIZE-sized). Returns NULL
+// if the file can't be read or decoded.
+static cairo_surface_t *decode_and_scale_image(const char *path, int width, int height) {
     GError *error = NULL;
     GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, &error);
     if (pixbuf == NULL) {
         g_error_free(error);
-        return FALSE;
+        return NULL;
     }
 
-    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT, GDK_INTERP_BILINEAR);
+    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, width, height, GDK_INTERP_BILINEAR);
     g_object_unref(pixbuf);
-    if (scaled == NULL) return FALSE;
+    if (scaled == NULL) return NULL;
 
-    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
     unsigned char *dst = cairo_image_surface_get_data(surface);
     int dst_stride = cairo_image_surface_get_stride(surface);
 
@@ -205,10 +232,10 @@ static gboolean load_canvas_background_image(LogoApp *app, const char *path) {
     int channels = gdk_pixbuf_get_n_channels(scaled);
     gboolean has_alpha = gdk_pixbuf_get_has_alpha(scaled);
 
-    for (int y = 0; y < (int)CANVAS_HEIGHT; y++) {
+    for (int y = 0; y < height; y++) {
         const unsigned char *srow = src + y * src_stride;
         uint32_t *drow = (uint32_t *)(dst + y * dst_stride);
-        for (int x = 0; x < (int)CANVAS_WIDTH; x++) {
+        for (int x = 0; x < width; x++) {
             unsigned char r = srow[x * channels + 0];
             unsigned char g = srow[x * channels + 1];
             unsigned char b = srow[x * channels + 2];
@@ -222,15 +249,54 @@ static gboolean load_canvas_background_image(LogoApp *app, const char *path) {
     }
     cairo_surface_mark_dirty(surface);
     g_object_unref(scaled);
+    return surface;
+}
+
+// The real load_background_image callback (LOADPIC). Stored
+// persistently on the app (like fill_raster) so it survives across
+// redraws; a fresh LOADPIC replaces (and frees) whatever was loaded
+// before. Returns FALSE, leaving any existing background image
+// untouched, if the file can't be read or decoded.
+static gboolean load_canvas_background_image(LogoApp *app, const char *path) {
+    cairo_surface_t *surface = decode_and_scale_image(path, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
+    if (surface == NULL) return FALSE;
 
     if (app->bg_image != NULL) cairo_surface_destroy(app->bg_image);
     app->bg_image = surface;
     return TRUE;
 }
 
+// The real load_sprite_image callback (LOADSPRITE): decodes and
+// registers a named turtle shape, scaled to SPRITE_SIZE. Overwrites an
+// existing entry with the same name (case-insensitive, matching
+// SETSPRITE's own lookup), or takes a new slot if there's room. Returns
+// FALSE, leaving any existing entry under that name untouched, if the
+// file can't be decoded or the sprite table is already full.
+static gboolean load_named_sprite_image(LogoApp *app, const char *name, const char *path) {
+    cairo_surface_t *surface = decode_and_scale_image(path, (int)SPRITE_SIZE, (int)SPRITE_SIZE);
+    if (surface == NULL) return FALSE;
+
+    int idx = -1;
+    for (int i = 0; i < app->sprite_count; i++) {
+        if (strcasecmp(app->sprite_names[i], name) == 0) { idx = i; break; }
+    }
+    if (idx < 0) {
+        if (app->sprite_count >= MAX_TURTLE_SPRITES) {
+            cairo_surface_destroy(surface);
+            return FALSE;
+        }
+        idx = app->sprite_count++;
+        snprintf(app->sprite_names[idx], sizeof(app->sprite_names[idx]), "%s", name);
+    }
+
+    if (app->sprite_images[idx] != NULL) cairo_surface_destroy(app->sprite_images[idx]);
+    app->sprite_images[idx] = surface;
+    return TRUE;
+}
+
 // Paints the background, every recorded line segment, then every active
-// turtle as a triangle (see TELL — turtles[0..turtle_count-1] all exist
-// and are all drawn, not just the current one). Shared by the live
+// turtle's shape (see TELL — turtles[0..turtle_count-1] all exist and
+// are all drawn, not just the current one). Shared by the live
 // on-screen canvas (draw_cb) and PNG export (export_canvas_to_png), so
 // both render identically.
 static void draw_scene(LogoApp *app, cairo_t *cr) {
@@ -267,19 +333,7 @@ static void draw_scene(LogoApp *app, cairo_t *cr) {
 
     for (int i = 0; i < app->turtle_count; i++) {
         if (!app->turtles[i].visible) continue;
-
-        cairo_save(cr);
-        cairo_translate(cr, app->turtles[i].x, app->turtles[i].y);
-        cairo_rotate(cr, app->turtles[i].angle * M_PI / 180.0);
-
-        cairo_set_source_rgb(cr, 0.1, 0.7, 0.3);
-        cairo_move_to(cr, 0, -10);
-        cairo_line_to(cr, 7, 10);
-        cairo_line_to(cr, -7, 10);
-        cairo_close_path(cr);
-        cairo_fill(cr);
-
-        cairo_restore(cr);
+        draw_turtle_shape(app, cr, app->turtles[i].x, app->turtles[i].y, app->turtles[i].angle, app->turtles[i].sprite_index);
     }
 }
 
@@ -856,6 +910,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->clear_history = clear_history_pane;
     logo->load_background_image = load_canvas_background_image;
     logo->save_canvas_image = export_canvas_to_png;
+    logo->load_sprite_image = load_named_sprite_image;
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;

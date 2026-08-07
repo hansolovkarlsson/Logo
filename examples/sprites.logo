@@ -1,0 +1,19 @@
+; LOADSPRITE/SETSPRITE/STAMPSPRITE: turtle shapes. Like LOADPIC/SAVEPIC,
+; the actual image decoding needs a real window (a GTK-side callback --
+; see load_named_sprite_image in ui.c), so this example only makes sense
+; run from the actual app, not the headless test driver.
+
+LOADSPRITE "ant "ant.png   ; any gdk-pixbuf format, scaled to a fixed
+                           ; SPRITE_SIZE x SPRITE_SIZE box
+
+SETSPRITE "ant   ; this turtle now looks like the loaded image, not the
+                 ; default triangle, both live and in STAMPSPRITE below
+
+REPEAT 12 [
+  STAMPSPRITE   ; bakes a permanent copy of the ant at the current
+                ; position/heading -- the turtle itself keeps moving
+  FD 40
+  RT 30
+]
+
+SETSPRITE "NONE   ; back to the default triangle

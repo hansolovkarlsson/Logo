@@ -1093,6 +1093,34 @@ SAVEPIC "with_turtle.png
   not load "path" / "SAVEPIC: could not save "path" rather than
   crashing.
 
+## Turtle sprites
+
+```
+LOADSPRITE "ant "ant.png
+SETSPRITE "ant
+REPEAT 12 [STAMPSPRITE FD 40 RT 30]
+SETSPRITE "NONE
+```
+
+- `LOADSPRITE "name "path` loads an image file (any format `gdk-pixbuf`
+  supports, same as `LOADPIC`) and registers it under `name`, scaled to
+  a fixed 40x40 box. Loading a second image under an existing name
+  replaces it.
+- `SETSPRITE "name` assigns a previously loaded shape to the current
+  turtle, replacing its default triangle everywhere it's drawn — live on
+  the canvas and in any later `STAMPSPRITE`. `SETSPRITE "NONE` resets it
+  back to the default triangle. Prints `SETSPRITE: no such sprite
+  "name` if that name was never `LOADSPRITE`d.
+- `STAMPSPRITE` bakes a **permanent** copy of the turtle's current shape
+  (its `SETSPRITE` image, or the default triangle) onto the canvas at
+  its current position and heading — the turtle keeps moving
+  afterward, but the stamped copy stays exactly where it was stamped.
+  Same call-time-frozen treatment as `FILL`/`ERASERECT`: a line drawn
+  after a `STAMPSPRITE` can't retroactively cover it, and vice versa.
+- If `LOADSPRITE` fails (bad path, unrecognized format, or the sprite
+  table — 20 entries — is already full), prints `LOADSPRITE: could not
+  load "path` rather than crashing.
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than
@@ -1112,10 +1140,12 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   prints `[ list ]: missing closing ] or too long` if it's unterminated
   or oversized, rather than silently treated as ending at the input's
   end.
-- `MAKE`, `ERASE`, `SHOW`, `LOAD`, `SAVE`, `LOADPIC`, and `SAVEPIC` each
-  print `<COMMAND>: expected a "name`/`"path` if the required quoted
-  word is missing. `ERASE`/`SHOW` also print `<COMMAND>: no such
-  procedure "<name>` if the name isn't defined.
+- `MAKE`, `ERASE`, `SHOW`, `LOAD`, `SAVE`, `LOADPIC`, `SAVEPIC`,
+  `LOADSPRITE`, and `SETSPRITE` each print `<COMMAND>: expected a
+  "name`/`"path` if the required quoted word is missing. `ERASE`/`SHOW`
+  also print `<COMMAND>: no such procedure "<name>` if the name isn't
+  defined; `SETSPRITE` similarly prints `SETSPRITE: no such sprite
+  "<name>` if it wasn't `LOADSPRITE`d.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than

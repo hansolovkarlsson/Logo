@@ -18,10 +18,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
   style blit) — `gdk-pixbuf`/Cairo are already linked (used for PNG
   export today), so this slots in next to existing drawing code rather
   than needing a new dependency.
-- [ ] Sprites controlled by turtles (Terrapin's `STAMP`) — swap a
-  turtle's drawn triangle for a loaded image; a fairly direct extension
-  of the existing per-turtle drawing (see "Multiple turtles" in
-  `LANGUAGE.md`).
 - [ ] Animated sprites (frame-cycling) — needs some notion of a timer/
   tick driving redraws, similar in spirit to `WAIT`'s existing
   redraw-and-drain-events technique but recurring rather than one-shot.

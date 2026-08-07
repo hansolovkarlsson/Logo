@@ -192,7 +192,7 @@ void init_turtle(Turtle *t) {
     *t = (Turtle){
         .x = HOME_X, .y = HOME_Y, .angle = 0, .pen_down = 1,
         .pen_r = 0.1, .pen_g = 0.1, .pen_b = 0.1, .pen_width = 2.0,
-        .visible = 1,
+        .visible = 1, .sprite_index = -1,
     };
 }
 
@@ -2722,6 +2722,79 @@ void eval_logo(LogoApp *app, const char *code) {
                 op->y = t->y;
                 op->w = w;
                 op->h = h;
+                op->line_count_at_call = app->line_count;
+            }
+        }
+        // 3c''''''b. LOADSPRITE "name "path — decodes an image file as a
+        // named turtle shape (SETSPRITE assigns it; STAMPSPRITE bakes a
+        // permanent copy onto the canvas). Needs real image decoding, so
+        // — like LOADPIC — this goes through a GTK-side callback,
+        // silently doing nothing in headless tests.
+        else if (strcasecmp(token, "LOADSPRITE") == 0) {
+            char name_buf[64] = {0};
+            char path_buf[512] = {0};
+            if (sscanf(ptr, "%63s%n", name_buf, &read_bytes) == 1 && name_buf[0] == '"') {
+                ptr += read_bytes;
+                if (sscanf(ptr, "%511s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+                    ptr += read_bytes;
+                    if (app->load_sprite_image != NULL && !app->load_sprite_image(app, name_buf + 1, path_buf + 1)) {
+                        append_output(app, "LOADSPRITE: could not load \"");
+                        append_output(app, path_buf + 1);
+                        append_output(app, "\n");
+                    }
+                } else {
+                    append_output(app, "LOADSPRITE: expected a \"path\n");
+                }
+            } else {
+                append_output(app, "LOADSPRITE: expected a \"name\n");
+            }
+        }
+        // 3c''''''c. SETSPRITE "name — assigns a previously LOADSPRITE'd
+        // shape to the current turtle, replacing its default triangle
+        // wherever it's drawn (live on the canvas, or a later
+        // STAMPSPRITE). SETSPRITE "NONE resets it back to the default
+        // triangle. A plain name lookup against sprite_names/
+        // sprite_count -- both plain data, safe for this file to read
+        // directly even though only ui.c's LOADSPRITE callback ever
+        // populates them (see logo_types.h).
+        else if (strcasecmp(token, "SETSPRITE") == 0) {
+            char name_buf[64] = {0};
+            if (sscanf(ptr, "%63s%n", name_buf, &read_bytes) == 1 && name_buf[0] == '"') {
+                ptr += read_bytes;
+                if (strcasecmp(name_buf + 1, "NONE") == 0) {
+                    current_turtle(app)->sprite_index = -1;
+                } else {
+                    int idx = -1;
+                    for (int i = 0; i < app->sprite_count; i++) {
+                        if (strcasecmp(app->sprite_names[i], name_buf + 1) == 0) { idx = i; break; }
+                    }
+                    if (idx < 0) {
+                        append_output(app, "SETSPRITE: no such sprite \"");
+                        append_output(app, name_buf + 1);
+                        append_output(app, "\n");
+                    } else {
+                        current_turtle(app)->sprite_index = idx;
+                    }
+                }
+            } else {
+                append_output(app, "SETSPRITE: expected a \"name\n");
+            }
+        }
+        // 3c''''''d. STAMPSPRITE — bakes a permanent copy of the current
+        // turtle's shape (its SETSPRITE image, or the default triangle)
+        // onto the canvas at its current position/heading. Same
+        // call-time-frozen RasterOp treatment as FILL/ERASERECT just
+        // above, and the same silent no-op if the raster op table is
+        // already full (matching FILL's own convention).
+        else if (strcasecmp(token, "STAMPSPRITE") == 0) {
+            if (app->raster_op_count < MAX_RASTER_OPS) {
+                Turtle *t = current_turtle(app);
+                RasterOp *op = &app->raster_ops[app->raster_op_count++];
+                op->kind = RASTER_OP_STAMP;
+                op->x = t->x;
+                op->y = t->y;
+                op->angle = t->angle;
+                op->sprite_index = t->sprite_index;
                 op->line_count_at_call = app->line_count;
             }
         }
