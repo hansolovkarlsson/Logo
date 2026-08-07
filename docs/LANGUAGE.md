@@ -1208,6 +1208,44 @@ PRINT CANVASSIZE
   (it was scaled to the old size and wouldn't fit the new one; load it
   again with `LOADPIC` afterward if you still want it).
 
+## Debugger
+
+```
+TO spiral :size
+  IF :size > 200 [STOP]
+  FD :size
+  RT 91
+  IF :size = 50 [BACKTRACE PAUSE]
+  spiral :size + 2
+END
+
+PRINT EXECTIME [spiral 10]
+```
+
+- `PAUSE` halts the running script right where it's called and waits —
+  the app stays fully responsive, so you can type other commands into
+  the entry box while paused, including reading or changing any global
+  variable, or a paused procedure's own `:parameter`s (variable lookup
+  already searches whichever calls are currently active, paused or
+  not). Nothing resumes until a matching `CONTINUE`. Nested `PAUSE`s
+  stack — each `CONTINUE` resumes only the innermost one.
+- `CONTINUE`/`CO` resumes the innermost active `PAUSE`. Prints
+  `CONTINUE: nothing is paused` if nothing is currently paused.
+- `BACKTRACE`/`BT` prints the current call stack, innermost call first,
+  ending with `(top level)`.
+- `EXECTIME thing` runs a word/list as Logo source, the same as `RUN`,
+  and returns how long that took in microseconds — instead of trying to
+  capture the executed code's own result, since (like `RUN`/`APPLY`)
+  that's deliberately not something this interpreter's commands hand
+  back. If the executed code itself calls `PAUSE`, the time it spent
+  paused counts too, same as any other wall-clock duration.
+- `PAUSE` only actually pauses when running in the real app — there's
+  no live entry box to ever call `CONTINUE` from the headless test
+  driver, so it's a silent no-op there instead of waiting forever.
+
+(Renamed as little as possible from Terrapin's own `PAUSE`/`CONTINUE`
+(`CO`)/`BACKTRACE` (`BT`)/`EXECTIME` — these names were already clear.)
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than
@@ -1242,6 +1280,8 @@ silently doing nothing (or, in one case that's now fixed, crashing):
 - `SETCANVASSIZE` prints `SETCANVASSIZE: width and height must be
   50-4000` if either argument is outside that range, leaving the
   canvas's current size untouched.
+- `CONTINUE`/`CO` prints `CONTINUE: nothing is paused` if there's no
+  active `PAUSE` to resume.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than

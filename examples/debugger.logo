@@ -1,0 +1,23 @@
+; PAUSE/CONTINUE, BACKTRACE, EXECTIME: a real debugging toolkit,
+; adapted from Terrapin's PAUSE/CONTINUE(CO)/BACKTRACE(BT)/EXECTIME.
+;
+; PAUSE genuinely halts the script and busy-waits for a live CONTINUE --
+; it only makes sense run from the actual app (a real entry box to type
+; CONTINUE into), not the headless test driver, where it's a silent
+; no-op instead of hanging forever.
+
+TO spiral :size
+  IF :size > 200 [STOP]
+  FD :size
+  RT 91
+
+  IF :size = 50 [
+    BACKTRACE          ; shows this call, recursively, back to the top
+    PAUSE              ; halts right here -- try PRINT :size, or SETPENCOLOR
+                       ; 255 0 0, before typing CONTINUE to resume
+  ]
+
+  spiral :size + 2
+END
+
+PRINT EXECTIME [spiral 10]   ; how long the whole (paused!) call took

@@ -14,10 +14,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
 
 ### Phase 3 — New data types, background/sprite images
 
-- [ ] A real debugger — breakpoints/step execution, a call-stack trace,
-  and per-call timing (Terrapin's `PAUSE`/`CONTINUE`/`BACKTRACE`/
-  `EXECTIME`) — a substantial standalone feature area on its own, not a
-  quick add alongside the rest of this phase.
 - [ ] General file I/O beyond today's procedure-only `LOAD`/`SAVE` —
   reading/writing arbitrary files and listing directory contents
   (Terrapin's `OPEN`/`CLOSE`/`CREATE`/`DELETE`/`DIRECTORY`).

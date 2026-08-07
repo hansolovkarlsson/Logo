@@ -1517,6 +1517,26 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         // [width height], same 2-element-list convention as POS.
         return list_wrap_pair(app, number_value(app->canvas_width), number_value(app->canvas_height));
     }
+    if (consume_keyword(ptr, "EXECTIME")) {
+        // Runs a word/list as Logo source, the same as RUN, but returns
+        // how long that took (microseconds) instead of trying to
+        // capture the code's own result -- RUN/APPLY are deliberately
+        // not value-returning (see docs/LANGUAGE.md), so timing is the
+        // one thing here that safely can be, since it's EXECTIME's own
+        // measurement rather than something read out of the executed
+        // code. Same run_depth guard as RUN, so a self-referential
+        // EXECTIME can't blow the C call stack either.
+        Value val = parse_factor(app, ptr);
+        char code_text[4096];
+        value_to_text(app, &val, code_text, sizeof(code_text));
+        gint64 start = g_get_monotonic_time();
+        if (app->run_depth < MAX_RUN_DEPTH) {
+            app->run_depth++;
+            eval_logo(app, code_text);
+            app->run_depth--;
+        }
+        return number_value((double)(g_get_monotonic_time() - start));
+    }
     if (consume_keyword(ptr, "GETX")) {
         return number_value(current_turtle(app)->x);
     }
@@ -1858,6 +1878,7 @@ static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, 
     // unmodified procedure body.
     Scope *scope = &app->scopes[app->scope_depth];
     scope->count = proc->param_count;
+    snprintf(scope->proc_name, sizeof(scope->proc_name), "%s", proc->name);
     for (int p = 0; p < proc->param_count; p++) {
         // param_names are stored with their leading ':'; strip it.
         snprintf(scope->vars[p].name, sizeof(scope->vars[p].name), "%s", proc->param_names[p] + 1);
@@ -2964,6 +2985,57 @@ void eval_logo(LogoApp *app, const char *code) {
                     g_usleep(1000);
                 }
             }
+        }
+        // 3c'''''''a. PAUSE — a real interactive breakpoint (Terrapin's
+        // own name): halts the script right here and busy-waits (same
+        // technique as WAIT just above) until CONTINUE/CO drops
+        // pause_depth back below the level captured on entry. While
+        // paused, whatever the user types live into the entry box runs
+        // as its own nested eval_logo call -- reentrant and safe, the
+        // same way a REPEAT/WHILE/procedure body already recurses into
+        // eval_logo -- and sees this call's local :params for free,
+        // since variable lookup already walks the live scope stack
+        // regardless of which eval_logo call is currently active.
+        // Nested PAUSEs each capture their own level, so one CONTINUE
+        // unwinds exactly one of them. A silent no-op if request_redraw
+        // is NULL (headless tests): there's no live entry box there to
+        // ever call CONTINUE, so busy-waiting would hang forever rather
+        // than actually pausing.
+        else if (strcasecmp(token, "PAUSE") == 0) {
+            if (app->request_redraw != NULL) {
+                int my_level = ++app->pause_depth;
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Paused (level %d). Type CONTINUE to resume.\n", my_level);
+                append_output(app, msg);
+                app->request_redraw(app);
+                while (app->pause_depth >= my_level) {
+                    while (g_main_context_iteration(NULL, FALSE)) {
+                        // drain pending events without blocking
+                    }
+                    g_usleep(1000);
+                }
+            }
+        }
+        // 3c'''''''b. CONTINUE/CO — resumes the innermost active PAUSE.
+        else if (strcasecmp(token, "CONTINUE") == 0 || strcasecmp(token, "CO") == 0) {
+            if (app->pause_depth > 0) {
+                app->pause_depth--;
+            } else {
+                append_output(app, "CONTINUE: nothing is paused\n");
+            }
+        }
+        // 3c'''''''c. BACKTRACE/BT — prints the current call stack,
+        // innermost first, using the procedure name each active Scope
+        // recorded (see call_procedure) rather than a separate
+        // call-stack structure of its own.
+        else if (strcasecmp(token, "BACKTRACE") == 0 || strcasecmp(token, "BT") == 0) {
+            append_output(app, "BACKTRACE:\n");
+            for (int s = app->scope_depth - 1; s >= 0; s--) {
+                char line[64];
+                snprintf(line, sizeof(line), "  %s\n", app->scopes[s].proc_name);
+                append_output(app, line);
+            }
+            append_output(app, "  (top level)\n");
         }
         // 3d. OUTPUT: PRINT <expr> — expr is any expression, word, or
         // list, exactly like MAKE's above (PRINT "word, PRINT [list of

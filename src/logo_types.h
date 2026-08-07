@@ -199,6 +199,10 @@ typedef struct {
 typedef struct {
     Variable vars[MAX_PARAMS];
     int count;
+    // Which procedure this scope belongs to (set by call_procedure) —
+    // read by BACKTRACE/BT to print the current call stack; otherwise
+    // unused by ordinary variable lookup.
+    char proc_name[32];
 } Scope;
 
 // One key/value pair stored under a named property list (SETPROP/
@@ -291,6 +295,12 @@ typedef struct LogoApp {
 
     Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call
     int scope_depth;
+
+    // How many PAUSEs are currently active, innermost last. Each PAUSE
+    // busy-waits (see WAIT's own technique) until CONTINUE/CO drops this
+    // back below the level it captured on entry -- see PAUSE/CONTINUE in
+    // interpreter.c for the exact protocol.
+    int pause_depth;
 
     // How many RUNs are currently nested (RUN doesn't push a Scope of its
     // own -- run code shares the caller's scope, unlike a procedure call

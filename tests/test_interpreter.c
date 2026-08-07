@@ -439,6 +439,58 @@ TEST(test_setcanvassize_changes_the_wrap_boundary) {
     CHECK_NEAR(app->turtles[0].y, 100.0);
 }
 
+// --- PAUSE/CONTINUE, BACKTRACE, EXECTIME (debugger) ---
+// PAUSE's real interactive behavior (busy-waiting for a live CONTINUE
+// typed into the entry box, reentrant into a nested eval_logo call) is
+// GTK-driven and tested manually in the running app -- request_redraw
+// is NULL here, same convention as WAIT/ANIMATESPRITE's own GUI-side
+// effects, so PAUSE is a silent no-op headless (it never even
+// increments pause_depth) rather than busy-waiting forever with no
+// live entry box to ever call CONTINUE.
+
+TEST(test_pause_is_a_silent_no_op_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT \"before\nPAUSE\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\nafter\n");
+}
+
+TEST(test_continue_with_nothing_paused_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "CONTINUE");
+    CHECK_CONTAINS(captured_output, "CONTINUE: nothing is paused");
+}
+
+TEST(test_co_is_an_alias_for_continue) {
+    LogoApp *app = new_app();
+    eval_logo(app, "CO");
+    CHECK_CONTAINS(captured_output, "CONTINUE: nothing is paused");
+}
+
+TEST(test_backtrace_at_top_level_shows_no_active_calls) {
+    LogoApp *app = new_app();
+    eval_logo(app, "BACKTRACE");
+    CHECK_STREQ(captured_output, "BACKTRACE:\n  (top level)\n");
+}
+
+TEST(test_backtrace_shows_the_call_stack_innermost_first) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO inner\nBACKTRACE\nEND\nTO outer\ninner\nEND\nouter");
+    CHECK_CONTAINS(captured_output, "BACKTRACE:\n  inner\n  outer\n  (top level)\n");
+}
+
+TEST(test_bt_is_an_alias_for_backtrace) {
+    LogoApp *app = new_app();
+    eval_logo(app, "BT");
+    CHECK_STREQ(captured_output, "BACKTRACE:\n  (top level)\n");
+}
+
+TEST(test_exectime_measures_at_least_the_wrapped_waits_duration) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT EXECTIME [WAIT 0.02]"); // kept short so the suite stays fast
+    double microseconds = atof(captured_output);
+    CHECK(microseconds >= 20000); // never faster than the wrapped WAIT itself
+}
+
 // --- POS/HEADING (turtle state queries) ---
 
 TEST(test_pos_reads_back_turtle_position) {
@@ -2381,6 +2433,14 @@ int main(void) {
     RUN(test_setcanvassize_too_large_reports_error_and_leaves_size_unchanged);
     RUN(test_setcanvassize_recenters_turtles_and_clears_drawing);
     RUN(test_setcanvassize_changes_the_wrap_boundary);
+
+    RUN(test_pause_is_a_silent_no_op_with_no_gui);
+    RUN(test_continue_with_nothing_paused_reports_error);
+    RUN(test_co_is_an_alias_for_continue);
+    RUN(test_backtrace_at_top_level_shows_no_active_calls);
+    RUN(test_backtrace_shows_the_call_stack_innermost_first);
+    RUN(test_bt_is_an_alias_for_backtrace);
+    RUN(test_exectime_measures_at_least_the_wrapped_waits_duration);
 
     RUN(test_pos_reads_back_turtle_position);
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);
