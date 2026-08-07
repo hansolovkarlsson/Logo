@@ -14,9 +14,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
 
 ### Phase 3 — New data types, background/sprite images
 
-- [ ] Animated sprites (frame-cycling) — needs some notion of a timer/
-  tick driving redraws, similar in spirit to `WAIT`'s existing
-  redraw-and-drain-events technique but recurring rather than one-shot.
 - [ ] A real debugger — breakpoints/step execution, a call-stack trace,
   and per-call timing (Terrapin's `PAUSE`/`CONTINUE`/`BACKTRACE`/
   `EXECTIME`) — a substantial standalone feature area on its own, not a

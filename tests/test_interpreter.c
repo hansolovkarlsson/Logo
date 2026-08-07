@@ -348,6 +348,29 @@ TEST(test_setspriteframe_without_a_sprite_set_reports_error) {
     CHECK_CONTAINS(captured_output, "SETSPRITEFRAME: no sprite set (use SETSPRITE first)");
 }
 
+// --- ANIMATESPRITE ---
+// Same headless limitation as the rest of the sprite commands: no sprite
+// is ever actually registered here, so the frame-cycling loop itself
+// (and its pausing) is never reached -- only the error path and the
+// guarantee that it doesn't pause when there's nothing to animate are
+// testable without a real GTK window.
+
+TEST(test_animatesprite_without_a_sprite_set_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "ANIMATESPRITE 0.5 10");
+    CHECK_CONTAINS(captured_output, "ANIMATESPRITE: no sprite set (use SETSPRITE first)");
+}
+
+TEST(test_animatesprite_without_a_sprite_set_does_not_pause) {
+    LogoApp *app = new_app();
+    gint64 start = g_get_monotonic_time();
+    // Would take 50 real seconds if the frame-cycling loop ran at all --
+    // must bail out on the "no sprite" check before ever pausing.
+    eval_logo(app, "ANIMATESPRITE 5 10");
+    gint64 elapsed = g_get_monotonic_time() - start;
+    CHECK(elapsed < 1000000); // well under 1 second
+}
+
 // --- WAIT ---
 
 TEST(test_wait_zero_or_negative_returns_immediately) {
@@ -2294,6 +2317,8 @@ int main(void) {
     RUN(test_loadspritesheet_with_zero_rows_reports_error);
     RUN(test_loadspritesheet_is_a_safe_no_op_with_no_gui);
     RUN(test_setspriteframe_without_a_sprite_set_reports_error);
+    RUN(test_animatesprite_without_a_sprite_set_reports_error);
+    RUN(test_animatesprite_without_a_sprite_set_does_not_pause);
 
     RUN(test_wait_zero_or_negative_returns_immediately);
     RUN(test_wait_pauses_for_at_least_the_requested_duration);

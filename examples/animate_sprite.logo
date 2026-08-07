@@ -1,0 +1,17 @@
+; ANIMATESPRITE: plays a sprite-sheet's frames in place over real time --
+; the turtle doesn't move, it just visibly cycles through its grid, each
+; frame paced and redrawn rather than snapping straight to the last one.
+; Like LOADSPRITE/LOADSPRITESHEET, needs a real window (a GTK-side
+; callback -- see load_named_sprite_image in ui.c), so this example only
+; makes sense run from the actual app, not the headless test driver.
+
+LOADSPRITESHEET "walker "walker.png 4 2   ; the same 8-frame walk cycle
+                                          ; used in spritesheet.logo
+
+SETSPRITE "walker   ; starts on frame 0
+
+ANIMATESPRITE 0.15 24   ; advance one frame every 0.15s, 24 times over --
+                        ; three full loops through the 8-frame grid, in
+                        ; place, redrawing between each frame
+
+SETSPRITE "NONE   ; back to the default triangle

@@ -1156,6 +1156,33 @@ SETSPRITE "NONE
   50x50 cells and scales each one up to 40x40, same as `LOADSPRITE`
   scales a whole image.
 
+### Animated sprites
+
+```
+LOADSPRITESHEET "walker "walker.png 4 2
+SETSPRITE "walker
+ANIMATESPRITE 0.15 24
+SETSPRITE "NONE
+```
+
+- `ANIMATESPRITE delay frames` plays the current turtle's sprite-sheet
+  frames in place, over real time: it advances the active frame by 1
+  (wrapping back to 0 at the end of the grid), pauses `delay` seconds,
+  and requests a redraw, `frames` times in a row — so each intermediate
+  frame is actually visible on screen as it plays, not just the final
+  one once the command returns. The turtle doesn't move; combine with
+  `FD`/`RT` (and `SETSPRITEFRAME` directly, as in the sprite-sheet blit
+  example above) for a walking animation instead of an in-place one.
+  `delay` of `0` (or less) skips the pause but still advances every
+  frame and redraws, same as `WAIT`'s own zero-or-negative handling.
+  Requires a sprite already assigned via `SETSPRITE` — same requirement
+  and error message (`ANIMATESPRITE: no sprite set (use SETSPRITE
+  first)`) as `SETSPRITEFRAME`.
+- Doesn't touch the canvas raster or interact with `STAMPSPRITE` at
+  all — it's a live-only turtle-state change over time, same category
+  as `SETSPRITEFRAME`. Call `STAMPSPRITE` yourself in between if you
+  also want a permanent copy of some frame.
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than
@@ -1184,6 +1211,9 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   `LOADSPRITESHEET`d. `SETSPRITEFRAME` prints `SETSPRITEFRAME: no sprite
   set (use SETSPRITE first)` with no sprite assigned, or
   `SETSPRITEFRAME: frame out of range` outside its sprite's grid.
+  `ANIMATESPRITE` prints the same "no sprite set" message (as
+  `ANIMATESPRITE: no sprite set (use SETSPRITE first)`) under the same
+  condition.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than

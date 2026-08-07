@@ -2834,6 +2834,43 @@ void eval_logo(LogoApp *app, const char *code) {
                 }
             }
         }
+        // 3c''''''c''. ANIMATESPRITE delay frames — advances the current
+        // turtle's sprite-sheet frame by 1 (wrapping around its grid),
+        // `frames` times, pausing `delay` seconds and requesting a redraw
+        // between each advance -- the recurring version of WAIT's own
+        // redraw-and-drain-events technique just below, so each
+        // intermediate frame is actually visible on screen rather than
+        // only the final one once this command (and the rest of the
+        // script) finishes. Live-only, same as SETSPRITEFRAME: doesn't
+        // touch the canvas raster, so it has nothing to do with
+        // STAMPSPRITE unless the caller stamps explicitly in between.
+        // Requires a sprite already assigned via SETSPRITE, same
+        // requirement (and error message) as SETSPRITEFRAME.
+        else if (strcasecmp(token, "ANIMATESPRITE") == 0) {
+            double delay = value_to_number(parse_expr(app, &ptr));
+            int frames = (int)value_to_number(parse_expr(app, &ptr));
+            Turtle *t = current_turtle(app);
+            if (t->sprite_index < 0) {
+                append_output(app, "ANIMATESPRITE: no sprite set (use SETSPRITE first)\n");
+            } else {
+                int frame_count = app->sprite_frame_cols[t->sprite_index] * app->sprite_frame_rows[t->sprite_index];
+                for (int i = 0; i < frames; i++) {
+                    t->sprite_frame = (t->sprite_frame + 1) % frame_count;
+                    if (app->request_redraw != NULL) {
+                        app->request_redraw(app);
+                    }
+                    if (delay > 0) {
+                        gint64 end_time = g_get_monotonic_time() + (gint64)(delay * G_USEC_PER_SEC);
+                        while (g_get_monotonic_time() < end_time) {
+                            while (g_main_context_iteration(NULL, FALSE)) {
+                                // drain pending events without blocking
+                            }
+                            g_usleep(1000);
+                        }
+                    }
+                }
+            }
+        }
         // 3c''''''d. STAMPSPRITE — bakes a permanent copy of the current
         // turtle's shape (its SETSPRITE image/frame, or the default
         // triangle) onto the canvas at its current position/heading. Same
