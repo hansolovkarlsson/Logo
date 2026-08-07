@@ -2057,6 +2057,43 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, "SAVE: expected a \"path\n");
             }
         }
+        // 1d'. LOADPIC "path — load an image file as the canvas
+        // background. Needs real image decoding (gdk-pixbuf, any format
+        // it supports: PNG/JPEG/GIF/BMP/...), so — unlike LOAD/SAVE
+        // above, which are plain text file I/O interpreter.c does
+        // itself — this goes through a GTK-side callback (same pattern
+        // as CLEARTEXT's clear_history), silently doing nothing in
+        // headless tests where there's no callback to decode with.
+        else if (strcasecmp(token, "LOADPIC") == 0) {
+            char path_buf[512] = {0};
+            if (sscanf(ptr, "%511s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+                ptr += read_bytes;
+                if (app->load_background_image != NULL && !app->load_background_image(app, path_buf + 1)) {
+                    append_output(app, "LOADPIC: could not load \"");
+                    append_output(app, path_buf + 1);
+                    append_output(app, "\n");
+                }
+            } else {
+                append_output(app, "LOADPIC: expected a \"path\n");
+            }
+        }
+        // 1d''. SAVEPIC "path — save the canvas (background image,
+        // drawing, turtles) as a PNG, LOADPIC's reverse. Same
+        // GTK-callback pattern as LOADPIC, for the same reason (needs
+        // real image encoding).
+        else if (strcasecmp(token, "SAVEPIC") == 0) {
+            char path_buf[512] = {0};
+            if (sscanf(ptr, "%511s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+                ptr += read_bytes;
+                if (app->save_canvas_image != NULL && !app->save_canvas_image(app, path_buf + 1)) {
+                    append_output(app, "SAVEPIC: could not save \"");
+                    append_output(app, path_buf + 1);
+                    append_output(app, "\n");
+                }
+            } else {
+                append_output(app, "SAVEPIC: expected a \"path\n");
+            }
+        }
         // 1e. SHOW "name — print a user-defined procedure's own TO ...
         // END definition back to the history pane, reusing the exact
         // same rendering SAVE writes to a file (append_procedure_text).

@@ -114,7 +114,18 @@ static void bake_pending_fills(LogoApp *app) {
     if (app->fill_raster == NULL) {
         app->fill_raster = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
         cairo_t *ocr = cairo_create(app->fill_raster);
-        cairo_set_source_rgb(ocr, app->bg_r, app->bg_g, app->bg_b);
+        // A LOADPIC'd background image is the base layer if one's been
+        // loaded (see load_canvas_background_image) -- otherwise the
+        // flat SETBACKGROUND color, same as before this existed. Note
+        // ERASERECT (below) always erases back to the flat color, not
+        // this image, in whatever rectangle it covers -- a known,
+        // accepted simplification (see docs/ROADMAP.md's known
+        // limitations).
+        if (app->bg_image != NULL) {
+            cairo_set_source_surface(ocr, app->bg_image, 0, 0);
+        } else {
+            cairo_set_source_rgb(ocr, app->bg_r, app->bg_g, app->bg_b);
+        }
         cairo_paint(ocr);
         cairo_destroy(ocr);
     }
@@ -164,6 +175,59 @@ static void bake_pending_fills(LogoApp *app) {
     }
 }
 
+// The real load_background_image callback (LOADPIC): decodes any
+// gdk-pixbuf-supported image format, scales it to fill the canvas
+// exactly, and converts it into a premultiplied ARGB32 Cairo surface —
+// draw_scene's native format, so painting it each redraw is a single
+// cairo_paint call rather than a decode. Stored persistently on the app
+// (like fill_raster) so it survives across redraws; a fresh LOADPIC
+// replaces (and frees) whatever was loaded before. Returns FALSE,
+// leaving any existing background image untouched, if the file can't be
+// read or decoded.
+static gboolean load_canvas_background_image(LogoApp *app, const char *path) {
+    GError *error = NULL;
+    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, &error);
+    if (pixbuf == NULL) {
+        g_error_free(error);
+        return FALSE;
+    }
+
+    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT, GDK_INTERP_BILINEAR);
+    g_object_unref(pixbuf);
+    if (scaled == NULL) return FALSE;
+
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)CANVAS_WIDTH, (int)CANVAS_HEIGHT);
+    unsigned char *dst = cairo_image_surface_get_data(surface);
+    int dst_stride = cairo_image_surface_get_stride(surface);
+
+    const unsigned char *src = gdk_pixbuf_get_pixels(scaled);
+    int src_stride = gdk_pixbuf_get_rowstride(scaled);
+    int channels = gdk_pixbuf_get_n_channels(scaled);
+    gboolean has_alpha = gdk_pixbuf_get_has_alpha(scaled);
+
+    for (int y = 0; y < (int)CANVAS_HEIGHT; y++) {
+        const unsigned char *srow = src + y * src_stride;
+        uint32_t *drow = (uint32_t *)(dst + y * dst_stride);
+        for (int x = 0; x < (int)CANVAS_WIDTH; x++) {
+            unsigned char r = srow[x * channels + 0];
+            unsigned char g = srow[x * channels + 1];
+            unsigned char b = srow[x * channels + 2];
+            unsigned char a = has_alpha ? srow[x * channels + 3] : 0xFF;
+            // Cairo's ARGB32 stores premultiplied color channels.
+            drow[x] = ((uint32_t)a << 24)
+                | ((uint32_t)(r * a / 255) << 16)
+                | ((uint32_t)(g * a / 255) << 8)
+                | (uint32_t)(b * a / 255);
+        }
+    }
+    cairo_surface_mark_dirty(surface);
+    g_object_unref(scaled);
+
+    if (app->bg_image != NULL) cairo_surface_destroy(app->bg_image);
+    app->bg_image = surface;
+    return TRUE;
+}
+
 // Paints the background, every recorded line segment, then every active
 // turtle as a triangle (see TELL — turtles[0..turtle_count-1] all exist
 // and are all drawn, not just the current one). Shared by the live
@@ -174,6 +238,9 @@ static void draw_scene(LogoApp *app, cairo_t *cr) {
 
     if (app->fill_raster != NULL) {
         cairo_set_source_surface(cr, app->fill_raster, 0, 0);
+        cairo_paint(cr);
+    } else if (app->bg_image != NULL) {
+        cairo_set_source_surface(cr, app->bg_image, 0, 0);
         cairo_paint(cr);
     } else {
         cairo_set_source_rgb(cr, app->bg_r, app->bg_g, app->bg_b);
@@ -787,6 +854,8 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->output_sink = history_pane_output_sink;
     logo->request_redraw = queue_canvas_redraw;
     logo->clear_history = clear_history_pane;
+    logo->load_background_image = load_canvas_background_image;
+    logo->save_canvas_image = export_canvas_to_png;
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;

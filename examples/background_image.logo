@@ -1,0 +1,16 @@
+; LOADPIC/SAVEPIC: a background image loaded onto the canvas, and the
+; reverse (saving the canvas -- background image, drawing, turtles --
+; out as a PNG). Both need a real window (gdk-pixbuf image decoding/
+; encoding happens through a GTK-side callback -- see
+; load_canvas_background_image/export_canvas_to_png in ui.c), so this
+; example only makes sense run from the actual app, not the headless
+; test driver.
+
+LOADPIC "backyard.png   ; any gdk-pixbuf format: PNG, JPEG, GIF, BMP, ...
+                         ; scaled to fill the canvas exactly
+
+REPEAT 4 [FD 400 RT 90]   ; a square drawn on top of the loaded image
+
+eraserect 200 200
+
+SAVEPIC "with_square.png   ; always written as PNG, whatever extension you give

@@ -1064,6 +1064,35 @@ SAVE "/Users/you/scripts/star.logo
 - If the file can't be read or written, prints "LOAD: could not read
   file" / "SAVE: could not write file" rather than crashing.
 
+## Background image
+
+```
+LOADPIC "backyard.png
+SAVEPIC "with_turtle.png
+```
+
+- `LOADPIC "path` loads an image file (any format `gdk-pixbuf` supports —
+  PNG, JPEG, GIF, BMP, and more) as the canvas background, scaled to
+  fill it exactly. Drawing (lines, `FILL`, `ERASERECT`, turtles) is
+  painted on top of it, same as it would be over the flat
+  `SETBACKGROUND` color. It persists across `CLEAR`/`CLEAN` (they only
+  erase drawing, not the background) — load a different image, or a
+  blank-colored one, to replace it.
+- `ERASERECT` always erases back to the flat `SETBACKGROUND` color
+  within the rectangle it covers, not back to the loaded image — a
+  known, accepted simplification rather than re-compositing that patch
+  of the image.
+- `SAVEPIC "path` writes the current canvas — background image (if any),
+  every line, and every turtle — out as a PNG, regardless of the
+  extension given. The same rendering **File → Export as PNG…** uses,
+  just reachable from a script instead of the menu.
+- Both take the path as a single whitespace-delimited word, same
+  convention as `LOAD`/`SAVE` (see above) — use the file-picker menu
+  actions instead for a path containing spaces.
+- If the file can't be decoded/read or written, prints "LOADPIC: could
+  not load "path" / "SAVEPIC: could not save "path" rather than
+  crashing.
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than
@@ -1083,10 +1112,10 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   prints `[ list ]: missing closing ] or too long` if it's unterminated
   or oversized, rather than silently treated as ending at the input's
   end.
-- `MAKE`, `ERASE`, `SHOW`, `LOAD`, and `SAVE` each print `<COMMAND>:
-  expected a "name`/`"path` if the required quoted word is missing.
-  `ERASE`/`SHOW` also print `<COMMAND>: no such procedure "<name>` if
-  the name isn't defined.
+- `MAKE`, `ERASE`, `SHOW`, `LOAD`, `SAVE`, `LOADPIC`, and `SAVEPIC` each
+  print `<COMMAND>: expected a "name`/`"path` if the required quoted
+  word is missing. `ERASE`/`SHOW` also print `<COMMAND>: no such
+  procedure "<name>` if the name isn't defined.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than

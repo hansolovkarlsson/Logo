@@ -222,6 +222,15 @@ typedef struct LogoApp {
     int raster_lines_baked;
     int raster_ops_baked;
 
+    // LOADPIC's loaded background image, pre-scaled to the canvas's
+    // exact size and pre-converted to Cairo's premultiplied ARGB32
+    // format (see load_canvas_background_image in ui.c) — owned
+    // entirely by ui.c, same convention as fill_raster; NULL until
+    // LOADPIC succeeds, always NULL in tests (no gdk-pixbuf image
+    // decoding without a real GTK app). draw_scene paints this as the
+    // base layer, under fill_raster/lines/turtles, whenever it's set.
+    cairo_surface_t *bg_image;
+
     Procedure procedures[MAX_PROCEDURES];
     int proc_count;
 
@@ -324,6 +333,21 @@ typedef struct LogoApp {
     // request_redraw above, so interpreter.c stays free of any direct
     // GTK dependency.
     void (*clear_history)(struct LogoApp *app);
+
+    // Set by ui.c's logo_activate: LOADPIC's real implementation, using
+    // gdk-pixbuf to decode an image file (any format it supports) into
+    // the new canvas background (see bg_image above). Returns FALSE on
+    // failure (bad path, unrecognized format). NULL in tests -- there's
+    // no gdk-pixbuf decoding without a real GTK app, so LOADPIC is a
+    // silent no-op there, same convention as clear_history.
+    gboolean (*load_background_image)(struct LogoApp *app, const char *path);
+
+    // Set by ui.c's logo_activate: SAVEPIC's real implementation --
+    // renders the current canvas (background image, drawing, turtles)
+    // to a PNG file at `path`, reusing the same code the File > Export
+    // as PNG menu action uses. Returns FALSE on failure. NULL in tests,
+    // same convention as load_background_image.
+    gboolean (*save_canvas_image)(struct LogoApp *app, const char *path);
 } LogoApp;
 
 #endif // LOGO_TYPES_H

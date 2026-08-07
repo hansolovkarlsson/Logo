@@ -1968,6 +1968,28 @@ TEST(test_save_without_quote_reports_error) {
     CHECK_CONTAINS(captured_output, "SAVE: expected a");
 }
 
+TEST(test_loadpic_without_quote_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOADPIC path");
+    CHECK_CONTAINS(captured_output, "LOADPIC: expected a");
+}
+
+TEST(test_savepic_without_quote_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SAVEPIC path");
+    CHECK_CONTAINS(captured_output, "SAVEPIC: expected a");
+}
+
+TEST(test_loadpic_savepic_are_a_safe_no_op_with_no_gui) {
+    // load_background_image/save_canvas_image are NULL here (no GTK/
+    // gdk-pixbuf image decoding in tests, same convention as
+    // clear_history) -- a well-formed LOADPIC/SAVEPIC call must not
+    // crash or print anything when there's no callback to do the work.
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT \"before\nLOADPIC \"bg.png\nSAVEPIC \"out.png\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\nafter\n");
+}
+
 // --- Errors ---
 
 TEST(test_unknown_command_reports_error) {
@@ -2395,6 +2417,9 @@ int main(void) {
     RUN(test_save_to_unwritable_path_reports_error);
     RUN(test_load_without_quote_reports_error);
     RUN(test_save_without_quote_reports_error);
+    RUN(test_loadpic_without_quote_reports_error);
+    RUN(test_savepic_without_quote_reports_error);
+    RUN(test_loadpic_savepic_are_a_safe_no_op_with_no_gui);
 
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);

@@ -14,8 +14,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
 
 ### Phase 3 — New data types, background/sprite images
 
-- [ ] Load a background image onto the canvas (Terrapin's `LOADPIC`;
-  `SAVEPIC` for the reverse).
 - [ ] Load part of an image onto part of the canvas (a sprite-sheet
   style blit) — `gdk-pixbuf`/Cairo are already linked (used for PNG
   export today), so this slots in next to existing drawing code rather
