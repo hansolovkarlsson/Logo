@@ -1121,6 +1121,41 @@ SETSPRITE "NONE
   table — 20 entries — is already full), prints `LOADSPRITE: could not
   load "path` rather than crashing.
 
+### Sprite-sheet blit
+
+```
+LOADSPRITESHEET "walker "walker.png 4 2
+SETSPRITE "walker
+FOR [i 0 23] [SETSPRITEFRAME MOD :i 8 STAMPSPRITE FD 20 RT 15]
+SETSPRITE "NONE
+```
+
+- `LOADSPRITESHEET "name "path cols rows` is `LOADSPRITE`'s sibling for
+  loading one image packed with several frames in an even grid — a
+  walk-cycle strip, a tile set, anything where only one cell should be
+  drawn at a time. It slices the image into `cols` columns by `rows`
+  rows of equal-size cells and registers all of them under `name`,
+  0-indexed row-major (frame 0 is the top-left cell, reading left to
+  right then top to bottom). Both `cols` and `rows` must be at least 1;
+  otherwise prints `LOADSPRITESHEET: cols and rows must be at least 1`
+  without touching any existing sprite under that name.
+- `SETSPRITE` (see above) works the same way for a sheet as for a plain
+  image — it assigns the whole grid to the turtle and resets its active
+  frame back to 0.
+- `SETSPRITEFRAME n` picks which cell of the current turtle's grid is
+  shown — live on the canvas and in any later `STAMPSPRITE` — until the
+  next `SETSPRITEFRAME` or `SETSPRITE` call. Requires a sprite already
+  assigned via `SETSPRITE` (prints `SETSPRITEFRAME: no sprite set (use
+  SETSPRITE first)` otherwise) and `n` within that sprite's grid (prints
+  `SETSPRITEFRAME: frame out of range` otherwise, `0` to `cols * rows -
+  1`). A plain (non-sheet) `LOADSPRITE` image is just a 1x1 grid, so
+  `SETSPRITEFRAME 0` is its only valid frame.
+- Each cell is scaled independently into the same fixed 40x40 turtle box
+  every other sprite uses, so cells don't need to be square — a
+  `LOADSPRITESHEET "name "path 4 2` on a 200x100 image slices out
+  50x50 cells and scales each one up to 40x40, same as `LOADSPRITE`
+  scales a whole image.
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than
@@ -1141,11 +1176,14 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   or oversized, rather than silently treated as ending at the input's
   end.
 - `MAKE`, `ERASE`, `SHOW`, `LOAD`, `SAVE`, `LOADPIC`, `SAVEPIC`,
-  `LOADSPRITE`, and `SETSPRITE` each print `<COMMAND>: expected a
-  "name`/`"path` if the required quoted word is missing. `ERASE`/`SHOW`
-  also print `<COMMAND>: no such procedure "<name>` if the name isn't
-  defined; `SETSPRITE` similarly prints `SETSPRITE: no such sprite
-  "<name>` if it wasn't `LOADSPRITE`d.
+  `LOADSPRITE`, `LOADSPRITESHEET`, and `SETSPRITE` each print
+  `<COMMAND>: expected a "name`/`"path` if the required quoted word is
+  missing. `ERASE`/`SHOW` also print `<COMMAND>: no such procedure
+  "<name>` if the name isn't defined; `SETSPRITE` similarly prints
+  `SETSPRITE: no such sprite "<name>` if it wasn't `LOADSPRITE`d/
+  `LOADSPRITESHEET`d. `SETSPRITEFRAME` prints `SETSPRITEFRAME: no sprite
+  set (use SETSPRITE first)` with no sprite assigned, or
+  `SETSPRITEFRAME: frame out of range` outside its sprite's grid.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than

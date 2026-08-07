@@ -1,0 +1,21 @@
+; LOADSPRITESHEET/SETSPRITEFRAME: a sprite-sheet blit -- one image file
+; packs several frames in a grid, and only one cell at a time is drawn.
+; Like LOADSPRITE, needs a real window (a GTK-side callback -- see
+; load_named_sprite_image in ui.c), so this example only makes sense run
+; from the actual app, not the headless test driver.
+
+LOADSPRITESHEET "walker "walker.png 4 2   ; a 4-column, 2-row grid: 8 frames,
+                                          ; each sliced out of walker.png and
+                                          ; scaled to the SPRITE_SIZE box
+
+SETSPRITE "walker   ; starts on frame 0 (top-left cell)
+
+FOR [i 0 23] [
+  SETSPRITEFRAME MOD :i 8   ; cycle through all 8 frames as it walks
+  STAMPSPRITE               ; bakes a permanent copy of the *current*
+                            ; frame at the current position/heading
+  FD 20
+  RT 15
+]
+
+SETSPRITE "NONE   ; back to the default triangle

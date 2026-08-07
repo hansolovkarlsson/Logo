@@ -101,6 +101,7 @@ typedef struct {
     double w, h;        // ERASE_RECT only: rectangle size.
     double angle;       // STAMP only: heading, same convention as Turtle.angle.
     int sprite_index;   // STAMP only: index into LogoApp.sprite_images, -1 = default triangle.
+    int sprite_frame;   // STAMP only: which frame of that sprite's grid, same as Turtle.sprite_frame.
     int line_count_at_call;
 } RasterOp;
 
@@ -118,6 +119,10 @@ typedef struct {
     // LogoApp.sprite_images, set by SETSPRITE (see LOADSPRITE/SETSPRITE/
     // STAMPSPRITE in interpreter.c).
     int sprite_index;
+    // Which frame of that sprite's grid is active (SETSPRITEFRAME),
+    // 0-indexed row-major. Always 0 for a plain (non-sheet) sprite, and
+    // reset to 0 whenever SETSPRITE assigns a (possibly different) shape.
+    int sprite_frame;
 } Turtle;
 
 // A user-defined procedure (TO ... END).
@@ -250,15 +255,23 @@ typedef struct LogoApp {
     // base layer, under fill_raster/lines/turtles, whenever it's set.
     cairo_surface_t *bg_image;
 
-    // Named turtle shapes loaded by LOADSPRITE (see
-    // load_named_sprite_image in ui.c), pre-scaled to SPRITE_SIZE and
-    // pre-converted to premultiplied ARGB32, same convention as
-    // bg_image. sprite_images entries are owned entirely by ui.c and
-    // always NULL in tests; sprite_names/sprite_count are plain data,
-    // safe for interpreter.c to read directly (SETSPRITE's name lookup)
-    // even though only ui.c ever populates them.
+    // Named turtle shapes loaded by LOADSPRITE/LOADSPRITESHEET (see
+    // load_named_sprite_image in ui.c), decoded at their native
+    // resolution and pre-converted to premultiplied ARGB32, same
+    // convention as bg_image. sprite_images entries are owned entirely
+    // by ui.c and always NULL in tests; the rest are plain data, safe
+    // for interpreter.c to read directly (SETSPRITE's name lookup,
+    // SETSPRITEFRAME's range check) even though only ui.c ever
+    // populates them. sprite_frame_cols/rows slice the loaded image
+    // into an even grid of frames -- both 1 for a plain LOADSPRITE
+    // (the whole image is "frame 0"), or whatever LOADSPRITESHEET was
+    // given for a sprite-sheet blit; draw_turtle_shape in ui.c divides
+    // the surface's native width/height by these to find each frame's
+    // source rectangle at render time.
     char sprite_names[MAX_TURTLE_SPRITES][32];
     cairo_surface_t *sprite_images[MAX_TURTLE_SPRITES];
+    int sprite_frame_cols[MAX_TURTLE_SPRITES];
+    int sprite_frame_rows[MAX_TURTLE_SPRITES];
     int sprite_count;
 
     Procedure procedures[MAX_PROCEDURES];
@@ -379,15 +392,19 @@ typedef struct LogoApp {
     // same convention as load_background_image.
     gboolean (*save_canvas_image)(struct LogoApp *app, const char *path);
 
-    // Set by ui.c's logo_activate: LOADSPRITE's real implementation --
-    // decodes an image file the same way load_background_image does,
-    // but scaled to SPRITE_SIZE and registered under `name` in
-    // sprite_names/sprite_images (overwriting an existing entry with
-    // that name, or taking a new slot up to MAX_TURTLE_SPRITES).
-    // Returns FALSE on failure (bad path, unrecognized format, or the
-    // sprite table is full). NULL in tests, same convention as
-    // load_background_image.
-    gboolean (*load_sprite_image)(struct LogoApp *app, const char *name, const char *path);
+    // Set by ui.c's logo_activate: LOADSPRITE/LOADSPRITESHEET's real
+    // implementation -- decodes an image file at its native resolution
+    // (unlike load_background_image, no scaling to a fixed size; frame
+    // slicing happens at render time in ui.c's draw_turtle_shape) and
+    // registers it under `name` in sprite_names/sprite_images
+    // (overwriting an existing entry with that name, or taking a new
+    // slot up to MAX_TURTLE_SPRITES), with the frame grid recorded in
+    // sprite_frame_cols/rows. LOADSPRITE calls this with cols=rows=1
+    // (a single-frame "sheet"); LOADSPRITESHEET passes whatever grid it
+    // was given. Returns FALSE on failure (bad path, unrecognized
+    // format, or the sprite table is full). NULL in tests, same
+    // convention as load_background_image.
+    gboolean (*load_sprite_image)(struct LogoApp *app, const char *name, const char *path, int cols, int rows);
 } LogoApp;
 
 #endif // LOGO_TYPES_H

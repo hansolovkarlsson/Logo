@@ -90,18 +90,36 @@ static void flood_fill_pixels(unsigned char *data, int stride, int width, int he
     g_free(stack_y);
 }
 
-// Paints one turtle's shape (a LOADSPRITE/SETSPRITE image, or the
-// default triangle) at (x, y) rotated to `angle` — shared by
-// draw_scene's live turtle loop and bake_pending_fills' STAMPSPRITE
+// Paints one turtle's shape (a LOADSPRITE/LOADSPRITESHEET/SETSPRITE
+// image, or the default triangle) at (x, y) rotated to `angle` — shared
+// by draw_scene's live turtle loop and bake_pending_fills' STAMPSPRITE
 // baking below, so a stamped copy always looks exactly like the turtle
-// did at the moment it was stamped.
-static void draw_turtle_shape(LogoApp *app, cairo_t *cr, double x, double y, double angle, int sprite_index) {
+// did at the moment it was stamped. `frame` selects which cell of the
+// sprite's cols-by-rows grid to blit (0 for a plain, non-sheet sprite,
+// which is just a 1x1 grid); the source rectangle is that cell's slice
+// of the image's native resolution, scaled up/down to fill the fixed
+// SPRITE_SIZE x SPRITE_SIZE box — the sprite-sheet blit itself.
+static void draw_turtle_shape(LogoApp *app, cairo_t *cr, double x, double y, double angle, int sprite_index, int frame) {
     cairo_save(cr);
     cairo_translate(cr, x, y);
     cairo_rotate(cr, angle * M_PI / 180.0);
 
     if (sprite_index >= 0 && sprite_index < app->sprite_count && app->sprite_images[sprite_index] != NULL) {
-        cairo_set_source_surface(cr, app->sprite_images[sprite_index], -SPRITE_SIZE / 2.0, -SPRITE_SIZE / 2.0);
+        cairo_surface_t *sheet = app->sprite_images[sprite_index];
+        int cols = app->sprite_frame_cols[sprite_index];
+        int rows = app->sprite_frame_rows[sprite_index];
+        int frame_count = cols * rows;
+        int f = ((frame % frame_count) + frame_count) % frame_count;
+        double frame_w = (double)cairo_image_surface_get_width(sheet) / cols;
+        double frame_h = (double)cairo_image_surface_get_height(sheet) / rows;
+        double frame_x = (f % cols) * frame_w;
+        double frame_y = (f / cols) * frame_h;
+
+        cairo_translate(cr, -SPRITE_SIZE / 2.0, -SPRITE_SIZE / 2.0);
+        cairo_scale(cr, SPRITE_SIZE / frame_w, SPRITE_SIZE / frame_h);
+        cairo_rectangle(cr, 0, 0, frame_w, frame_h);
+        cairo_clip(cr);
+        cairo_set_source_surface(cr, sheet, -frame_x, -frame_y);
         cairo_paint(cr);
     } else {
         cairo_set_source_rgb(cr, 0.1, 0.7, 0.3);
@@ -182,7 +200,7 @@ static void bake_pending_fills(LogoApp *app) {
             cairo_destroy(ocr);
         } else if (op->kind == RASTER_OP_STAMP) {
             cairo_t *ocr = cairo_create(app->fill_raster);
-            draw_turtle_shape(app, ocr, op->x, op->y, op->angle, op->sprite_index);
+            draw_turtle_shape(app, ocr, op->x, op->y, op->angle, op->sprite_index, op->sprite_frame);
             cairo_destroy(ocr);
         } else { // RASTER_OP_FILL
             cairo_surface_flush(app->fill_raster);
@@ -204,33 +222,23 @@ static void bake_pending_fills(LogoApp *app) {
     }
 }
 
-// Decodes any gdk-pixbuf-supported image file, scales it to exactly
-// width x height, and converts it into a premultiplied ARGB32 Cairo
-// surface — draw_scene's native format, so painting it each redraw is a
-// single cairo_paint call rather than a decode. Shared by
-// load_canvas_background_image (LOADPIC, canvas-sized) and
-// load_named_sprite_image (LOADSPRITE, SPRITE_SIZE-sized). Returns NULL
-// if the file can't be read or decoded.
-static cairo_surface_t *decode_and_scale_image(const char *path, int width, int height) {
-    GError *error = NULL;
-    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, &error);
-    if (pixbuf == NULL) {
-        g_error_free(error);
-        return NULL;
-    }
-
-    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, width, height, GDK_INTERP_BILINEAR);
-    g_object_unref(pixbuf);
-    if (scaled == NULL) return NULL;
+// Converts a decoded GdkPixbuf into a premultiplied ARGB32 Cairo surface
+// at the pixbuf's own dimensions — draw_scene's native format, so
+// painting it each redraw is a single cairo_paint call rather than a
+// decode. Shared by decode_and_scale_image and decode_image_native
+// below; does not take ownership of `pixbuf`.
+static cairo_surface_t *convert_pixbuf_to_argb32(GdkPixbuf *pixbuf) {
+    int width = gdk_pixbuf_get_width(pixbuf);
+    int height = gdk_pixbuf_get_height(pixbuf);
 
     cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
     unsigned char *dst = cairo_image_surface_get_data(surface);
     int dst_stride = cairo_image_surface_get_stride(surface);
 
-    const unsigned char *src = gdk_pixbuf_get_pixels(scaled);
-    int src_stride = gdk_pixbuf_get_rowstride(scaled);
-    int channels = gdk_pixbuf_get_n_channels(scaled);
-    gboolean has_alpha = gdk_pixbuf_get_has_alpha(scaled);
+    const unsigned char *src = gdk_pixbuf_get_pixels(pixbuf);
+    int src_stride = gdk_pixbuf_get_rowstride(pixbuf);
+    int channels = gdk_pixbuf_get_n_channels(pixbuf);
+    gboolean has_alpha = gdk_pixbuf_get_has_alpha(pixbuf);
 
     for (int y = 0; y < height; y++) {
         const unsigned char *srow = src + y * src_stride;
@@ -248,7 +256,48 @@ static cairo_surface_t *decode_and_scale_image(const char *path, int width, int 
         }
     }
     cairo_surface_mark_dirty(surface);
+    return surface;
+}
+
+// Decodes any gdk-pixbuf-supported image file, scales it to exactly
+// width x height, and converts it into a premultiplied ARGB32 Cairo
+// surface. Used by load_canvas_background_image (LOADPIC, canvas-sized)
+// — the whole canvas background is always one fixed size, so scaling at
+// load time (rather than render time) avoids redoing it every redraw.
+// Returns NULL if the file can't be read or decoded.
+static cairo_surface_t *decode_and_scale_image(const char *path, int width, int height) {
+    GError *error = NULL;
+    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, &error);
+    if (pixbuf == NULL) {
+        g_error_free(error);
+        return NULL;
+    }
+
+    GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, width, height, GDK_INTERP_BILINEAR);
+    g_object_unref(pixbuf);
+    if (scaled == NULL) return NULL;
+
+    cairo_surface_t *surface = convert_pixbuf_to_argb32(scaled);
     g_object_unref(scaled);
+    return surface;
+}
+
+// Decodes any gdk-pixbuf-supported image file at its own native
+// resolution, with no scaling. Used by load_named_sprite_image
+// (LOADSPRITE/LOADSPRITESHEET) — a sprite's frame grid divides this
+// native surface at render time (draw_turtle_shape), so the load-time
+// size must stay whatever the file's own dimensions are, not a fixed
+// box. Returns NULL if the file can't be read or decoded.
+static cairo_surface_t *decode_image_native(const char *path) {
+    GError *error = NULL;
+    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, &error);
+    if (pixbuf == NULL) {
+        g_error_free(error);
+        return NULL;
+    }
+
+    cairo_surface_t *surface = convert_pixbuf_to_argb32(pixbuf);
+    g_object_unref(pixbuf);
     return surface;
 }
 
@@ -266,14 +315,16 @@ static gboolean load_canvas_background_image(LogoApp *app, const char *path) {
     return TRUE;
 }
 
-// The real load_sprite_image callback (LOADSPRITE): decodes and
-// registers a named turtle shape, scaled to SPRITE_SIZE. Overwrites an
-// existing entry with the same name (case-insensitive, matching
-// SETSPRITE's own lookup), or takes a new slot if there's room. Returns
-// FALSE, leaving any existing entry under that name untouched, if the
-// file can't be decoded or the sprite table is already full.
-static gboolean load_named_sprite_image(LogoApp *app, const char *name, const char *path) {
-    cairo_surface_t *surface = decode_and_scale_image(path, (int)SPRITE_SIZE, (int)SPRITE_SIZE);
+// The real load_sprite_image callback (LOADSPRITE/LOADSPRITESHEET):
+// decodes and registers a named turtle shape at its native resolution
+// (draw_turtle_shape divides it into a cols-by-rows grid at render
+// time — LOADSPRITE always passes cols=rows=1). Overwrites an existing
+// entry with the same name (case-insensitive, matching SETSPRITE's own
+// lookup), or takes a new slot if there's room. Returns FALSE, leaving
+// any existing entry under that name untouched, if the file can't be
+// decoded or the sprite table is already full.
+static gboolean load_named_sprite_image(LogoApp *app, const char *name, const char *path, int cols, int rows) {
+    cairo_surface_t *surface = decode_image_native(path);
     if (surface == NULL) return FALSE;
 
     int idx = -1;
@@ -291,6 +342,8 @@ static gboolean load_named_sprite_image(LogoApp *app, const char *name, const ch
 
     if (app->sprite_images[idx] != NULL) cairo_surface_destroy(app->sprite_images[idx]);
     app->sprite_images[idx] = surface;
+    app->sprite_frame_cols[idx] = cols;
+    app->sprite_frame_rows[idx] = rows;
     return TRUE;
 }
 
@@ -333,7 +386,7 @@ static void draw_scene(LogoApp *app, cairo_t *cr) {
 
     for (int i = 0; i < app->turtle_count; i++) {
         if (!app->turtles[i].visible) continue;
-        draw_turtle_shape(app, cr, app->turtles[i].x, app->turtles[i].y, app->turtles[i].angle, app->turtles[i].sprite_index);
+        draw_turtle_shape(app, cr, app->turtles[i].x, app->turtles[i].y, app->turtles[i].angle, app->turtles[i].sprite_index, app->turtles[i].sprite_frame);
     }
 }
 

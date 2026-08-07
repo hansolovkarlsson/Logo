@@ -296,12 +296,56 @@ TEST(test_stampsprite_records_position_heading_and_sprite) {
     CHECK_NEAR(app->raster_ops[0].y, 200.0);
     CHECK_NEAR(app->raster_ops[0].angle, 30.0);
     CHECK(app->raster_ops[0].sprite_index == -1); // no sprite set -- default triangle
+    CHECK(app->raster_ops[0].sprite_frame == 0);
 }
 
 TEST(test_clear_erases_stamps_too) {
     LogoApp *app = new_app();
     eval_logo(app, "STAMPSPRITE\nCLEAR");
     CHECK(app->raster_op_count == 0);
+}
+
+// --- LOADSPRITESHEET / SETSPRITEFRAME (sprite-sheet blit) ---
+// Same headless limitation as LOADSPRITE/SETSPRITE above: load_sprite_image
+// is NULL here, so no sheet is ever actually registered. These check
+// interpreter.c's own parsing, validation, and the raster op STAMPSPRITE
+// records for the active frame; the actual grid slicing (draw_turtle_shape
+// in ui.c) needs a real loaded image and is tested manually in the app.
+
+TEST(test_loadspritesheet_without_quote_name_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOADSPRITESHEET walk \"walk.png 4 2");
+    CHECK_CONTAINS(captured_output, "LOADSPRITESHEET: expected a \"name");
+}
+
+TEST(test_loadspritesheet_without_quote_path_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOADSPRITESHEET \"walk path 4 2");
+    CHECK_CONTAINS(captured_output, "LOADSPRITESHEET: expected a \"path");
+}
+
+TEST(test_loadspritesheet_with_zero_cols_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOADSPRITESHEET \"walk \"walk.png 0 2");
+    CHECK_CONTAINS(captured_output, "LOADSPRITESHEET: cols and rows must be at least 1");
+}
+
+TEST(test_loadspritesheet_with_zero_rows_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "LOADSPRITESHEET \"walk \"walk.png 4 0");
+    CHECK_CONTAINS(captured_output, "LOADSPRITESHEET: cols and rows must be at least 1");
+}
+
+TEST(test_loadspritesheet_is_a_safe_no_op_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT \"before\nLOADSPRITESHEET \"walk \"walk.png 4 2\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\nafter\n");
+}
+
+TEST(test_setspriteframe_without_a_sprite_set_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "SETSPRITEFRAME 2");
+    CHECK_CONTAINS(captured_output, "SETSPRITEFRAME: no sprite set (use SETSPRITE first)");
 }
 
 // --- WAIT ---
@@ -2244,6 +2288,12 @@ int main(void) {
     RUN(test_setsprite_none_is_a_silent_reset_to_default);
     RUN(test_stampsprite_records_position_heading_and_sprite);
     RUN(test_clear_erases_stamps_too);
+    RUN(test_loadspritesheet_without_quote_name_reports_error);
+    RUN(test_loadspritesheet_without_quote_path_reports_error);
+    RUN(test_loadspritesheet_with_zero_cols_reports_error);
+    RUN(test_loadspritesheet_with_zero_rows_reports_error);
+    RUN(test_loadspritesheet_is_a_safe_no_op_with_no_gui);
+    RUN(test_setspriteframe_without_a_sprite_set_reports_error);
 
     RUN(test_wait_zero_or_negative_returns_immediately);
     RUN(test_wait_pauses_for_at_least_the_requested_duration);
