@@ -387,6 +387,84 @@ TEST(test_names_reflects_reassignment_not_duplicate_entries) {
     CHECK_STREQ(captured_output, "a\n"); // one entry, even after MAKE "a runs twice
 }
 
+// --- Property lists (SETPROP/GETPROP/REMOVEPROP/PROPLIST) ---
+
+TEST(test_setprop_getprop_round_trips_a_number_word_and_list) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"pos [10 20]\n"
+        "PRINT GETPROP \"turtle1 \"speed\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"pos");
+    CHECK_STREQ(captured_output, "5\nred\n10 20\n");
+}
+
+TEST(test_getprop_of_missing_property_is_the_empty_list) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT GETPROP \"turtle1 \"nosuchkey\nPRINT EMPTY? GETPROP \"turtle1 \"nosuchkey");
+    CHECK_STREQ(captured_output, "\nTRUE\n");
+}
+
+TEST(test_setprop_on_same_key_overwrites_not_duplicates) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"color \"blue\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT COUNT PROPLIST \"turtle1"); // one key/value pair, not two
+    CHECK_STREQ(captured_output, "blue\n2\n");
+}
+
+TEST(test_different_proplist_names_dont_share_properties) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle2 \"color \"blue\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle2 \"color");
+    CHECK_STREQ(captured_output, "red\nblue\n");
+}
+
+TEST(test_removeprop_removes_a_property) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "SETPROP \"turtle1 \"color \"red\n"
+        "REMOVEPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"color");
+    CHECK_STREQ(captured_output, "\n");
+}
+
+TEST(test_removeprop_of_missing_property_is_a_silent_no_op) {
+    LogoApp *app = new_app();
+    eval_logo(app, "REMOVEPROP \"turtle1 \"nosuchkey");
+    CHECK_STREQ(captured_output, "");
+}
+
+TEST(test_proplist_lists_alternating_keys_and_values) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "PRINT PROPLIST \"turtle1");
+    CHECK_STREQ(captured_output, "speed 5 color red\n");
+}
+
+TEST(test_proplist_of_unknown_name_is_the_empty_list) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT EMPTY? PROPLIST \"nosuchplist");
+    CHECK_STREQ(captured_output, "TRUE\n");
+}
+
+TEST(test_setprop_can_use_a_computed_plist_name_and_key) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "SETPROP WORD \"turtle \"1 WORD \"col \"or \"red\n"
+        "PRINT GETPROP \"turtle1 \"color");
+    CHECK_STREQ(captured_output, "red\n");
+}
+
 TEST(test_tell_out_of_range_reports_error) {
     LogoApp *app = new_app();
     eval_logo(app, "TELL 99");
@@ -2094,6 +2172,15 @@ int main(void) {
     RUN(test_procedures_is_empty_when_none_are_defined);
     RUN(test_names_lists_every_global_variable_not_locals);
     RUN(test_names_reflects_reassignment_not_duplicate_entries);
+    RUN(test_setprop_getprop_round_trips_a_number_word_and_list);
+    RUN(test_getprop_of_missing_property_is_the_empty_list);
+    RUN(test_setprop_on_same_key_overwrites_not_duplicates);
+    RUN(test_different_proplist_names_dont_share_properties);
+    RUN(test_removeprop_removes_a_property);
+    RUN(test_removeprop_of_missing_property_is_a_silent_no_op);
+    RUN(test_proplist_lists_alternating_keys_and_values);
+    RUN(test_proplist_of_unknown_name_is_the_empty_list);
+    RUN(test_setprop_can_use_a_computed_plist_name_and_key);
     RUN(test_tell_out_of_range_reports_error);
 
     RUN(test_hideturtle_showturtle_toggles_visibility);

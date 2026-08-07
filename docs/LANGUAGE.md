@@ -367,6 +367,45 @@ END
   not have room left for additional `LOCAL`s; going over prints `LOCAL:
   too many local variables`.
 
+### Property lists
+
+```
+SETPROP "turtle1 "color "red
+SETPROP "turtle1 "speed 5
+PRINT GETPROP "turtle1 "color   ; red
+PRINT GETPROP "turtle1 "nosuchkey   ; the empty list -- nothing stored there
+PRINT PROPLIST "turtle1   ; color red speed 5
+REMOVEPROP "turtle1 "color
+```
+
+A separate namespace from ordinary `MAKE`/`:name` variables — a way to
+attach an open-ended set of named values ("properties") to a name,
+without pre-declaring which properties exist. (Other Logo dialects call
+these `PPROP`/`GPROP`/`REMPROP`/`PLIST` — renamed here since there's no
+real cross-dialect standard to match and the abbreviations aren't
+self-explanatory.)
+
+- `SETPROP plistname propname value` stores `value` (any type — number,
+  word, list, or array) under `propname` in the property list named
+  `plistname`, creating the entry if it doesn't exist yet or overwriting
+  it in place if it does.
+- `GETPROP plistname propname` retrieves that value, or the empty list
+  if nothing has been stored under that key — never an error, so it's
+  safe to call speculatively (`IF NOT EMPTY? GETPROP "turtle1 "color
+  [...]`).
+- `REMOVEPROP plistname propname` deletes the entry; a silent no-op if
+  it wasn't there.
+- `PROPLIST plistname` outputs the whole record as a flat list,
+  alternating property names and values (`[color red speed 5]`) —
+  nothing at all (the empty list) for a `plistname` with no properties
+  stored.
+- `plistname` and `propname` are each any expression evaluating to a
+  word, same convention as `THING` — `SETPROP WORD "turtle :n "color
+  "red` works, not just a literal `"turtle1`.
+- Every property list shares one global table regardless of scope —
+  there's no `LOCAL`-style scoping for properties the way there is for
+  variables.
+
 ## Words & lists
 
 ```

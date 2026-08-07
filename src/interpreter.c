@@ -366,6 +366,20 @@ static void set_var_array(LogoApp *app, const char *name, int start, int length)
     }
 }
 
+// Find a stored SETPROP entry by plist name + property key (case-
+// insensitive, same convention as find_var), or -1 if no such property
+// has been set. Used by SETPROP (to know whether to overwrite an
+// existing entry or allocate a new one), GETPROP, and REMOVEPROP.
+static int find_plist_entry(LogoApp *app, const char *plist_name, const char *key) {
+    for (int i = 0; i < app->plist_entry_count; i++) {
+        if (strcasecmp(app->plist_entries[i].plist_name, plist_name) == 0 &&
+            strcasecmp(app->plist_entries[i].key, key) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 // --- EXPRESSION EVALUATION (numbers, words, lists, :variables, + - * / (), comparisons) ---
 //
 // A single Value type flows through the whole expression evaluator: every
@@ -1581,6 +1595,45 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         }
         return number_value(0);
     }
+    if (consume_keyword(ptr, "GETPROP")) {
+        Value name_val = parse_factor(app, ptr);
+        Value key_val = parse_factor(app, ptr);
+        char name_text[32], key_text[32];
+        value_to_text(app, &name_val, name_text, sizeof(name_text));
+        value_to_text(app, &key_val, key_text, sizeof(key_text));
+        int idx = find_plist_entry(app, name_text, key_text);
+        if (idx < 0) return list_value(-1); // no such property: the empty list
+        PlistEntry *e = &app->plist_entries[idx];
+        if (e->type == VALUE_WORD) return word_value(e->word);
+        if (e->type == VALUE_LIST) return list_value(e->list_head);
+        if (e->type == VALUE_ARRAY) return array_value(e->list_head, (int)e->number);
+        return number_value(e->number);
+    }
+    if (consume_keyword(ptr, "PROPLIST")) {
+        Value name_val = parse_factor(app, ptr);
+        char name_text[32];
+        value_to_text(app, &name_val, name_text, sizeof(name_text));
+        int head = -1;
+        int *next_slot = &head;
+        for (int i = 0; i < app->plist_entry_count; i++) {
+            PlistEntry *e = &app->plist_entries[i];
+            if (strcasecmp(e->plist_name, name_text) != 0) continue;
+            int key_node = list_node_from_value(app, word_value(e->key));
+            if (key_node < 0) return list_pool_exhausted_error(app);
+            *next_slot = key_node;
+            next_slot = &app->list_pool[key_node].next;
+            Value val;
+            if (e->type == VALUE_WORD) val = word_value(e->word);
+            else if (e->type == VALUE_LIST) val = list_value(e->list_head);
+            else if (e->type == VALUE_ARRAY) val = array_value(e->list_head, (int)e->number);
+            else val = number_value(e->number);
+            int val_node = list_node_from_value(app, val);
+            if (val_node < 0) return list_pool_exhausted_error(app);
+            *next_slot = val_node;
+            next_slot = &app->list_pool[val_node].next;
+        }
+        return list_value(head);
+    }
     if (**ptr == ':') {
         (*ptr)++;
         char name[32] = {0};
@@ -2251,6 +2304,52 @@ void eval_logo(LogoApp *app, const char *code) {
                 }
             } else {
                 append_output(app, "MAKE: expected a \"name\n");
+            }
+        }
+        // 3b'. Property lists: named plistname/propname/value records,
+        // separate from ordinary variables (see PlistEntry in
+        // logo_types.h). Unlike MAKE's varname, plistname/propname here
+        // are each any expression evaluating to a word (matching THING's
+        // convention, not requiring a literal "word), so e.g. SETPROP WORD
+        // "turtle :n "color "red works.
+        else if (strcasecmp(token, "SETPROP") == 0) {
+            Value name_val = parse_expr(app, &ptr);
+            Value key_val = parse_expr(app, &ptr);
+            Value new_val = parse_expr(app, &ptr);
+            char name_text[32], key_text[32];
+            value_to_text(app, &name_val, name_text, sizeof(name_text));
+            value_to_text(app, &key_val, key_text, sizeof(key_text));
+            int idx = find_plist_entry(app, name_text, key_text);
+            if (idx < 0) {
+                if (app->plist_entry_count >= MAX_PLIST_ENTRIES) {
+                    append_output(app, "SETPROP: too many properties defined, not set\n");
+                    idx = -1;
+                } else {
+                    idx = app->plist_entry_count++;
+                    snprintf(app->plist_entries[idx].plist_name, sizeof(app->plist_entries[idx].plist_name), "%s", name_text);
+                    snprintf(app->plist_entries[idx].key, sizeof(app->plist_entries[idx].key), "%s", key_text);
+                }
+            }
+            if (idx >= 0) {
+                PlistEntry *e = &app->plist_entries[idx];
+                e->type = new_val.type;
+                e->number = new_val.number;
+                snprintf(e->word, sizeof(e->word), "%s", new_val.word);
+                e->list_head = new_val.list_head;
+            }
+        }
+        else if (strcasecmp(token, "REMOVEPROP") == 0) {
+            Value name_val = parse_expr(app, &ptr);
+            Value key_val = parse_expr(app, &ptr);
+            char name_text[32], key_text[32];
+            value_to_text(app, &name_val, name_text, sizeof(name_text));
+            value_to_text(app, &key_val, key_text, sizeof(key_text));
+            int idx = find_plist_entry(app, name_text, key_text);
+            // Order among a plist's remaining entries isn't documented as
+            // stable in any Logo dialect, so a swap-with-last removal
+            // (rather than shifting everything down) is fine here.
+            if (idx >= 0) {
+                app->plist_entries[idx] = app->plist_entries[--app->plist_entry_count];
             }
         }
         // 3a'''. SETITEM index array value — the one in-place mutation

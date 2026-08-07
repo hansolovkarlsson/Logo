@@ -1,0 +1,25 @@
+; Property lists: named plistname/propname/value records, independent of
+; ordinary MAKE variables. SETPROP stores, GETPROP retrieves (the empty
+; list if nothing's stored under that key), REMOVEPROP deletes, and
+; PROPLIST reports the whole record as a flat [key value key value ...]
+; list.
+
+SETPROP "turtle1 "color "red
+SETPROP "turtle1 "speed 5
+SETPROP "turtle2 "color "blue
+
+PRINT GETPROP "turtle1 "color   ; red
+PRINT GETPROP "turtle2 "color   ; blue -- a separate record from turtle1's
+PRINT GETPROP "turtle1 "nosuchkey   ; the empty list -- nothing stored there
+
+PRINT PROPLIST "turtle1   ; color red speed 5
+
+REMOVEPROP "turtle1 "color
+PRINT GETPROP "turtle1 "color   ; empty again, now that it's removed
+PRINT PROPLIST "turtle1   ; just speed 5 remains
+
+; Values can be any type, not just words -- a property list is a natural
+; place to stash structured per-name data (here, a turtle's saved
+; position):
+SETPROP "turtle1 "home [0 0]
+PRINT GETPROP "turtle1 "home

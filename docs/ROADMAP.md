@@ -14,10 +14,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
 
 ### Phase 3 — New data types, background/sprite images
 
-- [ ] Property lists (key/value records) — Berkeley Logo's `PLIST`
-  (real command names: `GPROP`/`PPROP`/`REMPROP`); also a natural
-  stepping stone toward the OOP idea in Phase 5, since a prototype
-  "object" is essentially a plist with a type tag.
 - [ ] Load a background image onto the canvas (Terrapin's `LOADPIC`;
   `SAVEPIC` for the reverse).
 - [ ] Load part of an image onto part of the canvas (a sprite-sheet

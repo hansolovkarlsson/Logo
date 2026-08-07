@@ -35,6 +35,7 @@
 #define MAX_HISTORY 200
 #define MAX_TURTLES 10
 #define MAX_LIST_NODES 8192
+#define MAX_PLIST_ENTRIES 200
 
 // What happens when a turtle's move would cross the canvas edge (see
 // WRAP/FENCE/WINDOW in interpreter.c). EDGE_WINDOW is the zero value —
@@ -170,6 +171,26 @@ typedef struct {
     int count;
 } Scope;
 
+// One key/value pair stored under a named property list (SETPROP/
+// GETPROP/REMOVEPROP/PROPLIST) — a flat array scanned linearly by
+// plist_name+key, the
+// same fixed-pool style as Variable/Procedure above. Real Logo programs
+// use property lists as small, sparse records, not index-heavy
+// databases, so linear scan is the right tradeoff here, same reasoning
+// as Variable's own table. Deliberately mirrors Variable's
+// type/number/word/list_head layout (rather than reusing Variable
+// itself) since a property is keyed by two names (plist + property),
+// not one.
+typedef struct {
+    char plist_name[32];
+    char key[32];
+    ValueType type;
+    double number;   // type == VALUE_ARRAY: the array's length instead
+    char word[512];
+    int list_head; // type == VALUE_LIST: index into list_pool
+                    // type == VALUE_ARRAY: start index of `number` contiguous cells
+} PlistEntry;
+
 // All interpreter state plus the GTK widgets that display it.
 typedef struct LogoApp {
     // Multiple turtles: turtles[0..turtle_count-1] all exist and are all
@@ -206,6 +227,9 @@ typedef struct LogoApp {
 
     Variable variables[MAX_VARIABLES]; // globals
     int var_count;
+
+    PlistEntry plist_entries[MAX_PLIST_ENTRIES]; // see SETPROP/GETPROP/REMOVEPROP/PROPLIST
+    int plist_entry_count;
 
     Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call
     int scope_depth;
