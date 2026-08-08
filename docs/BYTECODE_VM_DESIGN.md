@@ -390,6 +390,41 @@ footprint.
     not-yet-implemented built-in will diverge exactly this way until
     that built-in lands. Fixed by renaming the test's procedure, with
     the collision itself recorded as the reason, not silently avoided.
+- **Shadow-diff corpus: grown from 20 to 33 scripts**, plus the
+  comparison itself strengthened to check every drawn line segment's
+  endpoints (`app->lines`/`line_count`), not just the turtle's final
+  resting position — two engines could agree on where the turtle ends
+  up while disagreeing about the path taken to get there, which
+  final-position-only comparison would miss. New corpus additions
+  cover nested loops, mutual/forward-and-backward procedure references,
+  multi-parameter and zero-parameter procedures, procedure calls
+  nested as arguments, `TRUE`/`FALSE` literals, `<=`/`>=`/`<>`, the new
+  parenthesized-boolean-grouping capability (confirmed to actually run
+  correctly, not just parse — nothing to diff against here since
+  today's interpreter can't express it at all), early `STOP` without
+  `OUTPUT`, boundary values (`REPEAT 0`, `WHILE FALSE`), and deeper
+  recursion.
+  - **Two more real findings, both fixed by adjusting the test, not
+    the engines**: a script combining `SETXY -50 -75` with a following
+    `SETHEADING` call exercised the *already-documented*
+    AST_CALL-in-expression-position simplification concretely — the
+    grammar's own `-50 - 75` greedy-subtraction parsing (shared by both
+    engines) left `SETHEADING 450` to become the *next* argument's
+    expression, which the old engine's parse_factor doesn't recognize
+    as an operator but this one does. Fixed with parens
+    (`SETXY -50 (-75)`), not a new special case.
+  - **A genuinely new discovery, in the old engine itself**: a
+    recursion pattern calling itself as an expression (`OUTPUT sumTo
+    ...`, the "procedure as operator" fallback) recurses through a
+    longer per-level C-stack chain than plain statement-position
+    self-recursion, and overflows the real stack under
+    AddressSanitizer *much* sooner — bisected directly: somewhere
+    between depth 34 and 36, versus the ~102-186 level range
+    previously documented for statement-position recursion (see the
+    Makefile's own `-O1` comment). Not a new-engine bug at all; a
+    pre-existing fragility in `eval_logo` that this corpus's use of
+    real accumulator-style recursion happened to trip for the first
+    time. The test now runs at depth 20, comfortably below it.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
   fuller language coverage, and growing the shadow-diff corpus
   alongside it — the mechanism itself is proven; the value from here

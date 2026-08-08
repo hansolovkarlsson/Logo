@@ -87,12 +87,32 @@ static TurtleSnapshot snapshot_turtle(LogoApp *app) {
     return s;
 }
 
+// Compares every drawn line segment's endpoints, not just the
+// turtle's final resting position -- two engines could agree on where
+// the turtle ends up while disagreeing about the path it took to get
+// there (or how many separate segments PENUP/PENDOWN toggling should
+// have produced along the way), which final-position-only comparison
+// would miss entirely. Color/width aren't compared: nothing in the
+// current corpus varies the pen color/width, so they'd trivially
+// match either way -- worth revisiting once SETPENCOLOR/SETPENWIDTH
+// join BUILTIN_SIGNATURES.
+static int lines_match(LogoApp *old_app, LogoApp *new_app_instance) {
+    if (old_app->line_count != new_app_instance->line_count) return 0;
+    for (int i = 0; i < old_app->line_count; i++) {
+        LineSegment *a = &old_app->lines[i];
+        LineSegment *b = &new_app_instance->lines[i];
+        if (a->x1 != b->x1 || a->y1 != b->y1 || a->x2 != b->x2 || a->y2 != b->y2) return 0;
+    }
+    return 1;
+}
+
 #define MAX_DIFF_TOKENS 512
 
 // Runs `source` through both engines and reports any disagreement --
-// in output text, or in final turtle state -- as a test failure. This
-// is the whole shadow-diff mechanism in one function; every TEST below
-// is just a different script fed through it.
+// in output text, final turtle state, or the actual drawn path -- as
+// a test failure. This is the whole shadow-diff mechanism in one
+// function; every TEST below is just a different script fed through
+// it.
 static void shadow_diff(const char *source) {
     captured_output[0] = '\0';
     LogoApp *old_app = new_app();
@@ -139,6 +159,11 @@ static void shadow_diff(const char *source) {
                current_test,
                old_turtle.x, old_turtle.y, old_turtle.angle, old_turtle.pen_down,
                new_turtle.x, new_turtle.y, new_turtle.angle, new_turtle.pen_down);
+    }
+    if (!lines_match(old_app, new_app_instance)) {
+        failures++;
+        printf("FAIL %s: drawn lines differ (old: %d segment(s), new: %d segment(s))\n",
+               current_test, old_app->line_count, new_app_instance->line_count);
     }
 }
 
@@ -242,6 +267,148 @@ TEST(test_recursive_procedure_with_turtle_motion) {
         "spiral 10");
 }
 
+TEST(test_nested_repeat_loops) {
+    shadow_diff("REPEAT 3 [REPEAT 2 [FD 10 RT 90]\nRT 30]");
+}
+
+TEST(test_nested_if_inside_while) {
+    shadow_diff(
+        "MAKE \"i 0\n"
+        "WHILE :i < 6 [\n"
+        "  IF :i / 2 * 2 = :i [PRINT \"even] ELSE [PRINT \"odd]\n"
+        "  MAKE \"i :i + 1\n"
+        "]");
+}
+
+TEST(test_multiple_procedures_calling_each_other) {
+    // Mutual reference in both directions -- isEven calls isOdd, which
+    // is defined *after* it (forward reference), and isOdd calls
+    // isEven right back (backward reference in the same call).
+    shadow_diff(
+        "TO isEven :n\n"
+        "  IF :n = 0 [OUTPUT \"TRUE]\n"
+        "  OUTPUT isOdd :n - 1\n"
+        "END\n"
+        "TO isOdd :n\n"
+        "  IF :n = 0 [OUTPUT \"FALSE]\n"
+        "  OUTPUT isEven :n - 1\n"
+        "END\n"
+        "PRINT isEven 10\n"
+        "PRINT isOdd 10");
+}
+
+TEST(test_procedure_with_multiple_parameters) {
+    shadow_diff(
+        "TO addthree :a :b :c\n"
+        "  OUTPUT :a + :b + :c\n"
+        "END\n"
+        "PRINT addthree 1 2 3");
+}
+
+TEST(test_procedure_with_no_parameters) {
+    shadow_diff(
+        "TO greet\n"
+        "  PRINT \"hi\n"
+        "END\n"
+        "greet\ngreet");
+}
+
+TEST(test_nested_procedure_calls_as_arguments) {
+    shadow_diff(
+        "TO double :n\n"
+        "  OUTPUT :n * 2\n"
+        "END\n"
+        "PRINT double double 5");
+}
+
+TEST(test_true_false_literals_in_conditions) {
+    shadow_diff("IF TRUE [PRINT \"a]\nIF FALSE [PRINT \"b]\nIF NOT FALSE [PRINT \"c]");
+}
+
+TEST(test_comparison_operators_le_ge_ne) {
+    shadow_diff(
+        "IF 5 <= 5 [PRINT \"a]\n"
+        "IF 5 >= 6 [PRINT \"b]\n"
+        "IF 5 <> 6 [PRINT \"c]\n"
+        "IF 5 <> 5 [PRINT \"d]");
+}
+
+TEST(test_boolean_grouping_with_parens) {
+    // The resolved "fix boolean grouping" decision from
+    // docs/BYTECODE_VM_DESIGN.md -- today's interpreter has no way to
+    // write this at all (no grouping for NOT/AND/OR), so there's
+    // nothing to diff against here; this just confirms the new
+    // engine's own added capability actually runs correctly, the same
+    // way test_parser.c already confirms it parses correctly.
+    LogoApp *app = new_app();
+    captured_output[0] = '\0';
+    LogoToken tokens[MAX_DIFF_TOKENS];
+    int n = logo_lex("IF NOT (1 = 2 OR 3 = 3) [PRINT \"a] ELSE [PRINT \"b]", tokens, MAX_DIFF_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    CHECK(result->error_count == 0);
+    ast_eval(app, &result->pool, result->program);
+    free(result);
+    CHECK(strcmp(captured_output, "b\n") == 0);
+}
+
+TEST(test_stop_without_output_exits_early) {
+    shadow_diff(
+        "TO firstpositive :a :b\n"
+        "  IF :a > 0 [PRINT :a\n  STOP]\n"
+        "  PRINT :b\n"
+        "END\n"
+        "firstpositive -1 99\n"
+        "firstpositive 5 99");
+}
+
+TEST(test_zero_and_boundary_values) {
+    shadow_diff(
+        "REPEAT 0 [PRINT \"never]\n"
+        "WHILE FALSE [PRINT \"never]\n"
+        "PRINT 0 - 0\n"
+        "PRINT 0 * 100\n"
+        "IF 0 = 0 [PRINT \"zero-equal]");
+}
+
+TEST(test_deep_but_safe_recursion) {
+    // Well under MAX_SCOPE_DEPTH (200), but NOT well under the old
+    // engine's real ASan stack-safety edge for THIS specific pattern --
+    // calling yourself as an expression (OUTPUT sumTo ...) recurses
+    // through a longer per-level C-stack chain (parse_factor ->
+    // parse_term -> parse_expr -> eval_logo, the "procedure as
+    // operator" fallback) than a plain statement-position self-call
+    // does. Bisected directly: this old-engine recursion pattern
+    // overflows the real stack under AddressSanitizer somewhere
+    // between depth 34 and 36 -- a materially lower ceiling than the
+    // ~102-186 level range previously documented for statement-
+    // position recursion (see the Makefile's own -O1 comment). 20 has
+    // real margin below that newly-found edge.
+    shadow_diff(
+        "TO sumTo :n :acc\n"
+        "  IF :n = 0 [OUTPUT :acc]\n"
+        "  OUTPUT sumTo :n - 1 :acc + :n\n"
+        "END\n"
+        "PRINT sumTo 20 0");
+}
+
+TEST(test_setxy_negative_coordinates_and_large_heading) {
+    // Two adjacent negative-number arguments need the second one
+    // parenthesized: SETXY -50 -75 (no parens) greedily parses as
+    // SETXY's *first* argument being -50 - 75 = -125 (unary then
+    // binary minus, the same grammar both engines share), leaving
+    // whatever statement follows to become the *second* argument's
+    // expression instead -- harmless in the old engine (a bareword
+    // there just silently reads as 0), but exercises this evaluator's
+    // already-documented AST_CALL-in-expression-position gap if that
+    // next statement happens to be a callable built-in (confirmed
+    // directly: this exact unparenthesized script reports "SETHEADING:
+    // didn't output a value" here, for precisely that reason). Not
+    // what this test is meant to exercise, so sidestepped with parens
+    // rather than silently working around it.
+    shadow_diff("SETXY -50 (-75)\nSETHEADING 450\nFD 20");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -263,6 +430,19 @@ int main(void) {
     RUN(test_local_scope_shadows_global);
     RUN(test_math_operators);
     RUN(test_recursive_procedure_with_turtle_motion);
+    RUN(test_nested_repeat_loops);
+    RUN(test_nested_if_inside_while);
+    RUN(test_multiple_procedures_calling_each_other);
+    RUN(test_procedure_with_multiple_parameters);
+    RUN(test_procedure_with_no_parameters);
+    RUN(test_nested_procedure_calls_as_arguments);
+    RUN(test_true_false_literals_in_conditions);
+    RUN(test_comparison_operators_le_ge_ne);
+    RUN(test_boolean_grouping_with_parens);
+    RUN(test_stop_without_output_exits_early);
+    RUN(test_zero_and_boundary_values);
+    RUN(test_deep_but_safe_recursion);
+    RUN(test_setxy_negative_coordinates_and_large_heading);
 
     if (failures == 0) {
         printf("All tests passed.\n");
