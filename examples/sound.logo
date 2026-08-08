@@ -21,7 +21,9 @@ END
 ; PLAYSOUND "path plays a WAV file the same fire-and-forget way,
 ; converting its sample rate/format to match the device if needed.
 ; STOPSOUND cuts off whatever TONE/PLAYSOUND is still playing.
+; sample.wav/sample2.wav (free-use) are alongside this file to try it
+; with -- run these two lines from the same directory as sound.logo:
 ;
-; PLAYSOUND "click.wav
+; PLAYSOUND "sample.wav
 ; WAIT 2
 ; STOPSOUND
