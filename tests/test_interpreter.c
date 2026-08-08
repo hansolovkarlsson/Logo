@@ -541,6 +541,24 @@ TEST(test_joystick_reports_nothing_connected_with_no_gui) {
     CHECK_STREQ(captured_output, "FALSE\n0\nFALSE\n");
 }
 
+// --- TONE/PLAYSOUND/STOPSOUND (Phase 4: sound effects) ---
+// play_tone/play_sound_file/stop_sound are NULL here (see
+// ensure_audio_device in ui.c), same no-op convention as every other
+// GUI-side-effect callback, so these run without error but produce no
+// audible output and no PLAYSOUND failure message headlessly.
+
+TEST(test_tone_and_stopsound_are_silent_no_ops_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TONE 440 0.01\nSTOPSOUND\nPRINT \"done");
+    CHECK_STREQ(captured_output, "done\n");
+}
+
+TEST(test_playsound_reports_nothing_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PLAYSOUND \"nonexistent.wav\nPRINT \"done");
+    CHECK_STREQ(captured_output, "done\n");
+}
+
 // --- POS/HEADING (turtle state queries) ---
 
 TEST(test_pos_reads_back_turtle_position) {
@@ -2782,6 +2800,8 @@ int main(void) {
     RUN(test_input_is_a_silent_no_op_with_no_gui);
     RUN(test_mousepos_defaults_to_the_origin_with_no_gui);
     RUN(test_joystick_reports_nothing_connected_with_no_gui);
+    RUN(test_tone_and_stopsound_are_silent_no_ops_with_no_gui);
+    RUN(test_playsound_reports_nothing_with_no_gui);
 
     RUN(test_pos_reads_back_turtle_position);
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);

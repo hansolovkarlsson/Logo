@@ -1456,6 +1456,42 @@ click or press the button, which could easily be more than 200 frames.
   itself still never touches SDL directly, reaching it only through
   the same kind of callback `LOADPIC`/`resize_canvas`/etc. already use.
 
+## Sound
+
+```
+TONE 440 0.3       ; play a 440Hz tone for 0.3 seconds
+PLAYSOUND "click.wav
+STOPSOUND
+```
+
+- `TONE frequency seconds` synthesizes and plays a sine wave at
+  `frequency` Hz for `seconds` seconds. `PLAYSOUND "path` loads and
+  plays a WAV file from disk instead — same `"path` convention as
+  `LOADPIC`/`SAVEPIC` (a quoted word, not a general string expression).
+  `STOPSOUND` silences whatever either one is still playing.
+- Both `TONE` and `PLAYSOUND` are **fire-and-forget**, unlike
+  `WAITKEY`/`INPUT`/`PAUSE` above: they queue the sound and return
+  immediately rather than blocking the script until it finishes. A
+  sound effect can play in the background while a `WHILE`-driven
+  animation (`followmouse`, `drivewithjoystick`) keeps moving the
+  turtle — the way a real game engine's sound effects work, not a
+  blocking beep.
+- Only one sound plays at a time: a `TONE`/`PLAYSOUND` while another is
+  still queued/playing replaces it outright rather than queueing up
+  behind it (both clear the device's queue first), same as
+  `STOPSOUND`'s own effect.
+- `PLAYSOUND` reports `PLAYSOUND: could not load "path` if the file
+  doesn't exist or isn't a WAV file SDL2 can decode; `TONE`/`STOPSOUND`
+  never fail outright — a bad frequency/duration (zero or negative)
+  just plays nothing.
+- No new dependency beyond SDL2 (already linked for the joystick
+  above): its own audio device queue is all a synthesized tone or a
+  WAV file playback needs, so this reuses Phase 4's one "genuinely
+  new" library rather than adding another. `interpreter.c` still never
+  touches SDL directly, reaching it only through the same kind of
+  callback `LOADPIC`/`JOYSTICK?`/etc. already use — silent no-ops in
+  the headless test driver, where there's no audio device to open.
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than

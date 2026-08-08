@@ -3378,6 +3378,52 @@ void eval_logo(LogoApp *app, const char *code) {
                 op->line_count_at_call = app->line_count;
             }
         }
+        // 3c''''''d'. TONE frequency seconds — synthesizes and plays a
+        // sine-wave tone through SDL2's audio device (see ui.c's
+        // ensure_audio_device) for `seconds` seconds at `frequency` Hz.
+        // Fire-and-forget, unlike WAIT/PAUSE/ANIMATESPRITE above: it
+        // queues the tone and returns immediately, so a sound effect
+        // can play while a WHILE-driven animation keeps moving the
+        // turtle, matching a real game engine's sound effects rather
+        // than a blocking beep. A later TONE/PLAYSOUND/STOPSOUND
+        // interrupts whatever's still queued from an earlier one — only
+        // one sound plays at a time. Silent no-op in headless tests
+        // (play_tone is NULL there, same convention as request_redraw).
+        else if (strcasecmp(token, "TONE") == 0) {
+            double frequency = value_to_number(parse_expr(app, &ptr));
+            double seconds = value_to_number(parse_expr(app, &ptr));
+            if (app->play_tone != NULL) {
+                app->play_tone(app, frequency, seconds);
+            }
+        }
+        // 3c''''''d''. PLAYSOUND "path — loads and plays a WAV file
+        // through the same SDL2 audio device as TONE, converting its
+        // sample rate/format/channel count to match if it doesn't
+        // already (see ui.c's logo_play_sound_file). Also
+        // fire-and-forget. Reports an error if the file can't be
+        // loaded/decoded; silent no-op in headless tests, same
+        // convention as LOADPIC.
+        else if (strcasecmp(token, "PLAYSOUND") == 0) {
+            char path_buf[512] = {0};
+            if (sscanf(ptr, "%511s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+                ptr += read_bytes;
+                if (app->play_sound_file != NULL && !app->play_sound_file(app, path_buf + 1)) {
+                    append_output(app, "PLAYSOUND: could not load \"");
+                    append_output(app, path_buf + 1);
+                    append_output(app, "\n");
+                }
+            } else {
+                append_output(app, "PLAYSOUND: expected a \"path\n");
+            }
+        }
+        // 3c''''''d'''. STOPSOUND — silences whatever TONE/PLAYSOUND is
+        // still playing/queued. Silent no-op if nothing is (or if
+        // there's no audio device at all, e.g. headless tests).
+        else if (strcasecmp(token, "STOPSOUND") == 0) {
+            if (app->stop_sound != NULL) {
+                app->stop_sound(app);
+            }
+        }
         // 3c'''''''. WAIT expr — pauses for expr seconds (this
         // interpreter's own unit choice; real Logo's WAIT counts 60ths
         // of a second) before continuing, without freezing the window:

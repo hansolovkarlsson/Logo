@@ -1,0 +1,27 @@
+; TONE/PLAYSOUND/STOPSOUND: fire-and-forget sound effects, like
+; MOUSEPOS/JOYSTICK? never pausing the script. Only audible in the
+; real app (SDL2's audio device) -- no sound hardware in the headless
+; test driver, so these are silent no-ops there.
+
+TONE 440 0.3      ; play a 440Hz (concert A) tone for 0.3 seconds
+WAIT 0.5
+TONE 880 0.3      ; an octave up
+WAIT 0.5
+
+; A little ascending scale, one note per iteration, each note
+; replacing whatever's still playing from the note before it (TONE
+; always clears the queue first -- only one sound plays at a time).
+TO scale
+  FOR [step 0 7] [
+    TONE 220 * POWER 1.06 :step 0.15
+    WAIT 0.2
+  ]
+END
+
+; PLAYSOUND "path plays a WAV file the same fire-and-forget way,
+; converting its sample rate/format to match the device if needed.
+; STOPSOUND cuts off whatever TONE/PLAYSOUND is still playing.
+;
+; PLAYSOUND "click.wav
+; WAIT 2
+; STOPSOUND

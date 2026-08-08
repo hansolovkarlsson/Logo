@@ -22,8 +22,10 @@ all — `MOUSEPOS`/`BUTTON?`/`JOYSTICK?`/etc. are passive state queries,
 continuously updated in the background, rather than something that
 waits on an event.
 
-- [ ] Sound effects/playback — the other genuinely new dependency (no
-  audio library linked today) in this same "game engine" direction.
+`TONE`/`PLAYSOUND`/`STOPSOUND` (see `docs/LANGUAGE.md`'s "Sound"
+section) round out this phase — fire-and-forget sound effects through
+SDL2's own audio device, reusing the joystick's SDL2 dependency rather
+than adding a second audio library. Phase 4 is now complete.
 
 ### Phase 5 — Large architectural bets (need a design discussion first, not just scoping)
 

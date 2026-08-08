@@ -392,6 +392,23 @@ typedef struct LogoApp {
     double (*joystick_axis)(struct LogoApp *app, int axis);
     gboolean (*joystick_button)(struct LogoApp *app, int button);
 
+    // Sound effects/playback (TONE/PLAYSOUND/STOPSOUND) -- Phase 4's
+    // other planned addition, but no new library needed: SDL2 (already
+    // linked above for the joystick) has its own audio device queue,
+    // which is all a synthesized tone or a WAV file playback needs.
+    // Fire-and-forget like the joystick/mouse queries above, not a
+    // pausing wait like WAIT/PAUSE -- a sound effect keeps playing in
+    // the background while the script (and any WHILE-driven animation)
+    // keeps running, the way a real game engine's sound effects do.
+    // audio_device is an opaque SDL_AudioDeviceID (a plain integer, so
+    // no SDL include needed here), 0 meaning "not yet opened" (SDL
+    // reserves 0 as its own "invalid device" value) -- lazily opened on
+    // first use, same as joystick_handle above.
+    guint32 audio_device;
+    gboolean (*play_tone)(struct LogoApp *app, double frequency, double seconds);
+    gboolean (*play_sound_file)(struct LogoApp *app, const char *path);
+    void (*stop_sound)(struct LogoApp *app);
+
     // How many RUNs are currently nested (RUN doesn't push a Scope of its
     // own -- run code shares the caller's scope, unlike a procedure call
     // -- so this is separate from scope_depth, but capped at the same

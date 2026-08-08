@@ -7,7 +7,7 @@
 
 #include "ui.h"
 #include "interpreter.h"
-#include <SDL2/SDL.h> // JOYSTICK?/JOYSTICKAXIS/JOYSTICKBUTTON? only -- see logo_types.h
+#include <SDL2/SDL.h> // JOYSTICK?/JOYSTICKAXIS/JOYSTICKBUTTON?, TONE/PLAYSOUND/STOPSOUND -- see logo_types.h
 
 #include <ctype.h>
 #include <math.h>
@@ -475,6 +475,107 @@ static gboolean logo_joystick_button(LogoApp *app, int button) {
     SDL_Joystick *joy = ensure_joystick(app);
     if (joy == NULL || button < 0 || button >= SDL_JoystickNumButtons(joy)) return FALSE;
     return SDL_JoystickGetButton(joy, button) != 0;
+}
+
+// --- SOUND (SDL2 audio device) ---
+// A fixed output spec (44.1kHz, signed 16-bit, mono) for the one audio
+// device this app ever opens -- TONE synthesizes straight into it, and
+// PLAYSOUND converts whatever a WAV file's own format is into it, so
+// there's only ever one format to reason about past this point.
+#define LOGO_AUDIO_FREQ 44100
+#define LOGO_AUDIO_FORMAT AUDIO_S16SYS
+#define LOGO_AUDIO_CHANNELS 1
+
+// Lazily opens the device the first time TONE/PLAYSOUND is called and
+// keeps it open for the rest of the app's life -- nothing here ever
+// closes it, same as ensure_joystick's handle never being closed until
+// the controller itself disconnects. 0 is SDL's own reserved
+// "invalid device" value, so it doubles as the "not yet opened" flag.
+static SDL_AudioDeviceID ensure_audio_device(LogoApp *app) {
+    SDL_AudioDeviceID dev = (SDL_AudioDeviceID)app->audio_device;
+    if (dev != 0) return dev;
+    SDL_AudioSpec want;
+    SDL_zero(want);
+    want.freq = LOGO_AUDIO_FREQ;
+    want.format = LOGO_AUDIO_FORMAT;
+    want.channels = LOGO_AUDIO_CHANNELS;
+    want.samples = 2048;
+    dev = SDL_OpenAudioDevice(NULL, 0, &want, NULL, 0);
+    if (dev == 0) {
+        fprintf(stderr, "SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+    } else {
+        SDL_PauseAudioDevice(dev, 0); // unpaused -- queued audio plays right away
+    }
+    app->audio_device = (guint32)dev;
+    return dev;
+}
+
+// TONE frequency seconds — synthesizes a sine wave directly in the
+// device's own format, so no conversion step is needed the way
+// PLAYSOUND's arbitrary WAV files need. SDL_ClearQueuedAudio first: a
+// second TONE/PLAYSOUND while one is still playing replaces it rather
+// than queueing up behind it, matching STOPSOUND's "only one sound at
+// a time" model.
+static gboolean logo_play_tone(LogoApp *app, double frequency, double seconds) {
+    SDL_AudioDeviceID dev = ensure_audio_device(app);
+    if (dev == 0 || frequency <= 0 || seconds <= 0) return FALSE;
+    int sample_count = (int)(LOGO_AUDIO_FREQ * seconds);
+    Sint16 *samples = malloc((size_t)sample_count * sizeof(Sint16));
+    if (samples == NULL) return FALSE;
+    for (int i = 0; i < sample_count; i++) {
+        double t = (double)i / LOGO_AUDIO_FREQ;
+        samples[i] = (Sint16)(sin(2.0 * G_PI * frequency * t) * 16000.0);
+    }
+    SDL_ClearQueuedAudio(dev);
+    SDL_QueueAudio(dev, samples, (Uint32)(sample_count * (int)sizeof(Sint16)));
+    free(samples);
+    return TRUE;
+}
+
+// PLAYSOUND "path — loads a WAV file and queues it on the same device,
+// converting sample rate/format/channel count to match if the file's
+// own don't already (SDL_LoadWAV keeps whatever the file was encoded
+// with; SDL_QueueAudio requires the device's own format).
+static gboolean logo_play_sound_file(LogoApp *app, const char *path) {
+    SDL_AudioDeviceID dev = ensure_audio_device(app);
+    if (dev == 0) return FALSE;
+    SDL_AudioSpec wav_spec;
+    Uint8 *wav_buf = NULL;
+    Uint32 wav_len = 0;
+    if (SDL_LoadWAV(path, &wav_spec, &wav_buf, &wav_len) == NULL) {
+        return FALSE;
+    }
+    SDL_ClearQueuedAudio(dev);
+    if (wav_spec.freq == LOGO_AUDIO_FREQ && wav_spec.format == LOGO_AUDIO_FORMAT &&
+        wav_spec.channels == LOGO_AUDIO_CHANNELS) {
+        SDL_QueueAudio(dev, wav_buf, wav_len);
+    } else {
+        SDL_AudioCVT cvt;
+        if (SDL_BuildAudioCVT(&cvt, wav_spec.format, wav_spec.channels, wav_spec.freq,
+                               LOGO_AUDIO_FORMAT, LOGO_AUDIO_CHANNELS, LOGO_AUDIO_FREQ) < 0) {
+            SDL_FreeWAV(wav_buf);
+            return FALSE;
+        }
+        cvt.len = (int)wav_len;
+        cvt.buf = malloc((size_t)(cvt.len * cvt.len_mult));
+        if (cvt.buf == NULL) {
+            SDL_FreeWAV(wav_buf);
+            return FALSE;
+        }
+        memcpy(cvt.buf, wav_buf, wav_len);
+        SDL_ConvertAudio(&cvt);
+        SDL_QueueAudio(dev, cvt.buf, (Uint32)cvt.len_cvt);
+        free(cvt.buf);
+    }
+    SDL_FreeWAV(wav_buf);
+    return TRUE;
+}
+
+static void logo_stop_sound(LogoApp *app) {
+    SDL_AudioDeviceID dev = (SDL_AudioDeviceID)app->audio_device;
+    if (dev != 0) {
+        SDL_ClearQueuedAudio(dev);
+    }
 }
 
 // Renders the current scene to an off-screen surface at the canvas's
@@ -1102,22 +1203,23 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->joystick_connected = logo_joystick_connected;
     logo->joystick_axis = logo_joystick_axis;
     logo->joystick_button = logo_joystick_button;
+    logo->play_tone = logo_play_tone;
+    logo->play_sound_file = logo_play_sound_file;
+    logo->stop_sound = logo_stop_sound;
 
-    // Only the joystick subsystem -- this app doesn't use SDL for
-    // anything else (no window, no event loop of its own; GTK's own
-    // main loop keeps running exactly as before). A failure here just
-    // means JOYSTICK?/etc. report nothing connected rather than
-    // crashing -- ensure_joystick's own SDL_NumJoysticks check degrades
-    // the same way it would for "no joystick plugged in". Logged to
-    // stderr (not the history pane -- this runs before any window
-    // exists to show one in) since a failure here is otherwise
-    // completely silent: JOYSTICK? just reports FALSE, identical to
-    // the "no controller plugged in" case, with nothing to tell them
-    // apart without this.
-    if (SDL_Init(SDL_INIT_JOYSTICK) != 0) {
-        fprintf(stderr, "SDL_Init(SDL_INIT_JOYSTICK) failed: %s\n", SDL_GetError());
+    // Joystick and audio -- this app doesn't use SDL for anything else
+    // (no window, no event loop of its own; GTK's own main loop keeps
+    // running exactly as before). A failure here just means JOYSTICK?/
+    // TONE/etc. degrade to reporting nothing connected / silently doing
+    // nothing rather than crashing (ensure_joystick/ensure_audio_device
+    // both check for this). Logged to stderr (not the history pane --
+    // this runs before any window exists to show one in) since a
+    // failure here is otherwise completely silent, with nothing to
+    // tell it apart from "no controller plugged in"/"no sound played".
+    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) != 0) {
+        fprintf(stderr, "SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) failed: %s\n", SDL_GetError());
     } else {
-        fprintf(stderr, "SDL joystick subsystem ready; %d joystick(s) detected at startup\n", SDL_NumJoysticks());
+        fprintf(stderr, "SDL joystick/audio subsystems ready; %d joystick(s) detected at startup\n", SDL_NumJoysticks());
     }
 
     GtkWidget *window = gtk_application_window_new(app);
