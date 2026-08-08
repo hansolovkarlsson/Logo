@@ -652,6 +652,47 @@ TEST(test_send_object_used_as_lightweight_class_hierarchy) {
         "PRINT SEND \"puppy \"legs []");
 }
 
+TEST(test_array_create_setitem_fillarray_item) {
+    shadow_diff(
+        "MAKE \"a ARRAY 3\n"
+        "SETITEM 1 :a \"x\n"
+        "SETITEM 2 :a 42\n"
+        "SETITEM 3 :a [1 2 3]\n"
+        "PRINT :a\n"
+        "PRINT ITEM 1 :a\n"
+        "PRINT ITEM 2 :a\n"
+        "PRINT ITEM 3 :a\n"
+        "MAKE \"b ARRAY 2\n"
+        "FILLARRAY :b \"z\n"
+        "PRINT :b");
+}
+
+TEST(test_array_aliasing_through_make_and_procedure_arguments) {
+    // Arrays are this language's one mutable value -- MAKE "b :a and
+    // passing an array into a procedure parameter both alias the same
+    // storage rather than copying it, in both engines.
+    shadow_diff(
+        "TO mutate :a\n"
+        "  SETITEM 1 :a 777\n"
+        "END\n"
+        "MAKE \"arr ARRAY 3\n"
+        "MAKE \"alias :arr\n"
+        "SETITEM 1 :alias 99\n"
+        "PRINT ITEM 1 :arr\n"
+        "mutate :arr\n"
+        "PRINT ITEM 1 :alias");
+}
+
+TEST(test_array_errors_match_between_engines) {
+    shadow_diff("MAKE \"a ARRAY 0");
+    shadow_diff("MAKE \"a ARRAY 3\nSETITEM 0 :a \"x");
+    shadow_diff("MAKE \"a ARRAY 3\nPRINT ITEM 5 :a");
+    shadow_diff("SETITEM 1 [1 2 3] \"x");
+    shadow_diff("MAKE \"a ARRAY 2\nMAKE \"b ARRAY 2\nSETITEM 1 :a :b");
+    shadow_diff("FILLARRAY [1 2 3] \"x");
+    shadow_diff("MAKE \"a ARRAY 2\nMAKE \"b ARRAY 2\nFILLARRAY :a :b");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -703,6 +744,9 @@ int main(void) {
     RUN(test_send_operator_form_captures_output);
     RUN(test_send_to_unknown_message_reports_does_not_understand);
     RUN(test_send_object_used_as_lightweight_class_hierarchy);
+    RUN(test_array_create_setitem_fillarray_item);
+    RUN(test_array_aliasing_through_make_and_procedure_arguments);
+    RUN(test_array_errors_match_between_engines);
 
     if (failures == 0) {
         printf("All tests passed.\n");

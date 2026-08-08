@@ -66,6 +66,14 @@ static EvalValue list_val(int head) {
     return v;
 }
 
+static EvalValue array_val(int start, int length) {
+    EvalValue v = {0};
+    v.type = VALUE_ARRAY;
+    v.list_head = start;
+    v.number = length; // an array's `number` field holds its length, not a value -- matches interpreter.c's own array_value
+    return v;
+}
+
 // A "list storage full" report shared by every list-construction
 // operator below -- same wording and "loud, not silent" policy as
 // interpreter.c's own list_pool_exhausted_error.
@@ -138,12 +146,28 @@ static void list_elements_to_text(LogoApp *app, int head, char *out, size_t out_
     }
 }
 
+// Render an array's `length` cells (starting at `start`), space-
+// separated and enclosed in { } -- mirrors interpreter.c's own
+// array_elements_to_text exactly. Unlike a list, an array's own braces
+// show even as PRINT's top-level value, keeping the two concrete types
+// visually distinguishable.
+static void array_elements_to_text(LogoApp *app, int start, int length, char *out, size_t out_size) {
+    out[0] = '\0';
+    strncat(out, "{", out_size - strlen(out) - 1);
+    for (int i = 0; i < length; i++) {
+        if (i > 0) strncat(out, " ", out_size - strlen(out) - 1);
+        append_node_text(app, &app->list_pool[start + i], out, out_size);
+    }
+    strncat(out, "}", out_size - strlen(out) - 1);
+}
+
 // Render any value as text -- mirrors interpreter.c's own
 // value_to_text (a word as-is, a number %g-formatted, a list via
-// list_elements_to_text).
+// list_elements_to_text, an array via array_elements_to_text).
 static void eval_value_to_text(LogoApp *app, EvalValue v, char *out, size_t out_size) {
     if (v.type == VALUE_WORD) snprintf(out, out_size, "%s", v.word);
     else if (v.type == VALUE_LIST) list_elements_to_text(app, v.list_head, out, out_size);
+    else if (v.type == VALUE_ARRAY) array_elements_to_text(app, v.list_head, (int)v.number, out, out_size);
     else snprintf(out, out_size, "%g", v.number);
 }
 
@@ -445,6 +469,9 @@ static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, E
                 snprintf(slot->word, sizeof(slot->word), "%s", arg_vals[i].word);
             } else if (arg_vals[i].type == VALUE_LIST) {
                 slot->list_head = arg_vals[i].list_head;
+            } else if (arg_vals[i].type == VALUE_ARRAY) {
+                slot->list_head = arg_vals[i].list_head;
+                slot->number = arg_vals[i].number;
             } else {
                 slot->number = arg_vals[i].number;
             }
@@ -606,6 +633,7 @@ static void do_make(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue val = eval_expr(app, pool, arg_idx[1]);
     if (val.type == VALUE_WORD) set_var_word(app, varname, val.word);
     else if (val.type == VALUE_LIST) set_var_list(app, varname, val.list_head);
+    else if (val.type == VALUE_ARRAY) set_var_array(app, varname, val.list_head, (int)val.number);
     else set_var(app, varname, val.number);
 }
 static void do_output(LogoApp *app, AstPool *pool, const int *arg_idx) {
@@ -715,6 +743,7 @@ static EvalValue do_count(LogoApp *app, AstPool *pool, const int *arg_idx) {
         return num_val(count);
     }
     if (arg.type == VALUE_WORD) return num_val((double)strlen(arg.word));
+    if (arg.type == VALUE_ARRAY) return num_val(arg.number); // an array's `number` field holds its length
     return num_val(1); // a bare number counts as a one-element list
 }
 static EvalValue do_empty(LogoApp *app, AstPool *pool, const int *arg_idx) {
@@ -739,6 +768,107 @@ static EvalValue do_sentence(LogoApp *app, AstPool *pool, const int *arg_idx) {
 }
 static EvalValue do_list(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return eval_list_wrap_pair(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+// ARRAY size -- allocates `size` contiguous list_pool cells (direct
+// index math, not chain-walked -- see array_val's own comment), each
+// starting out an empty list. Mirrors interpreter.c's own ARRAY exactly.
+static EvalValue do_array(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int size = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    if (size < 1) {
+        append_output(app, "ARRAY: size must be at least 1\n");
+        return word_val("");
+    }
+    int start = app->list_pool_count;
+    for (int i = 0; i < size; i++) {
+        int idx = list_alloc_node(app);
+        if (idx < 0) return list_pool_exhausted(app);
+        app->list_pool[idx].type = LIST_ELEM_LIST;
+        app->list_pool[idx].sublist_head = -1;
+        app->list_pool[idx].next = -1;
+    }
+    return array_val(start, size);
+}
+// ITEM index thing -- 1-indexed lookup into a list (chain walk), word
+// (character extract), array (direct index math), or bare number
+// (only index 1 valid). Mirrors interpreter.c's own ITEM exactly.
+static EvalValue do_item(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int index = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    EvalValue thing = eval_expr(app, pool, arg_idx[1]);
+    if (thing.type == VALUE_LIST) {
+        int i = 1;
+        for (int idx = thing.list_head; idx != -1; idx = app->list_pool[idx].next, i++) {
+            if (i == index) return node_to_value(&app->list_pool[idx]);
+        }
+        append_output(app, "ITEM: index out of range\n");
+        return word_val("");
+    }
+    if (thing.type == VALUE_WORD) {
+        int len = (int)strlen(thing.word);
+        if (index < 1 || index > len) {
+            append_output(app, "ITEM: index out of range\n");
+            return word_val("");
+        }
+        char ch[2] = {thing.word[index - 1], '\0'};
+        return word_val(ch);
+    }
+    if (thing.type == VALUE_ARRAY) {
+        if (index < 1 || index > (int)thing.number) {
+            append_output(app, "ITEM: index out of range\n");
+            return word_val("");
+        }
+        return node_to_value(&app->list_pool[thing.list_head + (index - 1)]);
+    }
+    if (index == 1) return thing; // a bare number counts as a one-element list
+    append_output(app, "ITEM: index out of range\n");
+    return word_val("");
+}
+// Shared by SETITEM/FILLARRAY: overwrite one list_pool cell in place
+// with `new_val`'s payload. Caller has already checked new_val isn't
+// itself an array.
+static void eval_array_store_cell(ListNode *node, EvalValue new_val) {
+    if (new_val.type == VALUE_NUMBER) {
+        node->type = LIST_ELEM_NUMBER;
+        node->number = new_val.number;
+    } else if (new_val.type == VALUE_LIST) {
+        node->type = LIST_ELEM_LIST;
+        node->sublist_head = new_val.list_head;
+    } else {
+        node->type = LIST_ELEM_WORD;
+        snprintf(node->word, sizeof(node->word), "%s", new_val.word);
+    }
+}
+// SETITEM index array value -- the one in-place mutation in this
+// language (see set_var_array's own comment). Mirrors interpreter.c's
+// own SETITEM exactly.
+static void do_setitem(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int index = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    EvalValue array_val_ = eval_expr(app, pool, arg_idx[1]);
+    EvalValue new_val = eval_expr(app, pool, arg_idx[2]);
+    if (array_val_.type != VALUE_ARRAY) {
+        append_output(app, "SETITEM: expected an array\n");
+    } else if (index < 1 || index > (int)array_val_.number) {
+        append_output(app, "SETITEM: index out of range\n");
+    } else if (new_val.type == VALUE_ARRAY) {
+        append_output(app, "SETITEM: can't store an array inside an array\n");
+    } else {
+        eval_array_store_cell(&app->list_pool[array_val_.list_head + (index - 1)], new_val);
+    }
+}
+// FILLARRAY array value -- SETITEM's per-cell assignment looped over
+// every index instead of just one. Mirrors interpreter.c's own
+// FILLARRAY exactly.
+static void do_fillarray(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue array_val_ = eval_expr(app, pool, arg_idx[0]);
+    EvalValue new_val = eval_expr(app, pool, arg_idx[1]);
+    if (array_val_.type != VALUE_ARRAY) {
+        append_output(app, "FILLARRAY: expected an array\n");
+    } else if (new_val.type == VALUE_ARRAY) {
+        append_output(app, "FILLARRAY: can't store an array inside an array\n");
+    } else {
+        for (int i = 0; i < (int)array_val_.number; i++) {
+            eval_array_store_cell(&app->list_pool[array_val_.list_head + i], new_val);
+        }
+    }
 }
 static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
@@ -955,6 +1085,16 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     } else if (strcasecmp(name, "LIST") == 0) {
         if (result != NULL) *result = do_list(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "ARRAY") == 0) {
+        if (result != NULL) *result = do_array(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "ITEM") == 0) {
+        if (result != NULL) *result = do_item(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "SETITEM") == 0) {
+        do_setitem(app, pool, arg_idx);
+    } else if (strcasecmp(name, "FILLARRAY") == 0) {
+        do_fillarray(app, pool, arg_idx);
     } else if (strcasecmp(name, "SETPROP") == 0) {
         do_setprop(app, pool, arg_idx);
     } else if (strcasecmp(name, "GETPROP") == 0) {
@@ -989,8 +1129,7 @@ static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx) {
             if (v->type == VALUE_WORD) return word_val(v->word);
             if (v->type == VALUE_NUMBER) return num_val(v->number);
             if (v->type == VALUE_LIST) return list_val(v->list_head);
-            append_output(app, "AST evaluator: array variables aren't supported yet\n");
-            return num_val(0);
+            return array_val(v->list_head, (int)v->number);
         }
         case AST_LIST_LITERAL: {
             // Builds a real list in app->list_pool, mirroring

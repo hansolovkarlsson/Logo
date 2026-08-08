@@ -374,7 +374,7 @@ void set_var_word(LogoApp *app, const char *name, const char *word) {
 // variables now point at the same list_pool cells -- arrays are a
 // deliberate, documented exception to this language's otherwise
 // immutable values (see the ARRAY comment in parse_factor).
-static void set_var_array(LogoApp *app, const char *name, int start, int length) {
+void set_var_array(LogoApp *app, const char *name, int start, int length) {
     Variable *v = find_or_create_var(app, name);
     if (v != NULL) {
         v->type = VALUE_ARRAY;

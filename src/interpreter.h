@@ -82,6 +82,13 @@ void set_var(LogoApp *app, const char *name, double value);
 void set_var_word(LogoApp *app, const char *name, const char *word);
 void set_var_list(LogoApp *app, const char *name, int list_head);
 
+// Bind `name` to an array -- unlike set_var_list, a genuine alias to
+// *mutable* shared storage: MAKE "b :a then SETITEM 1 :b 99 also
+// changes what :a sees, since both variables now point at the same
+// list_pool cells. Arrays are this language's one deliberate exception
+// to every other value being immutable/copy-on-build.
+void set_var_array(LogoApp *app, const char *name, int start, int length);
+
 // RANDOM n's own RNG (seeded from the current time on first use).
 double random_below(double n);
 

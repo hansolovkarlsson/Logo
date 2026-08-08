@@ -347,6 +347,104 @@ TEST(test_list_equality_in_condition) {
     CHECK_STREQ(captured_output, "same\n");
 }
 
+TEST(test_array_creates_cells_defaulting_to_empty_lists) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 3\nPRINT ITEM 1 :a\nPRINT COUNT :a");
+    CHECK_STREQ(captured_output, "\n3\n");
+}
+
+TEST(test_array_size_must_be_at_least_one) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 0");
+    CHECK_CONTAINS(captured_output, "ARRAY: size must be at least 1");
+}
+
+TEST(test_array_prints_with_braces) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 2\nSETITEM 1 :a 10\nSETITEM 2 :a 20\nPRINT :a");
+    CHECK_STREQ(captured_output, "{10 20}\n");
+}
+
+TEST(test_setitem_stores_number_word_and_list) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"a ARRAY 3\n"
+        "SETITEM 1 :a \"x\n"
+        "SETITEM 2 :a 42\n"
+        "SETITEM 3 :a [1 2 3]\n"
+        "PRINT ITEM 1 :a\n"
+        "PRINT ITEM 2 :a\n"
+        "PRINT ITEM 3 :a");
+    CHECK_STREQ(captured_output, "x\n42\n1 2 3\n");
+}
+
+TEST(test_setitem_index_out_of_range) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 3\nSETITEM 0 :a \"x");
+    CHECK_CONTAINS(captured_output, "SETITEM: index out of range");
+    run_source(app, "SETITEM 4 :a \"x");
+    CHECK_CONTAINS(captured_output, "SETITEM: index out of range");
+}
+
+TEST(test_setitem_on_non_array_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "SETITEM 1 [1 2 3] \"x");
+    CHECK_CONTAINS(captured_output, "SETITEM: expected an array");
+}
+
+TEST(test_setitem_array_inside_array_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 2\nMAKE \"b ARRAY 2\nSETITEM 1 :a :b");
+    CHECK_CONTAINS(captured_output, "SETITEM: can't store an array inside an array");
+}
+
+TEST(test_fillarray_fills_every_cell) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 2\nFILLARRAY :a [1 2]\nPRINT ITEM 1 :a\nPRINT ITEM 2 :a");
+    CHECK_STREQ(captured_output, "1 2\n1 2\n");
+}
+
+TEST(test_fillarray_on_non_array_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "FILLARRAY [1 2 3] \"x");
+    CHECK_CONTAINS(captured_output, "FILLARRAY: expected an array");
+}
+
+TEST(test_item_out_of_range_on_array) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 3\nPRINT ITEM 0 :a");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+    run_source(app, "PRINT ITEM 4 :a");
+    CHECK_CONTAINS(captured_output, "ITEM: index out of range");
+}
+
+TEST(test_count_of_array) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 5\nPRINT COUNT :a");
+    CHECK_STREQ(captured_output, "5\n");
+}
+
+TEST(test_make_aliases_array_not_copies) {
+    // Arrays are this language's one mutable value -- see
+    // set_var_array's own comment. MAKE "b :a must alias the same
+    // list_pool cells, not copy them.
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a ARRAY 2\nMAKE \"b :a\nSETITEM 1 :b 99\nPRINT ITEM 1 :a");
+    CHECK_STREQ(captured_output, "99\n");
+}
+
+TEST(test_array_passed_as_procedure_argument_keeps_its_aliasing) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "TO mutate :a\n"
+        "  SETITEM 1 :a 777\n"
+        "END\n"
+        "MAKE \"arr ARRAY 3\n"
+        "mutate :arr\n"
+        "PRINT ITEM 1 :arr");
+    CHECK_STREQ(captured_output, "777\n");
+}
+
 TEST(test_setprop_getprop_round_trips_a_number_word_and_list) {
     LogoApp *app = new_app();
     run_source(app,
@@ -571,6 +669,19 @@ int main(void) {
     RUN(test_word_sentence_list_constructors);
     RUN(test_list_passed_as_procedure_argument_and_output);
     RUN(test_list_equality_in_condition);
+    RUN(test_array_creates_cells_defaulting_to_empty_lists);
+    RUN(test_array_size_must_be_at_least_one);
+    RUN(test_array_prints_with_braces);
+    RUN(test_setitem_stores_number_word_and_list);
+    RUN(test_setitem_index_out_of_range);
+    RUN(test_setitem_on_non_array_reports_error);
+    RUN(test_setitem_array_inside_array_reports_error);
+    RUN(test_fillarray_fills_every_cell);
+    RUN(test_fillarray_on_non_array_reports_error);
+    RUN(test_item_out_of_range_on_array);
+    RUN(test_count_of_array);
+    RUN(test_make_aliases_array_not_copies);
+    RUN(test_array_passed_as_procedure_argument_keeps_its_aliasing);
     RUN(test_setprop_getprop_round_trips_a_number_word_and_list);
     RUN(test_getprop_of_missing_property_is_the_empty_list);
     RUN(test_setprop_on_same_key_overwrites_not_duplicates);

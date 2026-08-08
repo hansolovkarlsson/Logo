@@ -525,7 +525,51 @@ footprint.
     stay silent entirely in statement position (nobody asked for a
     value there) — both confirmed directly against `interpreter.c`'s
     own `SEND` operator form before the fix, not assumed.
+- **Arrays: done** (`ARRAY`/`ITEM`/`SETITEM`/`FILLARRAY`). The one
+  mutable value type in the language, ported directly from
+  `interpreter.c`'s own implementation: `ARRAY size` allocates `size`
+  contiguous `app->list_pool` cells (direct index math —
+  `list_pool[start + i]` — not chain-walked like a list, the whole
+  point of reaching for an array over a list); `SETITEM`/`FILLARRAY`
+  mutate cells in place; `MAKE "b :a` aliases the same cells rather
+  than copying, and so does passing an array into a procedure
+  parameter — both fixed by giving `call_ast_procedure`'s parameter-
+  binding loop and `do_make` a `VALUE_ARRAY` branch that copies both
+  `list_head` *and* `number` (an array's `EvalValue.number` field
+  holds its length, not a value). Exposed one more `Value`-independent
+  function from `interpreter.c`, `set_var_array`. Also fixed a latent
+  gap this surfaced: `eval_expr`'s `AST_VARREF` case previously had no
+  real `VALUE_ARRAY` branch at all (it printed "array variables aren't
+  supported yet" and returned 0) — now returns a real `array_val`,
+  which is what makes reading an array back out of a variable work at
+  all. Same "one built-in, one `do_*` function" structural rule
+  followed throughout (`do_array`/`do_item`/`do_setitem`/
+  `do_fillarray`, plus a small shared `eval_array_store_cell` helper
+  for the per-cell-assignment logic `SETITEM` and `FILLARRAY` share).
+  14 new `tests/test_eval.c` cases (creation, braces-formatted PRINT,
+  storing each value type, out-of-range/wrong-type/nested-array
+  errors, `COUNT`, aliasing via both `MAKE` and a procedure parameter)
+  and 3 new shadow-diff scripts (arrays use identical syntax in both
+  engines — `interpreter.c`'s `ARRAY`/`ITEM`/`SETITEM`/`FILLARRAY`
+  already take plain expression arguments, so no `shadow_diff_pair`
+  syntax-divergence handling was needed here, unlike `SEND`).
+  - **A stale comment, found and deliberately not propagated**:
+    `interpreter.c`'s own `ARRAY` comment claims arrays "can't be
+    passed into a user-defined procedure's parameter today" and get
+    "coerced to a plain number at the call boundary" — but the actual
+    `call_procedure` code there already handles `VALUE_ARRAY`
+    parameters correctly (copies both `list_head` and `number`,
+    exactly the aliasing behavior the rest of the comment describes
+    elsewhere). Matched the real, verified code behavior when porting
+    to the new engine, not the outdated comment; left a quiet note
+    rather than making a production of the discrepancy.
+  - Confirmed clean under AddressSanitizer on both `test_eval` and
+    `test_shadow_diff` — no new stack-fragility regression, which is
+    exactly what the structural `do_*`-per-built-in fix from the
+    property-lists milestone was meant to guarantee going forward.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
-  fuller language coverage (more turtle commands, type predicates,
-  arrays), and growing the shadow-diff corpus alongside it — the
-  mechanism itself is proven; the value from here on is coverage.
+  fuller language coverage (more turtle commands, type predicates —
+  `ARRAY?`/`WORD?`/`LIST?`/`NUMBER?` don't exist in the new engine at
+  all yet, not just for arrays), and growing the shadow-diff corpus
+  alongside it — the mechanism itself is proven; the value from here
+  on is coverage.

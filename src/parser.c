@@ -138,6 +138,15 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     // existing convention -- arglist is always required, [] for a
     // zero-argument message.
     { "SEND", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+
+    // Arrays (eval.c: the one mutable value type -- SETITEM changes a
+    // cell in place, and MAKE "b :a aliases the same list_pool cells
+    // rather than copying, see set_var_array). Every arg is a plain
+    // expression, matching interpreter.c's own convention.
+    { "ARRAY", 1, { ARG_EXPR } },
+    { "ITEM", 2, { ARG_EXPR, ARG_EXPR } },
+    { "SETITEM", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "FILLARRAY", 2, { ARG_EXPR, ARG_EXPR } },
 };
 #define BUILTIN_SIGNATURE_COUNT (int)(sizeof(BUILTIN_SIGNATURES) / sizeof(BUILTIN_SIGNATURES[0]))
 
