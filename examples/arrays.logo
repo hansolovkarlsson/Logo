@@ -30,3 +30,13 @@ SETITEM 0 :colors "x
 SETITEM 4 :colors "x
 SETITEM 1 [1 2 3] "x
 SETITEM 1 :colors ARRAY 2
+
+; Passing an array as a procedure parameter keeps the same aliasing --
+; SETITEM through the parameter is visible back through :colors too,
+; the same as MAKE "also_colors :colors above.
+
+TO paint :a
+  SETITEM 1 :a "painted
+END
+paint :colors
+PRINT :colors

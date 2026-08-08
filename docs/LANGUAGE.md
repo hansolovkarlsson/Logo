@@ -647,9 +647,10 @@ PRINT COUNT :a         -> 3
   `FILTER`/`REDUCE`/`FOREACH` don't support them — only `ARRAY`/`ITEM`/
   `SETITEM`/`ARRAY?`/`COUNT` do. An array also can't be nested inside
   another array's slot (`SETITEM` prints `SETITEM: can't store an array
-  inside an array`) or passed as a user-defined procedure's argument —
-  like every value, an argument is coerced to a plain number at the
-  call boundary (see `ROADMAP.md`'s Robustness section).
+  inside an array`). Passing one as a user-defined procedure's argument
+  works, and — same as `MAKE "b :a` — keeps its aliasing: `SETITEM`
+  through the parameter is visible to the caller's own variable too,
+  since both now share the same underlying storage.
 
 ### DOT, CROSS
 
@@ -738,7 +739,10 @@ rect 100 40
 - Up to 8 parameters are supported per procedure, bound positionally: the
   first argument at the call site fills the first declared parameter, and
   so on. Arguments are evaluated in the *caller's* scope, before the
-  callee's own scope is pushed.
+  callee's own scope is pushed. A parameter keeps whatever type its
+  argument actually is — a number, word, list, or array — not just a
+  number: `TO test :x PRINT :x END` then `test [1 2 3]` prints `1 2 3`,
+  not `0`.
 - Defining a `TO` with a name that already exists **overwrites** the
   existing procedure in place — handy for fixing a typo and re-running the
   definition. `ERASE "name` removes a procedure entirely.

@@ -714,7 +714,7 @@ static Value list_pool_exhausted_error(LogoApp *app) {
 
 static Value parse_expr(LogoApp *app, const char **ptr);
 static double parse_condition(LogoApp *app, const char **ptr);
-static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, Procedure *proc, double *arg_vals, gboolean *did_output);
+static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, Procedure *proc, Value *arg_vals, gboolean *did_output);
 
 // Substitute `element` for every "?" in `template_text`, then parse the
 // result as an expression — the operator form MAP/REDUCE share (FOREACH
@@ -1887,9 +1887,9 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             Procedure *proc = find_procedure(app, name);
             if (proc != NULL) {
                 *ptr = lookahead + n;
-                double arg_vals[MAX_PARAMS];
+                Value arg_vals[MAX_PARAMS];
                 for (int p = 0; p < proc->param_count; p++) {
-                    arg_vals[p] = value_to_number(parse_expr(app, ptr));
+                    arg_vals[p] = parse_expr(app, ptr);
                 }
                 gboolean did_output = FALSE;
                 Value result = call_procedure(app, proc, arg_vals, &did_output);
@@ -2058,7 +2058,7 @@ void append_output(LogoApp *app, const char *text) {
 // ordinary statement-call site, APPLY) pass NULL and ignore it; the
 // operator call site (a procedure used as a value inside an expression)
 // checks it and reports an error if nothing was output.
-static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, Procedure *proc, double *arg_vals, gboolean *did_output) {
+static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, Procedure *proc, Value *arg_vals, gboolean *did_output) {
     if (app->scope_depth >= MAX_SCOPE_DEPTH) {
         append_output(app, "Recursion too deep, call ignored\n");
         if (did_output != NULL) *did_output = FALSE;
@@ -2066,15 +2066,29 @@ static inline __attribute__((always_inline)) Value call_procedure(LogoApp *app, 
     }
     // Bind parameters as locals in a fresh scope so they shadow
     // same-named variables from outer calls or globals, then run the
-    // unmodified procedure body.
+    // unmodified procedure body. Binds arg_vals[p]'s real type (number,
+    // word, list, or array) rather than always coercing to a number —
+    // same per-type copy set_var_word/set_var_list/set_var_array/set_var
+    // do for MAKE, just written directly into the already-selected scope
+    // slot instead of a find-or-create global lookup.
     Scope *scope = &app->scopes[app->scope_depth];
     scope->count = proc->param_count;
     snprintf(scope->proc_name, sizeof(scope->proc_name), "%s", proc->name);
     for (int p = 0; p < proc->param_count; p++) {
         // param_names are stored with their leading ':'; strip it.
         snprintf(scope->vars[p].name, sizeof(scope->vars[p].name), "%s", proc->param_names[p] + 1);
-        scope->vars[p].type = VALUE_NUMBER;
-        scope->vars[p].number = arg_vals[p];
+        Variable *slot = &scope->vars[p];
+        slot->type = arg_vals[p].type;
+        if (arg_vals[p].type == VALUE_WORD) {
+            snprintf(slot->word, sizeof(slot->word), "%s", arg_vals[p].word);
+        } else if (arg_vals[p].type == VALUE_LIST) {
+            slot->list_head = arg_vals[p].list_head;
+        } else if (arg_vals[p].type == VALUE_ARRAY) {
+            slot->list_head = arg_vals[p].list_head;
+            slot->number = arg_vals[p].number;
+        } else {
+            slot->number = arg_vals[p].number;
+        }
     }
     app->scope_depth++;
 
@@ -3337,14 +3351,14 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, name_text);
                 append_output(app, "\n");
             } else {
-                double arg_vals[MAX_PARAMS];
+                Value arg_vals[MAX_PARAMS];
                 int count = 0;
                 if (list_val.type == VALUE_LIST) {
                     for (int idx = list_val.list_head; idx != -1 && count < MAX_PARAMS; idx = app->list_pool[idx].next) {
-                        arg_vals[count++] = value_to_number(list_node_to_value(&app->list_pool[idx]));
+                        arg_vals[count++] = list_node_to_value(&app->list_pool[idx]);
                     }
                 } else {
-                    arg_vals[count++] = value_to_number(list_val);
+                    arg_vals[count++] = list_val;
                 }
                 if (count != proc->param_count) {
                     append_output(app, "APPLY: wrong number of inputs for procedure \"");
@@ -3380,12 +3394,12 @@ void eval_logo(LogoApp *app, const char *code) {
             Procedure *proc = find_procedure(app, token);
             if (proc != NULL) {
                 // Evaluate each argument in the *caller's* scope, before
-                // pushing the callee's new one. Parameters stay purely
-                // numeric (a word argument coerces the same as anywhere
-                // else arithmetic touches one — see value_to_number).
-                double arg_vals[MAX_PARAMS];
+                // pushing the callee's new one, keeping whatever type it
+                // is (number, word, list, or array) rather than coercing
+                // to a number.
+                Value arg_vals[MAX_PARAMS];
                 for (int p = 0; p < proc->param_count; p++) {
-                    arg_vals[p] = value_to_number(parse_expr(app, &ptr));
+                    arg_vals[p] = parse_expr(app, &ptr);
                 }
                 call_procedure(app, proc, arg_vals, NULL);
             } else {

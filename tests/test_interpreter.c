@@ -765,6 +765,62 @@ TEST(test_recursion_with_parameter) {
     CHECK_STREQ(captured_output, "3\n2\n1\n");
 }
 
+// --- Procedure parameters keep their real type (not just numbers) ---
+// call_procedure used to bind every argument as VALUE_NUMBER regardless
+// of what was actually passed (arg_vals was a plain double[MAX_PARAMS]),
+// so a list/word/array argument silently number-coerced at the call
+// boundary -- found 2026-08-06 while adding arrays, fixed 2026-08-07.
+
+TEST(test_procedure_parameter_accepts_a_list) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO test :x\nPRINT :x\nEND\ntest [1 2 3]");
+    CHECK_STREQ(captured_output, "1 2 3\n");
+}
+
+TEST(test_procedure_parameter_accepts_a_word) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO test :x\nPRINT :x\nEND\ntest \"hello");
+    CHECK_STREQ(captured_output, "hello\n");
+}
+
+TEST(test_procedure_parameter_still_coerces_arithmetic_to_a_number) {
+    LogoApp *app = new_app();
+    eval_logo(app, "TO test :x\nPRINT :x\nEND\ntest 5 + 3");
+    CHECK_STREQ(captured_output, "8\n");
+}
+
+TEST(test_procedure_parameter_accepts_an_array_and_keeps_its_aliasing) {
+    // Arrays are a deliberate exception to this language's otherwise
+    // immutable values (see set_var_array): mutating through a
+    // parameter must be visible to the caller's own variable too, the
+    // same as MAKE "b :a then SETITEM ... :b already is.
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO mutate :a\nSETITEM 1 :a 777\nEND\n"
+        "MAKE \"arr ARRAY 3\n"
+        "mutate :arr\n"
+        "PRINT ITEM 1 :arr");
+    CHECK_STREQ(captured_output, "777\n");
+}
+
+TEST(test_procedure_used_as_operator_accepts_a_list_parameter) {
+    // The value-producing operator call site (a procedure used inside
+    // an expression, via OUTPUT) threads arguments separately from the
+    // plain statement call site -- exercise it too.
+    LogoApp *app = new_app();
+    eval_logo(app, "TO firstof :x\nOUTPUT FIRST :x\nEND\nPRINT firstof [9 8 7]");
+    CHECK_STREQ(captured_output, "9\n");
+}
+
+TEST(test_apply_passes_a_word_argument_unchanged) {
+    // Bracket-list elements are plain bareword tokens (no leading " --
+    // that's only for the "word prefix syntax in expression contexts),
+    // so [hello] is a one-element list holding the word hello.
+    LogoApp *app = new_app();
+    eval_logo(app, "TO test :x\nPRINT :x\nEND\nAPPLY \"test [hello]");
+    CHECK_STREQ(captured_output, "hello\n");
+}
+
 TEST(test_parameter_shadows_outer_global) {
     LogoApp *app = new_app();
     eval_logo(app,
@@ -2682,6 +2738,12 @@ int main(void) {
 
     RUN(test_procedure_definition_and_call);
     RUN(test_recursion_with_parameter);
+    RUN(test_procedure_parameter_accepts_a_list);
+    RUN(test_procedure_parameter_accepts_a_word);
+    RUN(test_procedure_parameter_still_coerces_arithmetic_to_a_number);
+    RUN(test_procedure_parameter_accepts_an_array_and_keeps_its_aliasing);
+    RUN(test_procedure_used_as_operator_accepts_a_list_parameter);
+    RUN(test_apply_passes_a_word_argument_unchanged);
     RUN(test_parameter_shadows_outer_global);
     RUN(test_make_without_local_mutates_outer_global);
     RUN(test_thing_reads_a_variable_by_a_computed_name);

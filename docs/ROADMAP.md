@@ -59,17 +59,3 @@ direction:
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).
-- [ ] User-defined procedure parameters coerce every argument to a plain
-  number, even a list/word/array — found 2026-08-06 while adding arrays
-  (the "new data types" phase above). `TO test :x PRINT :x END` then
-  `test [1 2 3]` prints `0`, not `1 2 3`: `call_procedure` binds every
-  parameter as `VALUE_NUMBER`
-  (`arg_vals` is a plain `double[MAX_PARAMS]`), so a list/word/array
-  argument is silently number-coerced at the call boundary — the same
-  way a bare word or list evaluates to `0` in any other numeric context,
-  just not somewhere a user would expect it applied. Never surfaced
-  before since every existing example/test only ever passes numeric
-  arguments. Fixing this means threading a real `Value` (not a `double`)
-  through `arg_vals`/`Scope.vars`/`APPLY`'s argument list — a real but
-  contained change, not attempted here since it's orthogonal to arrays
-  themselves.
