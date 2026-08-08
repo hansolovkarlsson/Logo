@@ -93,7 +93,7 @@ static const char* extract_block(const char *str, char *buffer, size_t buf_size)
 // exhausted (MAX_LIST_NODES) — same "cap it, report a loud error" policy
 // as every other fixed buffer in this codebase; every caller treats -1
 // as "report an error and abandon this list operation."
-static int list_alloc_node(LogoApp *app) {
+int list_alloc_node(LogoApp *app) {
     if (app->list_pool_count >= MAX_LIST_NODES) return -1;
     return app->list_pool_count++;
 }
@@ -349,7 +349,7 @@ void set_var(LogoApp *app, const char *name, double value) {
 // same binding rules as set_var. Just copies the head index — safe
 // aliasing, since list nodes are never mutated after being built (see
 // the ListNode comment in logo_types.h).
-static void set_var_list(LogoApp *app, const char *name, int list_head) {
+void set_var_list(LogoApp *app, const char *name, int list_head) {
     Variable *v = find_or_create_var(app, name);
     if (v != NULL) {
         v->type = VALUE_LIST;
@@ -784,7 +784,7 @@ static Value list_node_to_value(const ListNode *node) {
 // copied as-is (structural sharing) rather than recursively copied,
 // since nested sublists are never mutated either. Returns -1 if the pool
 // is exhausted.
-static int list_node_copy(LogoApp *app, int src_idx) {
+int list_node_copy(LogoApp *app, int src_idx) {
     int idx = list_alloc_node(app);
     if (idx < 0) return -1;
     app->list_pool[idx] = app->list_pool[src_idx];

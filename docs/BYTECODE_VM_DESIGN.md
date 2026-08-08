@@ -425,7 +425,40 @@ footprint.
     pre-existing fragility in `eval_logo` that this corpus's use of
     real accumulator-style recursion happened to trip for the first
     time. The test now runs at depth 20, comfortably below it.
+- **List-value support: done**. Real list values now flow through the
+  whole evaluator — list literals build genuine `app->list_pool`
+  chains (mirroring `interpreter.c`'s own `parse_list_literal` exactly:
+  untyped raw-text leaves, never number-vs-word typed at construction
+  time), and `FIRST`/`BUTFIRST`/`LAST`/`BUTLAST`/`COUNT`/`EMPTY?`/
+  `FPUT`/`LPUT`/`WORD`/`SENTENCE`(`SE`)/`LIST` all work — as do list
+  variables, list arguments/`OUTPUT`, and list equality in conditions.
+  Exposed three more pure, `Value`-independent functions from
+  `interpreter.c` (`list_alloc_node`, `list_node_copy`,
+  `set_var_list`) — the same curated-sharing approach as the turtle/
+  variable helpers, so a list built by one engine is indistinguishable
+  from one built by the other (same pool). 9 new `tests/test_eval.c`
+  cases plus 7 new shadow-diff scripts, all confirming exact agreement
+  with the real interpreter, including a real-shaped
+  recurse-over-a-list-accumulating-a-sum script.
+  - **A second genuinely new stack-fragility discovery, this time in
+    the NEW engine**: adding all these list operators as inline
+    branches in `exec_call` (one large function, a branch per
+    built-in, recursing through `call_ast_procedure` for every
+    ordinary procedure call) pushed its per-call stack frame large
+    enough to overflow the previously-clean 200-level recursion test
+    under AddressSanitizer — confirmed directly, the exact same class
+    of fragility already documented for `eval_logo` itself, now
+    self-inflicted in brand-new code. Fixed by extracting `WORD` (the
+    single biggest offender, two `char[512]` buffers) into its own
+    function, `eval_word_concat`, matching the pattern already used
+    for `FPUT`/`LPUT`/`SENTENCE`/`LIST` — confirmed clean under ASan
+    again afterward. Worth remembering as `BUILTIN_SIGNATURES`/
+    `exec_call` keep growing: large per-branch locals inlined directly
+    into `exec_call` cost every recursion level, not just calls to
+    that one operator, so anything with a sizeable local buffer should
+    be its own function from the start.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
-  fuller language coverage, and growing the shadow-diff corpus
-  alongside it — the mechanism itself is proven; the value from here
-  on is coverage.
+  fuller language coverage (property lists, more turtle commands, type
+  predicates, arrays), and growing the shadow-diff corpus alongside
+  it — the mechanism itself is proven; the value from here on is
+  coverage.

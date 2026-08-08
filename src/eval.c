@@ -2,15 +2,19 @@
 //
 // See eval.h for scope/rationale. A note on what's deliberately NOT
 // here yet, matching parser.c's own "bounded slice, not full coverage"
-// framing: list/array values are never produced or consumed (a
-// variable holding one, or a list literal used as a value, reports a
-// clear message rather than silently misbehaving -- see eval_expr's
-// AST_VARREF/AST_LIST_LITERAL cases) since that needs list_pool
-// allocation, currently private to interpreter.c and not yet exposed;
-// Ctrl+C interrupt checking is also absent, since g_interrupt_requested
-// is a file-static flag in interpreter.c with no exposed getter.
-// Both are documented follow-up work in docs/BYTECODE_VM_DESIGN.md,
-// not silent gaps.
+// framing: array values are never produced or consumed (SETITEM/ARRAY
+// aren't in BUILTIN_SIGNATURES yet, and a variable holding one reports
+// a clear message rather than silently misbehaving -- see eval_expr's
+// AST_VARREF case). List values ARE now supported (list_alloc_node/
+// list_node_copy/set_var_list, exposed in interpreter.h) -- list
+// literals, FIRST/BUTFIRST/LAST/BUTLAST/COUNT/EMPTY?/FPUT/LPUT/WORD/
+// SENTENCE/LIST all work, sharing the exact same app->list_pool
+// eval_logo's own list operators build into, so a list built by one
+// engine is indistinguishable from one built by the other. Ctrl+C
+// interrupt checking is still absent, since g_interrupt_requested is a
+// file-static flag in interpreter.c with no exposed getter. Both are
+// documented follow-up work in docs/BYTECODE_VM_DESIGN.md, not silent
+// gaps.
 //
 // One deliberate, documented simplification worth knowing up front:
 // unlike the old interpreter (where FD/PRINT/MAKE/etc. are reachable
@@ -36,7 +40,7 @@ typedef struct {
     ValueType type;
     double number;
     char word[512];
-    int list_head; // always -1 here -- list values aren't produced yet
+    int list_head; // type == VALUE_LIST: index into app->list_pool, -1 = empty -- the SAME pool eval_logo's own list operators use
 } EvalValue;
 
 static EvalValue num_val(double n) {
@@ -55,33 +59,253 @@ static EvalValue word_val(const char *w) {
     return v;
 }
 
+static EvalValue list_val(int head) {
+    EvalValue v = {0};
+    v.type = VALUE_LIST;
+    v.list_head = head;
+    return v;
+}
+
+// A "list storage full" report shared by every list-construction
+// operator below -- same wording and "loud, not silent" policy as
+// interpreter.c's own list_pool_exhausted_error.
+static EvalValue list_pool_exhausted(LogoApp *app) {
+    append_output(app, "list storage full, list operation ignored\n");
+    return word_val("");
+}
+
+// Map a list element node to an EvalValue -- mirrors interpreter.c's
+// own list_node_to_value.
+static EvalValue node_to_value(const ListNode *node) {
+    if (node->type == LIST_ELEM_NUMBER) return num_val(node->number);
+    if (node->type == LIST_ELEM_LIST) return list_val(node->sublist_head);
+    return word_val(node->word);
+}
+
+// Store `v` as a single new list-element node (a list contributes its
+// existing chain by index, no deep copy needed) -- mirrors
+// interpreter.c's own list_node_from_value, built on the now-exposed
+// list_alloc_node. Returns -1 (pool exhausted) same as that function.
+static int value_to_node(LogoApp *app, EvalValue v) {
+    int idx = list_alloc_node(app);
+    if (idx < 0) return -1;
+    ListNode *node = &app->list_pool[idx];
+    node->next = -1;
+    if (v.type == VALUE_NUMBER) {
+        node->type = LIST_ELEM_NUMBER;
+        node->number = v.number;
+    } else if (v.type == VALUE_LIST) {
+        node->type = LIST_ELEM_LIST;
+        node->sublist_head = v.list_head;
+    } else {
+        node->type = LIST_ELEM_WORD;
+        snprintf(node->word, sizeof(node->word), "%s", v.word);
+    }
+    return idx;
+}
+
+static void list_elements_to_text(LogoApp *app, int head, char *out, size_t out_size);
+
+// Append one list/array cell's rendering to `out` -- mirrors
+// interpreter.c's own append_node_text (a nested LIST_ELEM_LIST
+// recurses one level deeper, bracketed).
+static void append_node_text(LogoApp *app, const ListNode *node, char *out, size_t out_size) {
+    if (node->type == LIST_ELEM_NUMBER) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%g", node->number);
+        strncat(out, buf, out_size - strlen(out) - 1);
+    } else if (node->type == LIST_ELEM_LIST) {
+        strncat(out, "[", out_size - strlen(out) - 1);
+        char sub[512];
+        list_elements_to_text(app, node->sublist_head, sub, sizeof(sub));
+        strncat(out, sub, out_size - strlen(out) - 1);
+        strncat(out, "]", out_size - strlen(out) - 1);
+    } else {
+        strncat(out, node->word, out_size - strlen(out) - 1);
+    }
+}
+
+// Render a list's elements, space-separated, without enclosing
+// brackets at this level -- mirrors interpreter.c's own
+// list_elements_to_text exactly (PRINT [a b] -> "a b").
+static void list_elements_to_text(LogoApp *app, int head, char *out, size_t out_size) {
+    out[0] = '\0';
+    int first = 1;
+    for (int idx = head; idx != -1; idx = app->list_pool[idx].next) {
+        if (!first) strncat(out, " ", out_size - strlen(out) - 1);
+        first = 0;
+        append_node_text(app, &app->list_pool[idx], out, out_size);
+    }
+}
+
+// Render any value as text -- mirrors interpreter.c's own
+// value_to_text (a word as-is, a number %g-formatted, a list via
+// list_elements_to_text).
+static void eval_value_to_text(LogoApp *app, EvalValue v, char *out, size_t out_size) {
+    if (v.type == VALUE_WORD) snprintf(out, out_size, "%s", v.word);
+    else if (v.type == VALUE_LIST) list_elements_to_text(app, v.list_head, out, out_size);
+    else snprintf(out, out_size, "%g", v.number);
+}
+
 // Coerce to a number the same way interpreter.c's value_to_number
 // does: a word reads the number its text starts with (0 if it
 // doesn't -- strtod itself already returns 0 in that case, so there's
 // no need for the "did it actually parse anything" check
-// value_to_number makes, just to arrive at the same answer).
+// value_to_number makes, just to arrive at the same answer); a list
+// has no meaningful numeric reading either way.
 static double eval_to_number(EvalValue v) {
     if (v.type == VALUE_NUMBER) return v.number;
+    if (v.type == VALUE_LIST) return 0;
     return strtod(v.word, NULL);
 }
 
 // A value's truthiness -- mirrors interpreter.c's is_truthy.
 static int eval_is_truthy(EvalValue v) {
+    if (v.type == VALUE_LIST) return v.list_head != -1;
     if (v.type == VALUE_WORD) return v.word[0] != '\0' && strcasecmp(v.word, "FALSE") != 0;
     return v.number != 0;
 }
 
 // Equality for = / <> when at least one side isn't a number --
 // mirrors interpreter.c's values_equal (text comparison,
-// case-insensitive).
-static int eval_values_equal(EvalValue a, EvalValue b) {
+// case-insensitive; a list renders through eval_value_to_text same as
+// anything else).
+static int eval_values_equal(LogoApp *app, EvalValue a, EvalValue b) {
     if (a.type == VALUE_NUMBER && b.type == VALUE_NUMBER) return a.number == b.number;
     char a_text[512], b_text[512];
-    if (a.type == VALUE_WORD) snprintf(a_text, sizeof(a_text), "%s", a.word);
-    else snprintf(a_text, sizeof(a_text), "%g", a.number);
-    if (b.type == VALUE_WORD) snprintf(b_text, sizeof(b_text), "%s", b.word);
-    else snprintf(b_text, sizeof(b_text), "%g", b.number);
+    eval_value_to_text(app, a, a_text, sizeof(a_text));
+    eval_value_to_text(app, b, b_text, sizeof(b_text));
     return strcasecmp(a_text, b_text) == 0;
+}
+
+// --- List-construction operators (FPUT/LPUT/SENTENCE/LIST/BUTLAST) --
+//
+// Each mirrors its interpreter.c namesake (list_fput/list_lput/
+// list_sentence/list_wrap_pair/list_butlast) exactly, just built on
+// EvalValue/value_to_node/list_node_copy instead of the private Value
+// type -- these are real functions, not inlined into exec_call's
+// dispatch below, for the same reason interpreter.c itself factors
+// them out: each is a few lines of real list-splicing logic, not a
+// one-liner.
+
+static EvalValue eval_list_butlast(LogoApp *app, EvalValue arg) {
+    int count = 0;
+    for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
+    if (count <= 1) return list_val(-1);
+    int new_head = -1;
+    int *next_slot = &new_head;
+    int idx = arg.list_head;
+    for (int i = 0; i < count - 1; i++) {
+        int copy = list_node_copy(app, idx);
+        if (copy < 0) return list_pool_exhausted(app);
+        *next_slot = copy;
+        next_slot = &app->list_pool[copy].next;
+        idx = app->list_pool[idx].next;
+    }
+    return list_val(new_head);
+}
+
+static EvalValue eval_list_fput(LogoApp *app, EvalValue thing, EvalValue list) {
+    if (list.type == VALUE_WORD) {
+        if (thing.type == VALUE_LIST) {
+            append_output(app, "FPUT: can't add a list to a word\n");
+            return word_val("");
+        }
+        char thing_text[512];
+        eval_value_to_text(app, thing, thing_text, sizeof(thing_text));
+        EvalValue result = word_val("");
+        snprintf(result.word, sizeof(result.word), "%s%s", thing_text, list.word);
+        return result;
+    }
+    int list_head = (list.type == VALUE_LIST) ? list.list_head : value_to_node(app, list);
+    if (list.type != VALUE_LIST && list_head < 0) return list_pool_exhausted(app);
+    int new_node = value_to_node(app, thing);
+    if (new_node < 0) return list_pool_exhausted(app);
+    app->list_pool[new_node].next = list_head;
+    return list_val(new_node);
+}
+
+static EvalValue eval_list_lput(LogoApp *app, EvalValue thing, EvalValue list) {
+    if (list.type == VALUE_WORD) {
+        if (thing.type == VALUE_LIST) {
+            append_output(app, "LPUT: can't add a list to a word\n");
+            return word_val("");
+        }
+        char thing_text[512];
+        eval_value_to_text(app, thing, thing_text, sizeof(thing_text));
+        EvalValue result = word_val("");
+        snprintf(result.word, sizeof(result.word), "%s%s", list.word, thing_text);
+        return result;
+    }
+    int src_head = (list.type == VALUE_LIST) ? list.list_head : value_to_node(app, list);
+    if (list.type != VALUE_LIST && src_head < 0) return list_pool_exhausted(app);
+    int new_head = -1;
+    int *next_slot = &new_head;
+    for (int idx = src_head; idx != -1; idx = app->list_pool[idx].next) {
+        int copy = list_node_copy(app, idx);
+        if (copy < 0) return list_pool_exhausted(app);
+        *next_slot = copy;
+        next_slot = &app->list_pool[copy].next;
+    }
+    int new_node = value_to_node(app, thing);
+    if (new_node < 0) return list_pool_exhausted(app);
+    *next_slot = new_node;
+    return list_val(new_head);
+}
+
+static EvalValue eval_list_sentence(LogoApp *app, EvalValue a, EvalValue b) {
+    int new_head = -1;
+    int *next_slot = &new_head;
+    EvalValue parts[2] = {a, b};
+    for (int p = 0; p < 2; p++) {
+        if (parts[p].type == VALUE_LIST) {
+            for (int idx = parts[p].list_head; idx != -1; idx = app->list_pool[idx].next) {
+                int copy = list_node_copy(app, idx);
+                if (copy < 0) return list_pool_exhausted(app);
+                *next_slot = copy;
+                next_slot = &app->list_pool[copy].next;
+            }
+        } else {
+            int node = value_to_node(app, parts[p]);
+            if (node < 0) return list_pool_exhausted(app);
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+    }
+    return list_val(new_head);
+}
+
+// WORD: concatenate two words directly (no separating space), erroring
+// on a list argument -- mirrors interpreter.c's own list_word/WORD
+// handling. Its own function (not inlined into exec_call's dispatch,
+// like every list operator above) specifically to keep its two
+// char[512] text buffers out of exec_call's own stack frame -- exec_call
+// is one large function with a branch per built-in, recursing through
+// call_ast_procedure for ordinary procedure calls, so extra per-branch
+// locals there raise its per-call stack cost for every recursion level,
+// not just calls to WORD (confirmed directly: adding this and the other
+// list operators inline pushed the 200-level recursion test over the
+// real stack under AddressSanitizer, where it was clean before).
+static EvalValue eval_word_concat(LogoApp *app, EvalValue a, EvalValue b) {
+    if (a.type == VALUE_LIST || b.type == VALUE_LIST) {
+        append_output(app, "WORD: expected words, not a list\n");
+        return word_val("");
+    }
+    char a_text[512], b_text[512];
+    eval_value_to_text(app, a, a_text, sizeof(a_text));
+    eval_value_to_text(app, b, b_text, sizeof(b_text));
+    EvalValue result = word_val("");
+    snprintf(result.word, sizeof(result.word), "%s%s", a_text, b_text);
+    return result;
+}
+
+static EvalValue eval_list_wrap_pair(LogoApp *app, EvalValue a, EvalValue b) {
+    int node_a = value_to_node(app, a);
+    if (node_a < 0) return list_pool_exhausted(app);
+    int node_b = value_to_node(app, b);
+    if (node_b < 0) return list_pool_exhausted(app);
+    app->list_pool[node_a].next = node_b;
+    return list_val(node_a);
 }
 
 static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx);
@@ -135,6 +359,8 @@ static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, E
             slot->type = arg_vals[i].type;
             if (arg_vals[i].type == VALUE_WORD) {
                 snprintf(slot->word, sizeof(slot->word), "%s", arg_vals[i].word);
+            } else if (arg_vals[i].type == VALUE_LIST) {
+                slot->list_head = arg_vals[i].list_head;
             } else {
                 slot->number = arg_vals[i].number;
             }
@@ -219,9 +445,10 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         }
     } else if (strcasecmp(name, "PRINT") == 0) {
         EvalValue v = ARGVAL(0);
-        char buf[560];
-        if (v.type == VALUE_WORD) snprintf(buf, sizeof(buf), "%s\n", v.word);
-        else snprintf(buf, sizeof(buf), "%g\n", v.number);
+        char text[2048];
+        eval_value_to_text(app, v, text, sizeof(text));
+        char buf[2100];
+        snprintf(buf, sizeof(buf), "%s\n", text);
         append_output(app, buf);
     } else if (strcasecmp(name, "MAKE") == 0) {
         // arg_idx[0] is an AST_WORD -- the parser's ARG_QUOTED_WORD
@@ -230,6 +457,7 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         const char *varname = pool->nodes[arg_idx[0]].text;
         EvalValue val = ARGVAL(1);
         if (val.type == VALUE_WORD) set_var_word(app, varname, val.word);
+        else if (val.type == VALUE_LIST) set_var_list(app, varname, val.list_head);
         else set_var(app, varname, val.number);
     } else if (strcasecmp(name, "OUTPUT") == 0) {
         EvalValue val = ARGVAL(0);
@@ -280,6 +508,105 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     } else if (strcasecmp(name, "INT") == 0) {
         if (result != NULL) *result = num_val(trunc(ARGNUM(0)));
         if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "FIRST") == 0) {
+        EvalValue arg = ARGVAL(0);
+        EvalValue r;
+        if (arg.type == VALUE_LIST) {
+            r = (arg.list_head < 0) ? word_val("") : node_to_value(&app->list_pool[arg.list_head]);
+        } else if (arg.type == VALUE_WORD) {
+            if (arg.word[0] == '\0') r = word_val("");
+            else { char ch[2] = {arg.word[0], '\0'}; r = word_val(ch); }
+        } else {
+            r = arg; // FIRST of a bare number is itself
+        }
+        if (result != NULL) *result = r;
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "BUTFIRST") == 0) {
+        EvalValue arg = ARGVAL(0);
+        EvalValue r;
+        if (arg.type == VALUE_LIST) {
+            r = list_val(arg.list_head < 0 ? -1 : app->list_pool[arg.list_head].next);
+        } else if (arg.type == VALUE_WORD) {
+            r = word_val(arg.word[0] == '\0' ? "" : arg.word + 1);
+        } else {
+            r = list_val(-1); // BUTFIRST of a bare number is empty
+        }
+        if (result != NULL) *result = r;
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "LAST") == 0) {
+        EvalValue arg = ARGVAL(0);
+        EvalValue r;
+        if (arg.type == VALUE_LIST) {
+            if (arg.list_head < 0) {
+                r = word_val("");
+            } else {
+                int idx = arg.list_head;
+                while (app->list_pool[idx].next != -1) idx = app->list_pool[idx].next;
+                r = node_to_value(&app->list_pool[idx]);
+            }
+        } else if (arg.type == VALUE_WORD) {
+            size_t len = strlen(arg.word);
+            if (len == 0) r = word_val("");
+            else { char ch[2] = {arg.word[len - 1], '\0'}; r = word_val(ch); }
+        } else {
+            r = arg; // LAST of a bare number is itself
+        }
+        if (result != NULL) *result = r;
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "BUTLAST") == 0) {
+        EvalValue arg = ARGVAL(0);
+        EvalValue r;
+        if (arg.type == VALUE_LIST) {
+            r = eval_list_butlast(app, arg);
+        } else if (arg.type == VALUE_WORD) {
+            size_t len = strlen(arg.word);
+            if (len == 0) {
+                r = word_val("");
+            } else {
+                r = word_val(arg.word);
+                r.word[len - 1] = '\0';
+            }
+        } else {
+            r = list_val(-1); // BUTLAST of a bare number is empty
+        }
+        if (result != NULL) *result = r;
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "COUNT") == 0) {
+        EvalValue arg = ARGVAL(0);
+        double count;
+        if (arg.type == VALUE_LIST) {
+            count = 0;
+            for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
+        } else if (arg.type == VALUE_WORD) {
+            count = (double)strlen(arg.word);
+        } else {
+            count = 1; // a bare number counts as a one-element list
+        }
+        if (result != NULL) *result = num_val(count);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "EMPTY?") == 0) {
+        EvalValue arg = ARGVAL(0);
+        int empty;
+        if (arg.type == VALUE_LIST) empty = (arg.list_head == -1);
+        else if (arg.type == VALUE_WORD) empty = (arg.word[0] == '\0');
+        else empty = 0; // a number is never "empty"
+        if (result != NULL) *result = word_val(empty ? "TRUE" : "FALSE");
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "FPUT") == 0) {
+        if (result != NULL) *result = eval_list_fput(app, ARGVAL(0), ARGVAL(1));
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "LPUT") == 0) {
+        if (result != NULL) *result = eval_list_lput(app, ARGVAL(0), ARGVAL(1));
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "WORD") == 0) {
+        if (result != NULL) *result = eval_word_concat(app, ARGVAL(0), ARGVAL(1));
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "SENTENCE") == 0 || strcasecmp(name, "SE") == 0) {
+        if (result != NULL) *result = eval_list_sentence(app, ARGVAL(0), ARGVAL(1));
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "LIST") == 0) {
+        if (result != NULL) *result = eval_list_wrap_pair(app, ARGVAL(0), ARGVAL(1));
+        if (produced != NULL) *produced = 1;
     } else {
         // Not a built-in -- must be a hoisted user procedure: the
         // parser already guarantees this by construction (an AST_CALL
@@ -321,12 +648,38 @@ static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx) {
             if (v == NULL) return num_val(0); // unset :name reads as 0, matching interpreter.c
             if (v->type == VALUE_WORD) return word_val(v->word);
             if (v->type == VALUE_NUMBER) return num_val(v->number);
-            append_output(app, "AST evaluator: list/array variables aren't supported yet\n");
+            if (v->type == VALUE_LIST) return list_val(v->list_head);
+            append_output(app, "AST evaluator: array variables aren't supported yet\n");
             return num_val(0);
         }
-        case AST_LIST_LITERAL:
-            append_output(app, "AST evaluator: list values aren't supported yet\n");
-            return word_val("");
+        case AST_LIST_LITERAL: {
+            // Builds a real list in app->list_pool, mirroring
+            // interpreter.c's own parse_list_literal exactly: each
+            // leaf is untyped raw text (an AST_WORD child's .text,
+            // never number-vs-word typed at construction time), and a
+            // nested AST_LIST_LITERAL recurses through this same case
+            // via eval_expr.
+            int head = -1;
+            int *next_slot = &head;
+            for (int c = node->first_child; c >= 0; c = pool->nodes[c].next_sibling) {
+                AstNode *child = &pool->nodes[c];
+                int idx = list_alloc_node(app);
+                if (idx < 0) return list_pool_exhausted(app);
+                ListNode *ln = &app->list_pool[idx];
+                ln->next = -1;
+                if (child->type == AST_LIST_LITERAL) {
+                    EvalValue sub = eval_expr(app, pool, c);
+                    ln->type = LIST_ELEM_LIST;
+                    ln->sublist_head = sub.list_head;
+                } else {
+                    ln->type = LIST_ELEM_WORD;
+                    snprintf(ln->word, sizeof(ln->word), "%s", child->text);
+                }
+                *next_slot = idx;
+                next_slot = &app->list_pool[idx].next;
+            }
+            return list_val(head);
+        }
         case AST_NEG:
             return num_val(-eval_to_number(eval_expr(app, pool, node->first_child)));
         case AST_BINOP: {
@@ -384,7 +737,7 @@ static int eval_condition(LogoApp *app, AstPool *pool, int node_idx) {
             EvalValue left = eval_expr(app, pool, left_node);
             EvalValue right = eval_expr(app, pool, right_node);
             if (left.type != VALUE_NUMBER || right.type != VALUE_NUMBER) {
-                int equal = eval_values_equal(left, right);
+                int equal = eval_values_equal(app, left, right);
                 if (node->cmpop == AST_CMP_EQ) return equal;
                 if (node->cmpop == AST_CMP_NE) return !equal;
                 return 0;

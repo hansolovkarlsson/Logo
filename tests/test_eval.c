@@ -268,6 +268,85 @@ TEST(test_local_scope_shadows_global) {
     CHECK_STREQ(captured_output, "1\n100\n");
 }
 
+TEST(test_list_literal_prints_space_separated_without_brackets) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"x [1 2 3]\nPRINT :x");
+    CHECK_STREQ(captured_output, "1 2 3\n");
+}
+
+TEST(test_nested_list_literal_prints_with_inner_brackets) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"x [a [b c] d]\nPRINT :x");
+    CHECK_STREQ(captured_output, "a [b c] d\n");
+}
+
+TEST(test_first_butfirst_last_butlast_on_a_list) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"x [10 20 30]\n"
+        "PRINT FIRST :x\n"
+        "PRINT BUTFIRST :x\n"
+        "PRINT LAST :x\n"
+        "PRINT BUTLAST :x");
+    CHECK_STREQ(captured_output, "10\n20 30\n30\n10 20\n");
+}
+
+TEST(test_first_butfirst_on_a_word) {
+    // A word is a sequence of characters, not one atomic element --
+    // same convention as the real interpreter.
+    LogoApp *app = new_app();
+    run_source(app, "PRINT FIRST \"hello\nPRINT BUTFIRST \"hello\nPRINT LAST \"hello\nPRINT BUTLAST \"hello");
+    CHECK_STREQ(captured_output, "h\nello\no\nhell\n");
+}
+
+TEST(test_count_and_empty) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"x [1 2 3 4]\n"
+        "PRINT COUNT :x\n"
+        "PRINT COUNT \"hello\n"
+        "PRINT EMPTY? []\n"
+        "PRINT EMPTY? :x");
+    CHECK_STREQ(captured_output, "4\n5\nTRUE\nFALSE\n");
+}
+
+TEST(test_fput_and_lput) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"x [2 3]\n"
+        "PRINT FPUT 1 :x\n"
+        "PRINT LPUT 4 :x");
+    CHECK_STREQ(captured_output, "1 2 3\n2 3 4\n");
+}
+
+TEST(test_word_sentence_list_constructors) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT WORD \"hello \"world\n"
+        "PRINT SENTENCE [1 2] [3 4]\n"
+        "PRINT LIST [1 2] [3 4]");
+    CHECK_STREQ(captured_output, "helloworld\n1 2 3 4\n[1 2] [3 4]\n");
+}
+
+TEST(test_list_passed_as_procedure_argument_and_output) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "TO firstOf :lst\n"
+        "  OUTPUT FIRST :lst\n"
+        "END\n"
+        "PRINT firstOf [7 8 9]");
+    CHECK_STREQ(captured_output, "7\n");
+}
+
+TEST(test_list_equality_in_condition) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"x [1 2 3]\n"
+        "MAKE \"y [1 2 3]\n"
+        "IF :x = :y [PRINT \"same]");
+    CHECK_STREQ(captured_output, "same\n");
+}
+
 int main(void) {
     RUN(test_print_a_number_and_a_word);
     RUN(test_arithmetic_with_precedence);
@@ -290,6 +369,15 @@ int main(void) {
     RUN(test_recursion_depth_cap_reports_error_not_a_crash);
     RUN(test_math_operators);
     RUN(test_local_scope_shadows_global);
+    RUN(test_list_literal_prints_space_separated_without_brackets);
+    RUN(test_nested_list_literal_prints_with_inner_brackets);
+    RUN(test_first_butfirst_last_butlast_on_a_list);
+    RUN(test_first_butfirst_on_a_word);
+    RUN(test_count_and_empty);
+    RUN(test_fput_and_lput);
+    RUN(test_word_sentence_list_constructors);
+    RUN(test_list_passed_as_procedure_argument_and_output);
+    RUN(test_list_equality_in_condition);
 
     if (failures == 0) {
         printf("All tests passed.\n");

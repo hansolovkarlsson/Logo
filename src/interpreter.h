@@ -73,12 +73,27 @@ double home_y(LogoApp *app);
 // outward before falling back to globals (NULL if never MAKE'n).
 Variable *find_var(LogoApp *app, const char *name);
 
-// Bind `name` to a number/word value, creating it (as a global) if it
-// doesn't already exist as a local in the current scope or a global.
+// Bind `name` to a number/word/list value, creating it (as a global) if
+// it doesn't already exist as a local in the current scope or a
+// global. set_var_list just copies the head index -- safe aliasing,
+// since list nodes (see ListNode in logo_types.h) are never mutated
+// after being built.
 void set_var(LogoApp *app, const char *name, double value);
 void set_var_word(LogoApp *app, const char *name, const char *word);
+void set_var_list(LogoApp *app, const char *name, int list_head);
 
 // RANDOM n's own RNG (seeded from the current time on first use).
 double random_below(double n);
+
+// Allocates a fresh node from app->list_pool (see ListNode in
+// logo_types.h), or -1 if the pool is full. list_node_copy copies an
+// existing node's payload (type/number/word/sublist_head) into a
+// freshly allocated one, for building a new top-level list spine
+// without mutating (or aliasing into) whatever list `src_idx` came
+// from -- neither function touches interpreter.c's private Value type
+// at all, just plain ListNode/int, which is what makes them safe to
+// expose the same way as the turtle/variable helpers above.
+int list_alloc_node(LogoApp *app);
+int list_node_copy(LogoApp *app, int src_idx);
 
 #endif // INTERPRETER_H

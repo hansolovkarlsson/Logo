@@ -409,6 +409,71 @@ TEST(test_setxy_negative_coordinates_and_large_heading) {
     shadow_diff("SETXY -50 (-75)\nSETHEADING 450\nFD 20");
 }
 
+TEST(test_list_literal_print_flat_and_nested) {
+    shadow_diff("MAKE \"x [1 2 3]\nPRINT :x\nMAKE \"y [a [b c] d]\nPRINT :y");
+}
+
+TEST(test_first_butfirst_last_butlast_list_and_word) {
+    shadow_diff(
+        "MAKE \"x [10 20 30]\n"
+        "PRINT FIRST :x\n"
+        "PRINT BUTFIRST :x\n"
+        "PRINT LAST :x\n"
+        "PRINT BUTLAST :x\n"
+        "PRINT FIRST \"hello\n"
+        "PRINT BUTFIRST \"hello\n"
+        "PRINT LAST \"hello\n"
+        "PRINT BUTLAST \"hello");
+}
+
+TEST(test_count_and_empty_list_and_word) {
+    shadow_diff(
+        "MAKE \"x [1 2 3 4]\n"
+        "PRINT COUNT :x\n"
+        "PRINT COUNT \"hello\n"
+        "PRINT EMPTY? []\n"
+        "PRINT EMPTY? :x");
+}
+
+TEST(test_fput_lput_word_sentence_list) {
+    shadow_diff(
+        "MAKE \"x [2 3]\n"
+        "PRINT FPUT 1 :x\n"
+        "PRINT LPUT 4 :x\n"
+        "PRINT WORD \"hello \"world\n"
+        "PRINT SENTENCE [1 2] [3 4]\n"
+        "PRINT LIST [1 2] [3 4]");
+}
+
+TEST(test_list_as_procedure_argument_and_output) {
+    shadow_diff(
+        "TO firstOf :lst\n"
+        "  OUTPUT FIRST :lst\n"
+        "END\n"
+        "PRINT firstOf [7 8 9]");
+}
+
+TEST(test_list_equality_comparison) {
+    shadow_diff(
+        "MAKE \"x [1 2 3]\n"
+        "MAKE \"y [1 2 3]\n"
+        "MAKE \"z [1 2 4]\n"
+        "IF :x = :y [PRINT \"same]\n"
+        "IF :x = :z [PRINT \"never]\n"
+        "IF :x <> :z [PRINT \"different]");
+}
+
+TEST(test_list_operators_combined_with_recursion) {
+    // A real, common pattern: recursing over a list, one element at a
+    // time via FIRST/BUTFIRST, accumulating a result via OUTPUT.
+    shadow_diff(
+        "TO sumList :lst :acc\n"
+        "  IF EMPTY? :lst [OUTPUT :acc]\n"
+        "  OUTPUT sumList BUTFIRST :lst :acc + FIRST :lst\n"
+        "END\n"
+        "PRINT sumList [1 2 3 4 5] 0");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -443,6 +508,13 @@ int main(void) {
     RUN(test_zero_and_boundary_values);
     RUN(test_deep_but_safe_recursion);
     RUN(test_setxy_negative_coordinates_and_large_heading);
+    RUN(test_list_literal_print_flat_and_nested);
+    RUN(test_first_butfirst_last_butlast_list_and_word);
+    RUN(test_count_and_empty_list_and_word);
+    RUN(test_fput_lput_word_sentence_list);
+    RUN(test_list_as_procedure_argument_and_output);
+    RUN(test_list_equality_comparison);
+    RUN(test_list_operators_combined_with_recursion);
 
     if (failures == 0) {
         printf("All tests passed.\n");

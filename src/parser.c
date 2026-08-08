@@ -88,6 +88,25 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "RANDOM", 1, { ARG_EXPR } },
     { "ROUND", 1, { ARG_EXPR } },
     { "INT", 1, { ARG_EXPR } },
+
+    // List/word operators (eval.c: list values are now real, built in
+    // app->list_pool, the same pool interpreter.c's own list operators
+    // build into). Not the higher-order MAP/FILTER/REDUCE/FOREACH yet
+    // -- those take a [template with ?] argument, a different kind of
+    // thing again (deferred execution against a substituted string),
+    // not just another ARG_EXPR.
+    { "FIRST", 1, { ARG_EXPR } },
+    { "BUTFIRST", 1, { ARG_EXPR } },
+    { "LAST", 1, { ARG_EXPR } },
+    { "BUTLAST", 1, { ARG_EXPR } },
+    { "COUNT", 1, { ARG_EXPR } },
+    { "EMPTY?", 1, { ARG_EXPR } },
+    { "FPUT", 2, { ARG_EXPR, ARG_EXPR } },
+    { "LPUT", 2, { ARG_EXPR, ARG_EXPR } },
+    { "WORD", 2, { ARG_EXPR, ARG_EXPR } },
+    { "SENTENCE", 2, { ARG_EXPR, ARG_EXPR } },
+    { "SE", 2, { ARG_EXPR, ARG_EXPR } },
+    { "LIST", 2, { ARG_EXPR, ARG_EXPR } },
 };
 #define BUILTIN_SIGNATURE_COUNT (int)(sizeof(BUILTIN_SIGNATURES) / sizeof(BUILTIN_SIGNATURES[0]))
 
