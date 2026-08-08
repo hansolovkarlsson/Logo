@@ -347,6 +347,62 @@ TEST(test_list_equality_in_condition) {
     CHECK_STREQ(captured_output, "same\n");
 }
 
+TEST(test_setprop_getprop_round_trips_a_number_word_and_list) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"pos [10 20]\n"
+        "PRINT GETPROP \"turtle1 \"speed\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"pos");
+    CHECK_STREQ(captured_output, "5\nred\n10 20\n");
+}
+
+TEST(test_getprop_of_missing_property_is_the_empty_list) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT GETPROP \"turtle1 \"nosuchkey\nPRINT EMPTY? GETPROP \"turtle1 \"nosuchkey");
+    CHECK_STREQ(captured_output, "\nTRUE\n");
+}
+
+TEST(test_setprop_on_same_key_overwrites_not_duplicates) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"color \"blue\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT COUNT PROPLIST \"turtle1"); // one key/value pair, not two
+    CHECK_STREQ(captured_output, "blue\n2\n");
+}
+
+TEST(test_removeprop_removes_a_property) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "SETPROP \"turtle1 \"color \"red\n"
+        "REMOVEPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"color");
+    CHECK_STREQ(captured_output, "\n");
+}
+
+TEST(test_proplist_lists_alternating_keys_and_values) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "PRINT PROPLIST \"turtle1");
+    CHECK_STREQ(captured_output, "speed 5 color red\n");
+}
+
+TEST(test_different_proplist_names_dont_share_properties) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle2 \"color \"blue\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle2 \"color");
+    CHECK_STREQ(captured_output, "red\nblue\n");
+}
+
 int main(void) {
     RUN(test_print_a_number_and_a_word);
     RUN(test_arithmetic_with_precedence);
@@ -378,6 +434,12 @@ int main(void) {
     RUN(test_word_sentence_list_constructors);
     RUN(test_list_passed_as_procedure_argument_and_output);
     RUN(test_list_equality_in_condition);
+    RUN(test_setprop_getprop_round_trips_a_number_word_and_list);
+    RUN(test_getprop_of_missing_property_is_the_empty_list);
+    RUN(test_setprop_on_same_key_overwrites_not_duplicates);
+    RUN(test_removeprop_removes_a_property);
+    RUN(test_proplist_lists_alternating_keys_and_values);
+    RUN(test_different_proplist_names_dont_share_properties);
 
     if (failures == 0) {
         printf("All tests passed.\n");

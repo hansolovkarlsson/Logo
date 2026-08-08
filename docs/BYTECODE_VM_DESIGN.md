@@ -457,8 +457,37 @@ footprint.
     into `exec_call` cost every recursion level, not just calls to
     that one operator, so anything with a sizeable local buffer should
     be its own function from the start.
+- **Property lists: done** (`SETPROP`/`GETPROP`/`REMOVEPROP`/`PROPLIST`).
+  Share `app->plist_entries`/`plist_entry_count` directly with
+  `eval_logo`'s own property-list operators — a property set by one
+  engine is visible to the other, same pattern as the shared
+  `list_pool`. Exposed one more `Value`-independent function,
+  `find_plist_entry`. 6 new `tests/test_eval.c` cases and 4 new
+  shadow-diff scripts, including a real-shaped "property list as
+  lightweight per-object state" script, matching the same use case
+  that motivated `NEW`/`SEND` in an earlier phase.
+  - **The same stack-fragility class recurred a third time — this
+    time fixed for real, structurally, not just locally.** Even with
+    `SETPROP`/`GETPROP`/`REMOVEPROP`/`PROPLIST` each already factored
+    into their own functions (learning the lesson from `WORD`), adding
+    them as four more `exec_call` branches was enough on its own to
+    overflow the 200-level recursion test under ASan again — not
+    because of any one large branch this time, but because `exec_call`
+    had accumulated ~36 branches total, and even small per-branch
+    locals add up at that count. This confirmed the fix needed to be
+    structural, not another one-off extraction: **every single
+    built-in, however small, was refactored into its own `do_*`
+    function** (`do_fd`, `do_print`, `do_first`, `do_getprop`, ...),
+    including the recursive user-procedure-call fallback
+    (`do_user_procedure_call`). `exec_call` itself is now just a
+    dispatch table — its own stack frame is exactly `{arg_idx[8],
+    argc, name}` regardless of how large `BUILTIN_SIGNATURES` grows,
+    confirmed clean under ASan again afterward. **This is now the
+    required pattern going forward**: every new built-in added to
+    `exec_call` must be its own function from the start, not a new
+    inline branch — the file comment directly above the `do_*`
+    functions in `eval.c` says so explicitly.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
-  fuller language coverage (property lists, more turtle commands, type
-  predicates, arrays), and growing the shadow-diff corpus alongside
-  it — the mechanism itself is proven; the value from here on is
-  coverage.
+  fuller language coverage (more turtle commands, type predicates,
+  arrays), and growing the shadow-diff corpus alongside it — the
+  mechanism itself is proven; the value from here on is coverage.

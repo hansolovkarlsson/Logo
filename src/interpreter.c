@@ -387,7 +387,7 @@ static void set_var_array(LogoApp *app, const char *name, int start, int length)
 // insensitive, same convention as find_var), or -1 if no such property
 // has been set. Used by SETPROP (to know whether to overwrite an
 // existing entry or allocate a new one), GETPROP, and REMOVEPROP.
-static int find_plist_entry(LogoApp *app, const char *plist_name, const char *key) {
+int find_plist_entry(LogoApp *app, const char *plist_name, const char *key) {
     for (int i = 0; i < app->plist_entry_count; i++) {
         if (strcasecmp(app->plist_entries[i].plist_name, plist_name) == 0 &&
             strcasecmp(app->plist_entries[i].key, key) == 0) {

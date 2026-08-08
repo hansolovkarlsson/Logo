@@ -474,6 +474,50 @@ TEST(test_list_operators_combined_with_recursion) {
         "PRINT sumList [1 2 3 4 5] 0");
 }
 
+TEST(test_setprop_getprop_round_trip) {
+    shadow_diff(
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"pos [10 20]\n"
+        "PRINT GETPROP \"turtle1 \"speed\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"pos\n"
+        "PRINT GETPROP \"turtle1 \"nosuchkey");
+}
+
+TEST(test_setprop_overwrite_and_removeprop) {
+    shadow_diff(
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"color \"blue\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "REMOVEPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"color");
+}
+
+TEST(test_proplist_and_separate_plist_names) {
+    shadow_diff(
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle2 \"color \"blue\n"
+        "PRINT PROPLIST \"turtle1\n"
+        "PRINT GETPROP \"turtle2 \"color");
+}
+
+TEST(test_property_list_used_as_lightweight_object_state) {
+    // A real-shaped use: property lists as per-object state records,
+    // combined with a procedure -- the same pattern that motivated
+    // this project's own prototype-object feature (NEW/SEND), just
+    // via plain SETPROP/GETPROP instead.
+    shadow_diff(
+        "TO describe :name\n"
+        "  PRINT SENTENCE :name SENTENCE \"is GETPROP :name \"color\n"
+        "END\n"
+        "SETPROP \"apple \"color \"red\n"
+        "SETPROP \"banana \"color \"yellow\n"
+        "describe \"apple\n"
+        "describe \"banana");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -515,6 +559,10 @@ int main(void) {
     RUN(test_list_as_procedure_argument_and_output);
     RUN(test_list_equality_comparison);
     RUN(test_list_operators_combined_with_recursion);
+    RUN(test_setprop_getprop_round_trip);
+    RUN(test_setprop_overwrite_and_removeprop);
+    RUN(test_proplist_and_separate_plist_names);
+    RUN(test_property_list_used_as_lightweight_object_state);
 
     if (failures == 0) {
         printf("All tests passed.\n");

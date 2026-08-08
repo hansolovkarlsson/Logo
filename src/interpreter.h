@@ -96,4 +96,11 @@ double random_below(double n);
 int list_alloc_node(LogoApp *app);
 int list_node_copy(LogoApp *app, int src_idx);
 
+// Finds a stored SETPROP entry by plist name + property key (case-
+// insensitive), or -1 if none. app->plist_entries/plist_entry_count
+// (see PlistEntry in logo_types.h) are plain public fields already --
+// this is the one bit of lookup logic worth sharing rather than
+// re-deriving, same reasoning as find_var above.
+int find_plist_entry(LogoApp *app, const char *plist_name, const char *key);
+
 #endif // INTERPRETER_H

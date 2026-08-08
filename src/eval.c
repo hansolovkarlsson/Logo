@@ -308,6 +308,90 @@ static EvalValue eval_list_wrap_pair(LogoApp *app, EvalValue a, EvalValue b) {
     return list_val(node_a);
 }
 
+// --- Property lists (SETPROP/GETPROP/REMOVEPROP/PROPLIST) -----------
+//
+// A separate namespace from ordinary variables, sharing
+// app->plist_entries/plist_entry_count (see PlistEntry in
+// logo_types.h) directly with eval_logo's own SETPROP/GETPROP/etc --
+// a property set by one engine is visible to the other, same "shared
+// state, not reimplemented logic" approach as everything else here.
+// Each gets its own function (not inlined into exec_call's dispatch)
+// for the same reason WORD/PROPLIST-shaped things already do: keeping
+// exec_call's own per-call stack frame small, since it recurses
+// through call_ast_procedure for every ordinary procedure call (see
+// the WORD extraction above, and docs/BYTECODE_VM_DESIGN.md's
+// Progress notes on the ASan stack-fragility this caused once already).
+
+static EvalValue eval_getprop(LogoApp *app, EvalValue name_val, EvalValue key_val) {
+    char plist_name[32], key[32];
+    eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
+    eval_value_to_text(app, key_val, key, sizeof(key));
+    int idx = find_plist_entry(app, plist_name, key);
+    if (idx < 0) return list_val(-1); // no such property: the empty list
+    PlistEntry *e = &app->plist_entries[idx];
+    if (e->type == VALUE_WORD) return word_val(e->word);
+    if (e->type == VALUE_LIST) return list_val(e->list_head);
+    return num_val(e->number); // array-valued properties: not supported yet, same as everywhere else
+}
+
+static void eval_setprop(LogoApp *app, EvalValue name_val, EvalValue key_val, EvalValue val) {
+    char plist_name[32], key[32];
+    eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
+    eval_value_to_text(app, key_val, key, sizeof(key));
+    int idx = find_plist_entry(app, plist_name, key);
+    if (idx < 0) {
+        if (app->plist_entry_count >= MAX_PLIST_ENTRIES) {
+            append_output(app, "SETPROP: too many properties defined, not set\n");
+            return;
+        }
+        idx = app->plist_entry_count++;
+        snprintf(app->plist_entries[idx].plist_name, sizeof(app->plist_entries[idx].plist_name), "%s", plist_name);
+        snprintf(app->plist_entries[idx].key, sizeof(app->plist_entries[idx].key), "%s", key);
+    }
+    PlistEntry *e = &app->plist_entries[idx];
+    e->type = val.type;
+    e->number = val.number;
+    snprintf(e->word, sizeof(e->word), "%s", val.word);
+    e->list_head = val.list_head;
+}
+
+static void eval_removeprop(LogoApp *app, EvalValue name_val, EvalValue key_val) {
+    char plist_name[32], key[32];
+    eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
+    eval_value_to_text(app, key_val, key, sizeof(key));
+    int idx = find_plist_entry(app, plist_name, key);
+    // Swap-with-last removal, same as interpreter.c's own REMOVEPROP --
+    // a plist's remaining entry order isn't documented as stable in
+    // any Logo dialect.
+    if (idx >= 0) {
+        app->plist_entries[idx] = app->plist_entries[--app->plist_entry_count];
+    }
+}
+
+static EvalValue eval_proplist(LogoApp *app, EvalValue name_val) {
+    char plist_name[32];
+    eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
+    int head = -1;
+    int *next_slot = &head;
+    for (int i = 0; i < app->plist_entry_count; i++) {
+        PlistEntry *e = &app->plist_entries[i];
+        if (strcasecmp(e->plist_name, plist_name) != 0) continue;
+        int key_node = value_to_node(app, word_val(e->key));
+        if (key_node < 0) return list_pool_exhausted(app);
+        *next_slot = key_node;
+        next_slot = &app->list_pool[key_node].next;
+        EvalValue val;
+        if (e->type == VALUE_WORD) val = word_val(e->word);
+        else if (e->type == VALUE_LIST) val = list_val(e->list_head);
+        else val = num_val(e->number);
+        int val_node = value_to_node(app, val);
+        if (val_node < 0) return list_pool_exhausted(app);
+        *next_slot = val_node;
+        next_slot = &app->list_pool[val_node].next;
+    }
+    return list_val(head);
+}
+
 static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx);
 static int eval_condition(LogoApp *app, AstPool *pool, int node_idx);
 static void exec_block(LogoApp *app, AstPool *pool, int block_node);
@@ -389,12 +473,260 @@ static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, E
     return result;
 }
 
+// --- Per-built-in dispatch functions ---------------------------------
+//
+// Every single built-in, however small, gets its own function here --
+// not inlined as an exec_call branch, even the ones with just one or
+// two small locals. This isn't stylistic: exec_call recurses through
+// call_ast_procedure for every ordinary procedure call, so at deep
+// recursion its own per-call stack frame matters, and confirmed
+// directly (twice, in this same file, in one session -- see
+// docs/BYTECODE_VM_DESIGN.md's Progress notes): enough small branches
+// inlined together add up the same way one huge branch (WORD's own
+// two char[512] buffers) already did once. Keeping every branch as a
+// real function call means exec_call's own frame stays exactly
+// {arg_idx[8], argc, name} regardless of how large BUILTIN_SIGNATURES
+// grows -- add the next built-in as its own function too, not as a
+// new inline branch, or this will resurface again.
+
+static void do_fd(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    move_turtle_forward(app, eval_to_number(eval_expr(app, pool, arg_idx[0])));
+}
+static void do_bk(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    move_turtle_forward(app, -eval_to_number(eval_expr(app, pool, arg_idx[0])));
+}
+static void do_rt(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    current_turtle(app)->angle += eval_to_number(eval_expr(app, pool, arg_idx[0]));
+}
+static void do_lt(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    current_turtle(app)->angle -= eval_to_number(eval_expr(app, pool, arg_idx[0]));
+}
+static void do_setxy(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double x = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double y = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+    move_turtle_to(app, x, y);
+}
+static void do_setheading(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    current_turtle(app)->angle = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+}
+static void do_penup(LogoApp *app) {
+    current_turtle(app)->pen_down = FALSE;
+}
+static void do_pendown(LogoApp *app) {
+    current_turtle(app)->pen_down = TRUE;
+}
+static void do_home(LogoApp *app) {
+    move_turtle_to(app, home_x(app), home_y(app));
+    current_turtle(app)->angle = 0;
+}
+static void do_clear(LogoApp *app) {
+    app->line_count = 0;
+    app->label_count = 0;
+    app->raster_op_count = 0;
+    for (int i = 0; i < app->turtle_count; i++) {
+        app->turtles[i].x = home_x(app);
+        app->turtles[i].y = home_y(app);
+        app->turtles[i].angle = 0;
+    }
+}
+static void do_print(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue v = eval_expr(app, pool, arg_idx[0]);
+    char text[2048];
+    eval_value_to_text(app, v, text, sizeof(text));
+    char buf[2100];
+    snprintf(buf, sizeof(buf), "%s\n", text);
+    append_output(app, buf);
+}
+static void do_make(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    // arg_idx[0] is an AST_WORD -- the parser's ARG_QUOTED_WORD kind
+    // already guarantees this holds the variable's name directly in
+    // .text (see parser.c's MAKE signature).
+    const char *varname = pool->nodes[arg_idx[0]].text;
+    EvalValue val = eval_expr(app, pool, arg_idx[1]);
+    if (val.type == VALUE_WORD) set_var_word(app, varname, val.word);
+    else if (val.type == VALUE_LIST) set_var_list(app, varname, val.list_head);
+    else set_var(app, varname, val.number);
+}
+static void do_output(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue val = eval_expr(app, pool, arg_idx[0]);
+    app->output_type = val.type;
+    app->output_number = val.number;
+    snprintf(app->output_word, sizeof(app->output_word), "%s", val.word);
+    app->output_list_head = val.list_head;
+    app->has_output_value = TRUE;
+    app->stop_requested = TRUE;
+}
+static void do_stop(LogoApp *app) {
+    app->stop_requested = TRUE;
+}
+static void do_repeat(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int count = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    int block_node = arg_idx[1];
+    for (int i = 0; i < count && !app->stop_requested; i++) {
+        exec_block(app, pool, block_node);
+    }
+}
+static void do_while(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int cond_node = arg_idx[0];
+    int block_node = arg_idx[1];
+    int iterations = 0;
+    while (eval_condition(app, pool, cond_node)) {
+        if (iterations >= MAX_WHILE_ITERATIONS) {
+            append_output(app, "WHILE: stopped after too many iterations\n");
+            break;
+        }
+        exec_block(app, pool, block_node);
+        if (app->stop_requested) break;
+        iterations++;
+    }
+}
+static EvalValue do_abs(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(fabs(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
+static EvalValue do_sqrt(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(sqrt(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
+static EvalValue do_power(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double base = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double exponent = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+    return num_val(pow(base, exponent));
+}
+static EvalValue do_random(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(random_below(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
+static EvalValue do_round(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(round(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
+static EvalValue do_int(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(trunc(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
+static EvalValue do_first(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    if (arg.type == VALUE_LIST) {
+        return (arg.list_head < 0) ? word_val("") : node_to_value(&app->list_pool[arg.list_head]);
+    }
+    if (arg.type == VALUE_WORD) {
+        if (arg.word[0] == '\0') return word_val("");
+        char ch[2] = {arg.word[0], '\0'};
+        return word_val(ch);
+    }
+    return arg; // FIRST of a bare number is itself
+}
+static EvalValue do_butfirst(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    if (arg.type == VALUE_LIST) return list_val(arg.list_head < 0 ? -1 : app->list_pool[arg.list_head].next);
+    if (arg.type == VALUE_WORD) return word_val(arg.word[0] == '\0' ? "" : arg.word + 1);
+    return list_val(-1); // BUTFIRST of a bare number is empty
+}
+static EvalValue do_last(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    if (arg.type == VALUE_LIST) {
+        if (arg.list_head < 0) return word_val("");
+        int idx = arg.list_head;
+        while (app->list_pool[idx].next != -1) idx = app->list_pool[idx].next;
+        return node_to_value(&app->list_pool[idx]);
+    }
+    if (arg.type == VALUE_WORD) {
+        size_t len = strlen(arg.word);
+        if (len == 0) return word_val("");
+        char ch[2] = {arg.word[len - 1], '\0'};
+        return word_val(ch);
+    }
+    return arg; // LAST of a bare number is itself
+}
+static EvalValue do_butlast(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    if (arg.type == VALUE_LIST) return eval_list_butlast(app, arg);
+    if (arg.type == VALUE_WORD) {
+        size_t len = strlen(arg.word);
+        if (len == 0) return word_val("");
+        EvalValue r = word_val(arg.word);
+        r.word[len - 1] = '\0';
+        return r;
+    }
+    return list_val(-1); // BUTLAST of a bare number is empty
+}
+static EvalValue do_count(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    if (arg.type == VALUE_LIST) {
+        double count = 0;
+        for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
+        return num_val(count);
+    }
+    if (arg.type == VALUE_WORD) return num_val((double)strlen(arg.word));
+    return num_val(1); // a bare number counts as a one-element list
+}
+static EvalValue do_empty(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    int empty;
+    if (arg.type == VALUE_LIST) empty = (arg.list_head == -1);
+    else if (arg.type == VALUE_WORD) empty = (arg.word[0] == '\0');
+    else empty = 0; // a number is never "empty"
+    return word_val(empty ? "TRUE" : "FALSE");
+}
+static EvalValue do_fput(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_list_fput(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+static EvalValue do_lput(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_list_lput(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+static EvalValue do_word(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_word_concat(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+static EvalValue do_sentence(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_list_sentence(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+static EvalValue do_list(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_list_wrap_pair(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
+}
+static EvalValue do_getprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_getprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+static void do_removeprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_removeprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+static EvalValue do_proplist(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_proplist(app, eval_expr(app, pool, arg_idx[0]));
+}
+
+// Not a built-in -- must be a hoisted user procedure: the parser
+// already guarantees this by construction (an AST_CALL node only
+// exists for a name that resolved to a builtin or a hoisted procedure
+// at parse time -- see parser.c's try_parse_call). find_proc_def
+// failing here would mean the parser's hoisting and this evaluator's
+// own tree-search fell out of sync, not a normal user error. Its own
+// function for the same stack-frame reason as every do_* above, and
+// because it's the recursive case: every user-procedure call chains
+// back through call_ast_procedure from here.
+static EvalValue do_user_procedure_call(LogoApp *app, AstPool *pool, const char *name, const int *arg_idx, int argc, int *resolved, int *produced) {
+    int def_node = find_proc_def(pool, name);
+    if (def_node < 0) {
+        if (resolved != NULL) *resolved = 0;
+        append_output(app, "I don't know how to ");
+        append_output(app, name);
+        append_output(app, "\n");
+        return num_val(0);
+    }
+    EvalValue arg_vals[AST_MAX_PARAMS];
+    int n = argc < AST_MAX_PARAMS ? argc : AST_MAX_PARAMS;
+    for (int i = 0; i < n; i++) arg_vals[i] = eval_expr(app, pool, arg_idx[i]);
+    int did_output;
+    EvalValue r = call_ast_procedure(app, pool, def_node, arg_vals, n, &did_output);
+    if (produced != NULL) *produced = did_output;
+    return r;
+}
+
 // One AST_CALL node -- a built-in or a hoisted user procedure, in
 // either statement position (resolved/produced/result may be NULL,
 // meaning "discard whatever this produces") or expression position
 // (all three captured). See parser.c's BUILTIN_SIGNATURES for which
 // built-ins are covered; growing this alongside that table is
-// incremental follow-up work.
+// incremental follow-up work -- as its own do_* function each time
+// (see the file comment above the first one), not a new inline
+// branch here.
 static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved, int *produced, EvalValue *result) {
     AstNode *node = &pool->nodes[call_node];
     const char *name = node->text;
@@ -410,230 +742,103 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     if (produced != NULL) *produced = 0;
     if (result != NULL) *result = num_val(0);
 
-#define ARGNUM(i) eval_to_number(eval_expr(app, pool, arg_idx[i]))
-#define ARGVAL(i) eval_expr(app, pool, arg_idx[i])
-
     if (strcasecmp(name, "FD") == 0 || strcasecmp(name, "FORWARD") == 0) {
-        move_turtle_forward(app, ARGNUM(0));
+        do_fd(app, pool, arg_idx);
     } else if (strcasecmp(name, "BK") == 0 || strcasecmp(name, "BACK") == 0) {
-        move_turtle_forward(app, -ARGNUM(0));
+        do_bk(app, pool, arg_idx);
     } else if (strcasecmp(name, "RT") == 0 || strcasecmp(name, "RIGHT") == 0) {
-        current_turtle(app)->angle += ARGNUM(0);
+        do_rt(app, pool, arg_idx);
     } else if (strcasecmp(name, "LT") == 0 || strcasecmp(name, "LEFT") == 0) {
-        current_turtle(app)->angle -= ARGNUM(0);
+        do_lt(app, pool, arg_idx);
     } else if (strcasecmp(name, "SETXY") == 0) {
-        double x = ARGNUM(0);
-        double y = ARGNUM(1);
-        move_turtle_to(app, x, y);
+        do_setxy(app, pool, arg_idx);
     } else if (strcasecmp(name, "SETHEADING") == 0 || strcasecmp(name, "SETH") == 0) {
-        current_turtle(app)->angle = ARGNUM(0);
+        do_setheading(app, pool, arg_idx);
     } else if (strcasecmp(name, "PENUP") == 0 || strcasecmp(name, "PU") == 0) {
-        current_turtle(app)->pen_down = FALSE;
+        do_penup(app);
     } else if (strcasecmp(name, "PENDOWN") == 0 || strcasecmp(name, "PD") == 0) {
-        current_turtle(app)->pen_down = TRUE;
+        do_pendown(app);
     } else if (strcasecmp(name, "HOME") == 0) {
-        move_turtle_to(app, home_x(app), home_y(app));
-        current_turtle(app)->angle = 0;
+        do_home(app);
     } else if (strcasecmp(name, "CLEAR") == 0 || strcasecmp(name, "CS") == 0) {
-        app->line_count = 0;
-        app->label_count = 0;
-        app->raster_op_count = 0;
-        for (int i = 0; i < app->turtle_count; i++) {
-            app->turtles[i].x = home_x(app);
-            app->turtles[i].y = home_y(app);
-            app->turtles[i].angle = 0;
-        }
+        do_clear(app);
     } else if (strcasecmp(name, "PRINT") == 0) {
-        EvalValue v = ARGVAL(0);
-        char text[2048];
-        eval_value_to_text(app, v, text, sizeof(text));
-        char buf[2100];
-        snprintf(buf, sizeof(buf), "%s\n", text);
-        append_output(app, buf);
+        do_print(app, pool, arg_idx);
     } else if (strcasecmp(name, "MAKE") == 0) {
-        // arg_idx[0] is an AST_WORD -- the parser's ARG_QUOTED_WORD
-        // kind already guarantees this holds the variable's name
-        // directly in .text (see parser.c's MAKE signature).
-        const char *varname = pool->nodes[arg_idx[0]].text;
-        EvalValue val = ARGVAL(1);
-        if (val.type == VALUE_WORD) set_var_word(app, varname, val.word);
-        else if (val.type == VALUE_LIST) set_var_list(app, varname, val.list_head);
-        else set_var(app, varname, val.number);
+        do_make(app, pool, arg_idx);
     } else if (strcasecmp(name, "OUTPUT") == 0) {
-        EvalValue val = ARGVAL(0);
-        app->output_type = val.type;
-        app->output_number = val.number;
-        snprintf(app->output_word, sizeof(app->output_word), "%s", val.word);
-        app->output_list_head = val.list_head;
-        app->has_output_value = TRUE;
-        app->stop_requested = TRUE;
+        do_output(app, pool, arg_idx);
     } else if (strcasecmp(name, "STOP") == 0) {
-        app->stop_requested = TRUE;
+        do_stop(app);
     } else if (strcasecmp(name, "REPEAT") == 0) {
-        int count = (int)ARGNUM(0);
-        int block_node = arg_idx[1];
-        for (int i = 0; i < count && !app->stop_requested; i++) {
-            exec_block(app, pool, block_node);
-        }
+        do_repeat(app, pool, arg_idx);
     } else if (strcasecmp(name, "WHILE") == 0) {
-        int cond_node = arg_idx[0];
-        int block_node = arg_idx[1];
-        int iterations = 0;
-        while (eval_condition(app, pool, cond_node)) {
-            if (iterations >= MAX_WHILE_ITERATIONS) {
-                append_output(app, "WHILE: stopped after too many iterations\n");
-                break;
-            }
-            exec_block(app, pool, block_node);
-            if (app->stop_requested) break;
-            iterations++;
-        }
+        do_while(app, pool, arg_idx);
     } else if (strcasecmp(name, "ABS") == 0) {
-        if (result != NULL) *result = num_val(fabs(ARGNUM(0)));
+        if (result != NULL) *result = do_abs(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "SQRT") == 0) {
-        if (result != NULL) *result = num_val(sqrt(ARGNUM(0)));
+        if (result != NULL) *result = do_sqrt(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "POWER") == 0) {
-        double base = ARGNUM(0);
-        double exponent = ARGNUM(1);
-        if (result != NULL) *result = num_val(pow(base, exponent));
+        if (result != NULL) *result = do_power(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "RANDOM") == 0) {
-        if (result != NULL) *result = num_val(random_below(ARGNUM(0)));
+        if (result != NULL) *result = do_random(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "ROUND") == 0) {
-        if (result != NULL) *result = num_val(round(ARGNUM(0)));
+        if (result != NULL) *result = do_round(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "INT") == 0) {
-        if (result != NULL) *result = num_val(trunc(ARGNUM(0)));
+        if (result != NULL) *result = do_int(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "FIRST") == 0) {
-        EvalValue arg = ARGVAL(0);
-        EvalValue r;
-        if (arg.type == VALUE_LIST) {
-            r = (arg.list_head < 0) ? word_val("") : node_to_value(&app->list_pool[arg.list_head]);
-        } else if (arg.type == VALUE_WORD) {
-            if (arg.word[0] == '\0') r = word_val("");
-            else { char ch[2] = {arg.word[0], '\0'}; r = word_val(ch); }
-        } else {
-            r = arg; // FIRST of a bare number is itself
-        }
-        if (result != NULL) *result = r;
+        if (result != NULL) *result = do_first(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "BUTFIRST") == 0) {
-        EvalValue arg = ARGVAL(0);
-        EvalValue r;
-        if (arg.type == VALUE_LIST) {
-            r = list_val(arg.list_head < 0 ? -1 : app->list_pool[arg.list_head].next);
-        } else if (arg.type == VALUE_WORD) {
-            r = word_val(arg.word[0] == '\0' ? "" : arg.word + 1);
-        } else {
-            r = list_val(-1); // BUTFIRST of a bare number is empty
-        }
-        if (result != NULL) *result = r;
+        if (result != NULL) *result = do_butfirst(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "LAST") == 0) {
-        EvalValue arg = ARGVAL(0);
-        EvalValue r;
-        if (arg.type == VALUE_LIST) {
-            if (arg.list_head < 0) {
-                r = word_val("");
-            } else {
-                int idx = arg.list_head;
-                while (app->list_pool[idx].next != -1) idx = app->list_pool[idx].next;
-                r = node_to_value(&app->list_pool[idx]);
-            }
-        } else if (arg.type == VALUE_WORD) {
-            size_t len = strlen(arg.word);
-            if (len == 0) r = word_val("");
-            else { char ch[2] = {arg.word[len - 1], '\0'}; r = word_val(ch); }
-        } else {
-            r = arg; // LAST of a bare number is itself
-        }
-        if (result != NULL) *result = r;
+        if (result != NULL) *result = do_last(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "BUTLAST") == 0) {
-        EvalValue arg = ARGVAL(0);
-        EvalValue r;
-        if (arg.type == VALUE_LIST) {
-            r = eval_list_butlast(app, arg);
-        } else if (arg.type == VALUE_WORD) {
-            size_t len = strlen(arg.word);
-            if (len == 0) {
-                r = word_val("");
-            } else {
-                r = word_val(arg.word);
-                r.word[len - 1] = '\0';
-            }
-        } else {
-            r = list_val(-1); // BUTLAST of a bare number is empty
-        }
-        if (result != NULL) *result = r;
+        if (result != NULL) *result = do_butlast(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "COUNT") == 0) {
-        EvalValue arg = ARGVAL(0);
-        double count;
-        if (arg.type == VALUE_LIST) {
-            count = 0;
-            for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
-        } else if (arg.type == VALUE_WORD) {
-            count = (double)strlen(arg.word);
-        } else {
-            count = 1; // a bare number counts as a one-element list
-        }
-        if (result != NULL) *result = num_val(count);
+        if (result != NULL) *result = do_count(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "EMPTY?") == 0) {
-        EvalValue arg = ARGVAL(0);
-        int empty;
-        if (arg.type == VALUE_LIST) empty = (arg.list_head == -1);
-        else if (arg.type == VALUE_WORD) empty = (arg.word[0] == '\0');
-        else empty = 0; // a number is never "empty"
-        if (result != NULL) *result = word_val(empty ? "TRUE" : "FALSE");
+        if (result != NULL) *result = do_empty(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "FPUT") == 0) {
-        if (result != NULL) *result = eval_list_fput(app, ARGVAL(0), ARGVAL(1));
+        if (result != NULL) *result = do_fput(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "LPUT") == 0) {
-        if (result != NULL) *result = eval_list_lput(app, ARGVAL(0), ARGVAL(1));
+        if (result != NULL) *result = do_lput(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "WORD") == 0) {
-        if (result != NULL) *result = eval_word_concat(app, ARGVAL(0), ARGVAL(1));
+        if (result != NULL) *result = do_word(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "SENTENCE") == 0 || strcasecmp(name, "SE") == 0) {
-        if (result != NULL) *result = eval_list_sentence(app, ARGVAL(0), ARGVAL(1));
+        if (result != NULL) *result = do_sentence(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "LIST") == 0) {
-        if (result != NULL) *result = eval_list_wrap_pair(app, ARGVAL(0), ARGVAL(1));
+        if (result != NULL) *result = do_list(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "SETPROP") == 0) {
+        do_setprop(app, pool, arg_idx);
+    } else if (strcasecmp(name, "GETPROP") == 0) {
+        if (result != NULL) *result = do_getprop(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "REMOVEPROP") == 0) {
+        do_removeprop(app, pool, arg_idx);
+    } else if (strcasecmp(name, "PROPLIST") == 0) {
+        if (result != NULL) *result = do_proplist(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else {
-        // Not a built-in -- must be a hoisted user procedure: the
-        // parser already guarantees this by construction (an AST_CALL
-        // node only exists for a name that resolved to a builtin or a
-        // hoisted procedure at parse time -- see parser.c's
-        // try_parse_call). find_proc_def failing here would mean the
-        // parser's hoisting and this evaluator's own tree-search fell
-        // out of sync, not a normal user error.
-        int def_node = find_proc_def(pool, name);
-        if (def_node < 0) {
-            if (resolved != NULL) *resolved = 0;
-            append_output(app, "I don't know how to ");
-            append_output(app, name);
-            append_output(app, "\n");
-            return;
-        }
-        EvalValue arg_vals[AST_MAX_PARAMS];
-        int n = argc < AST_MAX_PARAMS ? argc : AST_MAX_PARAMS;
-        for (int i = 0; i < n; i++) arg_vals[i] = ARGVAL(i);
-        int did_output;
-        EvalValue r = call_ast_procedure(app, pool, def_node, arg_vals, n, &did_output);
-        if (produced != NULL) *produced = did_output;
+        EvalValue r = do_user_procedure_call(app, pool, name, arg_idx, argc, resolved, produced);
         if (result != NULL) *result = r;
     }
-
-#undef ARGNUM
-#undef ARGVAL
 }
 
 static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx) {

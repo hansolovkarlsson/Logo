@@ -107,6 +107,16 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SENTENCE", 2, { ARG_EXPR, ARG_EXPR } },
     { "SE", 2, { ARG_EXPR, ARG_EXPR } },
     { "LIST", 2, { ARG_EXPR, ARG_EXPR } },
+
+    // Property lists (eval.c: a separate namespace from ordinary
+    // variables, sharing app->plist_entries directly with eval_logo's
+    // own SETPROP/GETPROP/etc). plistname/propname are each any
+    // expression (matching interpreter.c's own convention -- unlike
+    // MAKE's varname, these aren't ARG_QUOTED_WORD).
+    { "SETPROP", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "GETPROP", 2, { ARG_EXPR, ARG_EXPR } },
+    { "REMOVEPROP", 2, { ARG_EXPR, ARG_EXPR } },
+    { "PROPLIST", 1, { ARG_EXPR } },
 };
 #define BUILTIN_SIGNATURE_COUNT (int)(sizeof(BUILTIN_SIGNATURES) / sizeof(BUILTIN_SIGNATURES[0]))
 
