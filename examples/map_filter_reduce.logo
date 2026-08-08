@@ -12,3 +12,9 @@ FOREACH [PRINT ?] [1 2 3]
 ; A list-typed element keeps its brackets when substituted, so this
 ; works correctly instead of the sublist's tokens spilling out.
 PRINT MAP [COUNT ?] [[1 2] [3 4 5]]
+
+; A non-numeric word element is substituted in quoted (the same way a
+; list keeps its brackets), so it comes back as the literal word it is
+; rather than looking like an attempted command.
+FOREACH [PRINT ?] [the cat sat]
+PRINT REDUCE [WORD ?1 ?2] [a b c]

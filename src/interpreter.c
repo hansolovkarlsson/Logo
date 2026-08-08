@@ -571,20 +571,51 @@ static void value_to_text(LogoApp *app, const Value *v, char *out, size_t out_si
     }
 }
 
-// Like value_to_text, but always brackets a list value — for when the
-// rendered text is about to be *re-parsed* as Logo source rather than
-// shown to a person (MAP/FILTER/FOREACH/REDUCE substituting an element
-// into a template, which might itself be a sublist). PRINT/RUN want
-// value_to_text's "never bracket the top-level value" convention; this
-// is for the opposite case, where a substituted list needs to look like
-// literal [...] syntax so parse_factor's own `[` branch reconstructs it
-// as one value again, instead of spilling its elements as separate
-// tokens into the surrounding template.
+// Whether `word`'s entire text parses as a number (not just a leading
+// prefix of it, the way value_to_number's own coercion works) — used
+// only by value_to_source_text below to decide whether a WORD element
+// is safe to substitute bare. A bracket list literal like [1 2 3 4]
+// stores every element as LIST_ELEM_WORD regardless of what it looks
+// like (see parse_list_literal), so "3" here is a VALUE_WORD whose text
+// happens to be numeric, not a VALUE_NUMBER — re-quoting it would break
+// anything (parse_comparison's </> among them) that requires an actual
+// VALUE_NUMBER rather than a same-looking word.
+static gboolean word_is_entirely_a_number(const char *word) {
+    if (word[0] == '\0') return FALSE;
+    char *end;
+    strtod(word, &end);
+    return *end == '\0';
+}
+
+// Like value_to_text, but always brackets a list value, and quotes a
+// word one unless it's entirely numeric — for when the rendered text
+// is about to be *re-parsed* as Logo source rather than shown to a
+// person (MAP/FILTER/FOREACH/REDUCE substituting an element into a
+// template, which might itself be a sublist). PRINT/RUN want
+// value_to_text's "never bracket the top-level value, never quote a
+// word" convention; this is for the opposite case, where a substituted
+// list needs to look like literal [...] syntax so parse_factor's own
+// `[` branch reconstructs it as one value again (instead of spilling
+// its elements as separate tokens into the surrounding template), and
+// a substituted non-numeric word needs to look like a literal too — a
+// bare `the` substituted for `?` in `[PRINT ?]` tokenizes as its own
+// top-level command (`I don't know how to the`), not the quoted word
+// PRINT was meant to receive. A numeric-looking word is deliberately
+// left bare instead (see word_is_entirely_a_number above).
+//
+// 'raw text' rather than "word for the quoting, since that also
+// round-trips a word containing embedded spaces (e.g. read via
+// READLINE, or itself a 'raw text' literal) that "word's own
+// whitespace-terminated reading couldn't. A word containing a literal
+// ' is the one thing this still can't round-trip (no escaping) — the
+// same known limitation 'raw text' literals themselves already have.
 static void value_to_source_text(LogoApp *app, const Value *v, char *out, size_t out_size) {
     if (v->type == VALUE_LIST) {
         char inner[512];
         list_elements_to_text(app, v->list_head, inner, sizeof(inner));
         snprintf(out, out_size, "[%s]", inner);
+    } else if (v->type == VALUE_WORD && !word_is_entirely_a_number(v->word)) {
+        snprintf(out, out_size, "'%s'", v->word);
     } else {
         value_to_text(app, v, out, out_size);
     }

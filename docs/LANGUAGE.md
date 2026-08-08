@@ -916,7 +916,11 @@ FOREACH [PRINT ?] [1 2 3]
 - If an element is itself a list, it's substituted in *with* its
   brackets (`MAP [COUNT ?] [[1 2] [3 4 5]]` is `2 3`) — otherwise its own
   elements would spill out as separate tokens into the template instead
-  of staying one value.
+  of staying one value. A non-numeric word element is substituted in
+  quoted the same way (`FOREACH [PRINT ?] [the cat sat]` prints `the`/
+  `cat`/`sat`, not the word's own characters or an attempted command);
+  a numeric-looking one is left bare so it still compares/computes as
+  the number it is, not text that merely looks like one.
 
 ## Conditionals
 

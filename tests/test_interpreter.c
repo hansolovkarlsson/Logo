@@ -1076,10 +1076,32 @@ TEST(test_map_preserves_nested_list_elements) {
     CHECK_STREQ(captured_output, "2 3\n");
 }
 
+TEST(test_map_with_word_elements) {
+    // Every bracket-list element is internally a VALUE_WORD regardless
+    // of whether it looks numeric (see parse_list_literal) -- this is
+    // what a genuinely non-numeric word element exercises: it must
+    // come back out of the template quoted, not as bare text that
+    // looks like an attempted command.
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT MAP [FIRST ?] [foo bar]");
+    CHECK_STREQ(captured_output, "f b\n");
+}
+
 TEST(test_filter_keeps_matching_elements) {
+    // Elements here look numeric (their VALUE_WORD text happens to be
+    // "1"/"2"/"3"/"4") but must still compare correctly with > , which
+    // requires an actual VALUE_NUMBER on both sides (see
+    // parse_comparison) -- a naively-quoted "1" etc. would force
+    // VALUE_WORD typing and silently fail every > comparison instead.
     LogoApp *app = new_app();
     eval_logo(app, "PRINT FILTER [? > 2] [1 2 3 4]");
     CHECK_STREQ(captured_output, "3 4\n");
+}
+
+TEST(test_filter_with_word_elements) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT FILTER [? = \"b] [a b c b]");
+    CHECK_STREQ(captured_output, "b b\n");
 }
 
 TEST(test_reduce_folds_left_to_right) {
@@ -1094,10 +1116,30 @@ TEST(test_reduce_of_single_element_list_is_that_element) {
     CHECK_STREQ(captured_output, "5\n");
 }
 
+TEST(test_reduce_concatenates_word_elements) {
+    // Exercises value_to_source_text on the accumulator itself (a
+    // WORD, not just the current element) across repeated iterations.
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT REDUCE [WORD ?1 ?2] [a b c]");
+    CHECK_STREQ(captured_output, "abc\n");
+}
+
 TEST(test_foreach_runs_template_per_element) {
     LogoApp *app = new_app();
     eval_logo(app, "FOREACH [PRINT ?] [1 2 3]");
     CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
+TEST(test_foreach_with_word_elements_prints_each_word) {
+    // The original bug report: a bare word substituted for ? used to
+    // come out unquoted (e.g. `PRINT the`), which tokenizes as its own
+    // top-level command rather than PRINT's argument -- `0` printed
+    // (parse_factor's number fallback consuming nothing) followed by
+    // `I don't know how to the`, for every word, instead of the word
+    // itself.
+    LogoApp *app = new_app();
+    eval_logo(app, "FOREACH [PRINT ?] [the turtle draws a square]");
+    CHECK_STREQ(captured_output, "the\nturtle\ndraws\na\nsquare\n");
 }
 
 // --- Conditionals & booleans ---
@@ -2685,10 +2727,14 @@ int main(void) {
     RUN(test_map_transforms_each_element);
     RUN(test_map_on_a_bare_number);
     RUN(test_map_preserves_nested_list_elements);
+    RUN(test_map_with_word_elements);
     RUN(test_filter_keeps_matching_elements);
+    RUN(test_filter_with_word_elements);
     RUN(test_reduce_folds_left_to_right);
     RUN(test_reduce_of_single_element_list_is_that_element);
+    RUN(test_reduce_concatenates_word_elements);
     RUN(test_foreach_runs_template_per_element);
+    RUN(test_foreach_with_word_elements_prints_each_word);
 
     RUN(test_if_ifelse_comparisons);
     RUN(test_boolean_and_or_not);

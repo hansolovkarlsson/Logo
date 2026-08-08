@@ -59,16 +59,25 @@ direction:
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).
-- [ ] `eval_logo`'s 200-call recursion cap (`MAX_SCOPE_DEPTH`) is close to,
-  but not confirmed over, a stack-safety edge under AddressSanitizer —
-  found 2026-08-05 while stress-testing `RUN`/`APPLY`. `eval_logo` is one
-  giant function with every command as a branch, compiled at `-O0`, so
-  each new feature's locals add to its per-call stack frame even though
-  only one branch runs per call; 200 levels of recursion now overflows
-  under ASan's inflated overhead, though every plain (non-ASan) run has
-  passed cleanly. Left as-is for now rather than lowering the documented
-  cap or splitting `eval_logo` into smaller per-command functions — revisit
-  if a real (non-ASan) crash from deep recursion is ever reported.
+- [ ] `eval_logo`'s 200-call recursion cap (`MAX_SCOPE_DEPTH`) overflows
+  the stack under AddressSanitizer — found 2026-08-05 while
+  stress-testing `RUN`/`APPLY`, and updated 2026-08-07: a real,
+  non-ASan crash from `test_recursion_depth_limit_reports_error` (its
+  intentional 200-deep self-recursive procedure call) has now also been
+  observed directly running `build/test_interpreter`, flakily (most
+  direct invocations crash on this machine right now; a `make test` run
+  in between happened not to, so it's ASLR-sensitive stack-headroom
+  variance rather than a hard, always-reproducing bound). `eval_logo` is
+  one giant function with every command as a branch, compiled at `-O0`,
+  so each new feature's locals add to its per-call stack frame even
+  though only one branch runs per call; every feature added since this
+  was first found has added more locals, presumably why the margin that
+  used to hold in plain builds no longer reliably does. This crosses the
+  line this note itself set for revisiting it — still left as-is for
+  now (lowering `MAX_SCOPE_DEPTH` or splitting `eval_logo` into smaller
+  per-command functions are both real fixes, just bigger than a quick
+  add), but worth prioritizing given it's no longer just an
+  ASan-under-inflated-overhead concern.
 - [ ] User-defined procedure parameters coerce every argument to a plain
   number, even a list/word/array — found 2026-08-06 while adding arrays
   (the "new data types" phase above). `TO test :x PRINT :x END` then
@@ -83,19 +92,3 @@ direction:
   through `arg_vals`/`Scope.vars`/`APPLY`'s argument list — a real but
   contained change, not attempted here since it's orthogonal to arrays
   themselves.
-- [ ] `FOREACH` (and likely `MAP`/`FILTER`/`REDUCE`, which share the same
-  template-substitution machinery) mishandles a **word** element — found
-  2026-08-07 while writing an example for `'raw text'` literals.
-  `FOREACH [PRINT ?] [the turtle draws a square]` prints `0` and
-  `I don't know how to the` for every word, instead of printing each
-  word: `value_to_source_text` (the helper that renders an element back
-  into source text before substituting it for `?`) re-brackets a `LIST`
-  element but never re-quotes a `WORD`/`NUMBER` one with a leading `"`,
-  so a word like `the` lands in the substituted code bare — indistinguishable
-  from an attempted command — rather than as the literal `"the`
-  it needs to be. Never surfaced before since `docs/LANGUAGE.md`'s own
-  `FOREACH` example only ever demonstrates it with numbers (`[1 2 3]`),
-  which round-trip fine unquoted. Fixing this means having
-  `value_to_source_text` prepend `"` for a `WORD`/`NUMBER` element (not
-  just bracket a `LIST` one) — a small, contained change, not attempted
-  here since it's orthogonal to what was actually being worked on.
