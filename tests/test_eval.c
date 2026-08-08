@@ -252,13 +252,18 @@ TEST(test_math_operators) {
 }
 
 TEST(test_local_scope_shadows_global) {
+    // Not named "setx": that's a genuine built-in in the real
+    // interpreter (sets the turtle's X coordinate) this evaluator
+    // doesn't implement yet -- harmless here (this file only runs the
+    // new engine), but see tests/test_shadow_diff.c for why it matters
+    // against the old one.
     LogoApp *app = new_app();
     run_source(app,
         "MAKE \"x 100\n"
-        "TO setx :x\n"
+        "TO showvalue :x\n"
         "  PRINT :x\n"
         "END\n"
-        "setx 1\n"
+        "showvalue 1\n"
         "PRINT :x");
     CHECK_STREQ(captured_output, "1\n100\n");
 }

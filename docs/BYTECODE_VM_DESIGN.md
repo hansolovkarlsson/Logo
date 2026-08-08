@@ -361,8 +361,36 @@ footprint.
     `PRINT FD 10` parses and runs here where the old engine would
     behave quite differently. Narrow — nobody writes real scripts this
     way — and documented in `eval.c`'s own file comment.
+- **Shadow-diff strategy: started** (`tests/test_shadow_diff.c`, run
+  via `make test-shadow-diff` or as part of `make test`). Runs a
+  curated corpus of 20 scripts through both engines — `eval_logo`
+  against a fresh `LogoApp`, and `logo_lex` → `logo_parse` → `ast_eval`
+  against a separate one — and asserts they agree on both captured
+  output text and final turtle state (`x`/`y`/`angle`/`pen_down`),
+  since `FD`/`RT`/etc. don't print anything a text-only diff would
+  catch. Bounded to scripts within `BUILTIN_SIGNATURES`'s current
+  coverage — this isn't "replay all of `tests/test_interpreter.c`"
+  yet, since most of it uses operators the new engine doesn't
+  implement (`SETPROP`, lists, arrays, `TELL`, ...), which would just
+  report parse errors, not real behavioral disagreements. `RANDOM` is
+  deliberately excluded (both engines share one continuing RNG stream
+  via the exposed `random_below`, so diffing it would compare two
+  different-but-both-correct draws, not catch a real divergence).
+  - **Found a real, meaningful divergence on the first run** — see
+    `test_local_scope_shadows_global`'s own comment: a test procedure
+    happened to be named `setx`, which is a genuine built-in in the
+    old engine (sets the turtle's X coordinate) that `BUILTIN_SIGNATURES`
+    doesn't have yet. The old engine's `SETX` always wins over a
+    same-named user procedure; the new engine, not knowing about
+    `SETX`, just calls the user's procedure instead — silently
+    different behavior, caught mechanically rather than by manual
+    review. Not a bug in either engine's actual logic, but a real,
+    general risk category worth naming: as `BUILTIN_SIGNATURES` grows,
+    a script (real or test) that names a procedure after an
+    not-yet-implemented built-in will diverge exactly this way until
+    that built-in lands. Fixed by renaming the test's procedure, with
+    the collision itself recorded as the reason, not silently avoided.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
-  fuller language coverage, and/or starting the migration's shadow-diff
-  strategy (running both engines against the same input and comparing
-  `captured_output`) now that there's a real second engine to diff
-  against.
+  fuller language coverage, and growing the shadow-diff corpus
+  alongside it — the mechanism itself is proven; the value from here
+  on is coverage.

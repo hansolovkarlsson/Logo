@@ -61,7 +61,17 @@ TEST_EVAL_SRC = tests/test_eval.c src/eval.c src/parser.c src/ast.c src/lexer.c 
 TEST_EVAL_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
-.PHONY: all clean run test test-lexer test-parser test-eval
+# test_shadow_diff.c (the migration strategy from
+# docs/BYTECODE_VM_DESIGN.md) needs both engines in one binary --
+# eval_logo (interpreter.c) and the new lexer/parser/ast/eval stack --
+# so it's the same shape as TEST_EVAL_TARGET above, just with its own
+# source file.
+TEST_SHADOW_DIFF_TARGET = build/test_shadow_diff
+TEST_SHADOW_DIFF_SRC = tests/test_shadow_diff.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
+TEST_SHADOW_DIFF_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+
+.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff
 
 all: $(TARGET)
 
@@ -80,13 +90,15 @@ run: $(TARGET)
 
 # Headless tests for the interpreter core (src/interpreter.c) — no GTK
 # widgets involved, so no window/display is needed to run these — plus
-# lexer.c's, parser.c's, and eval.c's own tests, so `make test` remains
-# the one command that verifies everything still works.
-test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET)
+# lexer.c's, parser.c's, eval.c's, and the shadow-diff corpus's own
+# tests, so `make test` remains the one command that verifies
+# everything still works.
+test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET) $(TEST_SHADOW_DIFF_TARGET)
 	./$(TEST_TARGET)
 	./$(TEST_LEXER_TARGET)
 	./$(TEST_PARSER_TARGET)
 	./$(TEST_EVAL_TARGET)
+	./$(TEST_SHADOW_DIFF_TARGET)
 
 $(TEST_TARGET): $(TEST_SRC) $(HEADERS)
 	@mkdir -p build
@@ -112,6 +124,13 @@ test-eval: $(TEST_EVAL_TARGET)
 $(TEST_EVAL_TARGET): $(TEST_EVAL_SRC) $(HEADERS)
 	@mkdir -p build
 	$(CC) $(TEST_EVAL_CFLAGS) $(TEST_EVAL_SRC) -o $(TEST_EVAL_TARGET) $(TEST_EVAL_LDFLAGS)
+
+test-shadow-diff: $(TEST_SHADOW_DIFF_TARGET)
+	./$(TEST_SHADOW_DIFF_TARGET)
+
+$(TEST_SHADOW_DIFF_TARGET): $(TEST_SHADOW_DIFF_SRC) $(HEADERS)
+	@mkdir -p build
+	$(CC) $(TEST_SHADOW_DIFF_CFLAGS) $(TEST_SHADOW_DIFF_SRC) -o $(TEST_SHADOW_DIFF_TARGET) $(TEST_SHADOW_DIFF_LDFLAGS)
 
 clean:
 	rm -rf build bin
