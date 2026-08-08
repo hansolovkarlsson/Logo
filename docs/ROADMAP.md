@@ -42,9 +42,12 @@ or `call_procedure` at all.
   everything else on this page — the current interpreter is
   deliberately one direct-execution function with no AST; a bytecode VM
   means a real compile step and a from-scratch execution core,
-  obsoleting most of `interpreter.c`'s current design. Motivation
-  (performance? something else?) needs to be clear before this is ever
-  scoped for real.
+  obsoleting most of `interpreter.c`'s current design. Motivation is
+  now clear (see `docs/BYTECODE_VM_DESIGN.md`: real suspend/resume
+  instead of every busy-wait `WAITKEY`/`PAUSE`/`WAIT`/etc. currently
+  uses, decoupling recursion depth from `eval_logo`'s own C-stack
+  footprint, and growing Logo past "toy language" scope generally) —
+  design discussion in progress there before any of it is implemented.
 
 ## Robustness
 

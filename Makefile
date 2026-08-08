@@ -37,7 +37,21 @@ TEST_SRC = tests/test_interpreter.c src/interpreter.c
 TEST_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
-.PHONY: all clean run test
+# lexer.c (docs/BYTECODE_VM_DESIGN.md's Stage 1) has zero dependency on
+# GTK/GLib/interpreter.h by design -- its own test binary needs no
+# pkg-config flags at all, unlike every other target in this Makefile.
+TEST_LEXER_TARGET = build/test_lexer
+TEST_LEXER_SRC = tests/test_lexer.c src/lexer.c
+TEST_LEXER_CFLAGS = -Wall -Wextra -g -O1 -std=c11
+
+# ast.c/parser.c (Stage 1's AST + recursive-descent parser) are the
+# same story -- no GTK/GLib/interpreter.h dependency, no pkg-config
+# flags needed.
+TEST_PARSER_TARGET = build/test_parser
+TEST_PARSER_SRC = tests/test_parser.c src/parser.c src/ast.c src/lexer.c
+TEST_PARSER_CFLAGS = -Wall -Wextra -g -O1 -std=c11
+
+.PHONY: all clean run test test-lexer test-parser
 
 all: $(TARGET)
 
@@ -55,13 +69,31 @@ run: $(TARGET)
 	./$(TARGET)
 
 # Headless tests for the interpreter core (src/interpreter.c) — no GTK
-# widgets involved, so no window/display is needed to run these.
-test: $(TEST_TARGET)
+# widgets involved, so no window/display is needed to run these — plus
+# lexer.c's and parser.c's own tests, so `make test` remains the one
+# command that verifies everything still works.
+test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET)
 	./$(TEST_TARGET)
+	./$(TEST_LEXER_TARGET)
+	./$(TEST_PARSER_TARGET)
 
 $(TEST_TARGET): $(TEST_SRC) $(HEADERS)
 	@mkdir -p build
 	$(CC) $(TEST_CFLAGS) $(TEST_SRC) -o $(TEST_TARGET) $(TEST_LDFLAGS)
+
+test-lexer: $(TEST_LEXER_TARGET)
+	./$(TEST_LEXER_TARGET)
+
+$(TEST_LEXER_TARGET): $(TEST_LEXER_SRC) src/lexer.h
+	@mkdir -p build
+	$(CC) $(TEST_LEXER_CFLAGS) $(TEST_LEXER_SRC) -o $(TEST_LEXER_TARGET)
+
+test-parser: $(TEST_PARSER_TARGET)
+	./$(TEST_PARSER_TARGET)
+
+$(TEST_PARSER_TARGET): $(TEST_PARSER_SRC) src/parser.h src/ast.h src/lexer.h
+	@mkdir -p build
+	$(CC) $(TEST_PARSER_CFLAGS) $(TEST_PARSER_SRC) -o $(TEST_PARSER_TARGET)
 
 clean:
 	rm -rf build bin
