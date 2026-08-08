@@ -693,6 +693,18 @@ TEST(test_array_errors_match_between_engines) {
     shadow_diff("MAKE \"a ARRAY 2\nMAKE \"b ARRAY 2\nFILLARRAY :a :b");
 }
 
+TEST(test_type_predicates_on_every_value_kind) {
+    shadow_diff(
+        "MAKE \"w \"hi\n"
+        "MAKE \"n 5\n"
+        "MAKE \"l [1 2 3]\n"
+        "MAKE \"a ARRAY 2\n"
+        "PRINT WORD? :w\nPRINT LIST? :w\nPRINT NUMBER? :w\nPRINT ARRAY? :w\n"
+        "PRINT WORD? :n\nPRINT LIST? :n\nPRINT NUMBER? :n\nPRINT ARRAY? :n\n"
+        "PRINT WORD? :l\nPRINT LIST? :l\nPRINT NUMBER? :l\nPRINT ARRAY? :l\n"
+        "PRINT WORD? :a\nPRINT LIST? :a\nPRINT NUMBER? :a\nPRINT ARRAY? :a");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -747,6 +759,7 @@ int main(void) {
     RUN(test_array_create_setitem_fillarray_item);
     RUN(test_array_aliasing_through_make_and_procedure_arguments);
     RUN(test_array_errors_match_between_engines);
+    RUN(test_type_predicates_on_every_value_kind);
 
     if (failures == 0) {
         printf("All tests passed.\n");

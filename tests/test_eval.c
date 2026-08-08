@@ -445,6 +445,48 @@ TEST(test_array_passed_as_procedure_argument_keeps_its_aliasing) {
     CHECK_STREQ(captured_output, "777\n");
 }
 
+TEST(test_type_predicates_on_a_word) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT WORD? \"hi\n"
+        "PRINT LIST? \"hi\n"
+        "PRINT NUMBER? \"hi\n"
+        "PRINT ARRAY? \"hi");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\nFALSE\nFALSE\n");
+}
+
+TEST(test_type_predicates_on_a_number) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT WORD? 5\n"
+        "PRINT LIST? 5\n"
+        "PRINT NUMBER? 5\n"
+        "PRINT ARRAY? 5");
+    CHECK_STREQ(captured_output, "FALSE\nFALSE\nTRUE\nFALSE\n");
+}
+
+TEST(test_type_predicates_on_a_list) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"x [1 2 3]\n"
+        "PRINT WORD? :x\n"
+        "PRINT LIST? :x\n"
+        "PRINT NUMBER? :x\n"
+        "PRINT ARRAY? :x");
+    CHECK_STREQ(captured_output, "FALSE\nTRUE\nFALSE\nFALSE\n");
+}
+
+TEST(test_type_predicates_on_an_array) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"a ARRAY 2\n"
+        "PRINT WORD? :a\n"
+        "PRINT LIST? :a\n"
+        "PRINT NUMBER? :a\n"
+        "PRINT ARRAY? :a");
+    CHECK_STREQ(captured_output, "FALSE\nFALSE\nFALSE\nTRUE\n");
+}
+
 TEST(test_setprop_getprop_round_trips_a_number_word_and_list) {
     LogoApp *app = new_app();
     run_source(app,
@@ -682,6 +724,10 @@ int main(void) {
     RUN(test_count_of_array);
     RUN(test_make_aliases_array_not_copies);
     RUN(test_array_passed_as_procedure_argument_keeps_its_aliasing);
+    RUN(test_type_predicates_on_a_word);
+    RUN(test_type_predicates_on_a_number);
+    RUN(test_type_predicates_on_a_list);
+    RUN(test_type_predicates_on_an_array);
     RUN(test_setprop_getprop_round_trips_a_number_word_and_list);
     RUN(test_getprop_of_missing_property_is_the_empty_list);
     RUN(test_setprop_on_same_key_overwrites_not_duplicates);

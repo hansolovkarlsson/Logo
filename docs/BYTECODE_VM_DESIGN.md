@@ -567,9 +567,27 @@ footprint.
     `test_shadow_diff` — no new stack-fragility regression, which is
     exactly what the structural `do_*`-per-built-in fix from the
     property-lists milestone was meant to guarantee going forward.
+- **Type predicates: done** (`WORD?`/`LIST?`/`NUMBER?`/`ARRAY?`). The
+  simplest milestone in this whole effort so far — each just checks
+  the evaluated argument's own `ValueType` tag, which is shared
+  verbatim between the two engines (`logo_types.h`'s `ValueType` enum
+  is the same one both `Value` and `EvalValue` use), so there was
+  nothing to port beyond the four one-line `do_*` functions
+  (`do_wordp`/`do_listp`/`do_numberp`/`do_arrayp`) and their
+  `BUILTIN_SIGNATURES` entries. No new state, no new sharing with
+  `interpreter.c`, no new stack-fragility risk worth calling out. 4 new
+  `tests/test_eval.c` cases (one per value kind — word, number, list,
+  array — checking all four predicates against it) and 1 new
+  shadow-diff script covering every predicate against every value kind
+  in one pass. `EMPTY?` (already implemented, checks emptiness not
+  type) and `MEMBER?`/`EOF?`/`BUTTON?`/`JOYSTICK?`/`JOYSTICKBUTTON?`
+  (list-membership and hardware/file-input predicates, not type
+  predicates, `EOF?`/`BUTTON?`-family out of scope for a headless
+  evaluator regardless) were deliberately left out of this pass.
+  Confirmed clean under AddressSanitizer on both `test_eval` and
+  `test_shadow_diff`.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
-  fuller language coverage (more turtle commands, type predicates —
-  `ARRAY?`/`WORD?`/`LIST?`/`NUMBER?` don't exist in the new engine at
-  all yet, not just for arrays), and growing the shadow-diff corpus
-  alongside it — the mechanism itself is proven; the value from here
-  on is coverage.
+  fuller language coverage (more turtle commands, `MEMBER?`/`MAP`/
+  `FILTER`/`REDUCE`-style higher-order list operators), and growing
+  the shadow-diff corpus alongside it — the mechanism itself is
+  proven; the value from here on is coverage.

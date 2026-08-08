@@ -754,6 +754,26 @@ static EvalValue do_empty(LogoApp *app, AstPool *pool, const int *arg_idx) {
     else empty = 0; // a number is never "empty"
     return word_val(empty ? "TRUE" : "FALSE");
 }
+// Type predicates -- mirror interpreter.c's own WORD?/LIST?/NUMBER?/
+// ARRAY? exactly: each just checks the evaluated argument's own
+// ValueType tag (shared verbatim between the two engines, see
+// logo_types.h), no coercion.
+static EvalValue do_wordp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    return word_val(arg.type == VALUE_WORD ? "TRUE" : "FALSE");
+}
+static EvalValue do_listp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    return word_val(arg.type == VALUE_LIST ? "TRUE" : "FALSE");
+}
+static EvalValue do_numberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    return word_val(arg.type == VALUE_NUMBER ? "TRUE" : "FALSE");
+}
+static EvalValue do_arrayp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    return word_val(arg.type == VALUE_ARRAY ? "TRUE" : "FALSE");
+}
 static EvalValue do_fput(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return eval_list_fput(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
@@ -1069,6 +1089,18 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "EMPTY?") == 0) {
         if (result != NULL) *result = do_empty(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "WORD?") == 0) {
+        if (result != NULL) *result = do_wordp(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "LIST?") == 0) {
+        if (result != NULL) *result = do_listp(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "NUMBER?") == 0) {
+        if (result != NULL) *result = do_numberp(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "ARRAY?") == 0) {
+        if (result != NULL) *result = do_arrayp(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "FPUT") == 0) {
         if (result != NULL) *result = do_fput(app, pool, arg_idx);
