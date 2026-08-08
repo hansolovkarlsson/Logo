@@ -8,7 +8,18 @@ OBJ = $(patsubst src/%.c,build/%.o,$(SRC))
 PKG_CONFIG = pkg-config
 GTK_LIBS = gtk4
 
-CFLAGS = -Wall -Wextra -g -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+# -O1 matters, not just style: eval_logo (src/interpreter.c) is one
+# giant function with every command as a branch, so at -O0 every
+# branch's locals get their own permanent stack slot even though only
+# one branch runs per call -- 200 levels of recursion (MAX_SCOPE_DEPTH)
+# reliably overflowed the real stack well before that cap at -O0 (not
+# just under AddressSanitizer's own separately-inflated overhead, which
+# is independent of optimization level and still overflows here
+# regardless). -O1 lets the compiler reuse/eliminate dead branches'
+# stack slots, and empirically survives the full 200-level cap cleanly,
+# repeatedly, direct invocation and not just through `make test`
+# (confirmed 2026-08-07).
+CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
 TEST_TARGET = build/test_interpreter

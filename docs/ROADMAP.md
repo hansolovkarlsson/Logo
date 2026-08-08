@@ -59,25 +59,6 @@ direction:
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).
-- [ ] `eval_logo`'s 200-call recursion cap (`MAX_SCOPE_DEPTH`) overflows
-  the stack under AddressSanitizer — found 2026-08-05 while
-  stress-testing `RUN`/`APPLY`, and updated 2026-08-07: a real,
-  non-ASan crash from `test_recursion_depth_limit_reports_error` (its
-  intentional 200-deep self-recursive procedure call) has now also been
-  observed directly running `build/test_interpreter`, flakily (most
-  direct invocations crash on this machine right now; a `make test` run
-  in between happened not to, so it's ASLR-sensitive stack-headroom
-  variance rather than a hard, always-reproducing bound). `eval_logo` is
-  one giant function with every command as a branch, compiled at `-O0`,
-  so each new feature's locals add to its per-call stack frame even
-  though only one branch runs per call; every feature added since this
-  was first found has added more locals, presumably why the margin that
-  used to hold in plain builds no longer reliably does. This crosses the
-  line this note itself set for revisiting it — still left as-is for
-  now (lowering `MAX_SCOPE_DEPTH` or splitting `eval_logo` into smaller
-  per-command functions are both real fixes, just bigger than a quick
-  add), but worth prioritizing given it's no longer just an
-  ASan-under-inflated-overhead concern.
 - [ ] User-defined procedure parameters coerce every argument to a plain
   number, even a list/word/array — found 2026-08-06 while adding arrays
   (the "new data types" phase above). `TO test :x PRINT :x END` then
