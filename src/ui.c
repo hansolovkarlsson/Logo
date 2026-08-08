@@ -704,6 +704,19 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
     (void)keycode;
 
     LogoApp *app = (LogoApp *)user_data;
+
+    // WAITKEY is busy-waiting (see interpreter.c) for exactly this: the
+    // *next* keypress, whatever it is -- captured here instead of its
+    // normal handling (Return submitting, Up/Down navigating history,
+    // an ordinary key being typed), consumed so none of that also
+    // happens.
+    if (app->waiting_for_key) {
+        const char *name = gdk_keyval_name(keyval);
+        snprintf(app->pending_key, sizeof(app->pending_key), "%s", name != NULL ? name : "");
+        app->key_ready = TRUE;
+        return TRUE;
+    }
+
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->entry));
 
     GdkModifierType mods = state & gtk_accelerator_get_default_mod_mask();
@@ -1138,4 +1151,9 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     g_object_unref(menu_bar);
 
     gtk_window_present(GTK_WINDOW(window));
+    // Focus the entry box immediately -- otherwise a fresh window opens
+    // with no widget focused at all, and nothing typed (or WAITKEY
+    // waiting on a keypress there) does anything until the user
+    // happens to click into it themselves first.
+    gtk_widget_grab_focus(logo->entry);
 }

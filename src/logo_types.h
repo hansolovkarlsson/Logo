@@ -328,6 +328,21 @@ typedef struct LogoApp {
     // interpreter.c for the exact protocol.
     int pause_depth;
 
+    // WAITKEY's protocol with the entry box's key-press handler (see
+    // on_entry_key_pressed in ui.c): WAITKEY sets waiting_for_key before
+    // busy-waiting (WAIT's own technique again), which tells the entry
+    // box to intercept the *next* keypress -- whatever it is, including
+    // Return/Up/Down, which would otherwise submit or navigate history
+    // -- into pending_key instead of its normal handling, and set
+    // key_ready to unblock WAITKEY's loop. Plain data, not a callback:
+    // always FALSE/unset in headless tests, where there's no entry box
+    // to ever set key_ready, so WAITKEY is a silent no-op there instead
+    // of busy-waiting forever (same convention as PAUSE's request_redraw
+    // check).
+    gboolean waiting_for_key;
+    gboolean key_ready;
+    char pending_key[32];
+
     // How many RUNs are currently nested (RUN doesn't push a Scope of its
     // own -- run code shares the caller's scope, unlike a procedure call
     // -- so this is separate from scope_depth, but capped at the same

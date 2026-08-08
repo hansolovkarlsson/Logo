@@ -18,10 +18,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
 *pause* a running script and wait on a live event shares the same
 underlying problem — worth solving once rather than four separate times:
 
-- [ ] A "wait for a keypress" pause, as an alternative to `WAIT`'s
-  time-based one (carried over from the original roadmap) — the entry
-  box would need to feed a keypress back into a running `eval_logo`
-  call.
 - [ ] `INPUT` (or similar) — read a line of live user input into a
   variable mid-script, Berkeley Logo's `READLIST`/`READWORD` territory.
 - [ ] Joystick/game-controller input — a genuinely new dependency (no

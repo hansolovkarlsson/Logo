@@ -1,0 +1,20 @@
+; WAITKEY: a keypress pause, Phase 4's first "pause and wait on a live
+; event" feature. Genuinely halts the script and waits for a real
+; keypress in the entry box, then outputs its name as a word -- so this
+; example only makes sense run from the actual app, not the headless
+; test driver, where it's a silent no-op (returns the empty word
+; immediately) instead of waiting forever.
+
+TO drive
+  MAKE "key WAITKEY
+  IF :key = "Up [FD 20]
+  IF :key = "Down [BK 20]
+  IF :key = "Left [LT 15]
+  IF :key = "Right [RT 15]
+  IF NOT MEMBER? :key [Up Down Left Right] [STOP]
+  drive
+END
+
+PRINT 'Press an arrow key to move the turtle -- any other key to stop.'
+drive
+PRINT "Stopped.

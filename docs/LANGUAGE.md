@@ -1322,6 +1322,39 @@ PRINT EXECTIME [spiral 10]
 (Renamed as little as possible from Terrapin's own `PAUSE`/`CONTINUE`
 (`CO`)/`BACKTRACE` (`BT`)/`EXECTIME` — these names were already clear.)
 
+## Interactive input
+
+```
+TO drive
+  MAKE "key WAITKEY
+  IF :key = "Up [FD 20]
+  IF :key = "Down [BK 20]
+  IF :key = "Left [LT 15]
+  IF :key = "Right [RT 15]
+  IF NOT MEMBER? :key [Up Down Left Right] [STOP]
+  drive
+END
+```
+
+- `WAITKEY` halts the running script right where it's called and waits
+  for a real keypress in the entry box, then outputs its name as a
+  word — `"a"`, `"Up"`, `"Return"`, `"space"`, whatever GDK's own
+  key-name lookup gives back, unfiltered. This intercepts the *very
+  next* keypress no matter what it is — even `Return`/`Up`/`Down`,
+  which would otherwise submit the entry box or navigate command
+  history — so it works as an answer to `WAITKEY` instead.
+- Same PAUSE-style protocol otherwise: the app stays fully responsive
+  while waiting, and `WAITKEY` only actually waits when running in the
+  real app — no live entry box in the headless test driver means no
+  key to ever press, so it returns the empty word immediately there
+  instead of waiting forever.
+- This is Phase 4's foundational feature: `eval_logo` running
+  synchronously start-to-finish means anything that needs to pause a
+  running script and wait on a live event shares the same underlying
+  mechanism `PAUSE`/`CONTINUE` already established (see "Debugger"
+  above) — `WAITKEY` just applies it to a keypress instead of a typed
+  command.
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than

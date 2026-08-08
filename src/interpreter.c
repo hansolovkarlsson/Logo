@@ -1759,6 +1759,35 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         }
         return list_value(head);
     }
+    // WAITKEY — Phase 4's first "pause and wait on a live event"
+    // feature (see docs/ROADMAP.md): blocks the running script (same
+    // busy-wait technique as WAIT/PAUSE above) until a key is pressed
+    // in the entry box, then outputs its name as a word (e.g. "a",
+    // "Up", "Return", "space" -- whatever GDK's own gdk_keyval_name
+    // gives back, unfiltered, so an arrow key or Return works as a
+    // real answer here rather than navigating history or submitting a
+    // command the way it normally would). See waiting_for_key/
+    // key_ready/pending_key in logo_types.h for the exact protocol
+    // with ui.c's on_entry_key_pressed. Silent no-op (returns the empty
+    // word immediately) if request_redraw is NULL (headless tests):
+    // there's no live entry box there to ever press a key on, so
+    // busy-waiting would hang forever rather than actually waiting.
+    if (consume_keyword(ptr, "WAITKEY")) {
+        if (app->request_redraw == NULL) return word_value("");
+        app->pending_key[0] = '\0';
+        app->key_ready = FALSE;
+        app->waiting_for_key = TRUE;
+        append_output(app, "Waiting for a keypress...\n");
+        app->request_redraw(app);
+        while (!app->key_ready) {
+            while (g_main_context_iteration(NULL, FALSE)) {
+                // drain pending events without blocking
+            }
+            g_usleep(1000);
+        }
+        app->waiting_for_key = FALSE;
+        return word_value(app->pending_key);
+    }
     if (consume_keyword(ptr, "DISTANCE")) {
         // Plain distance between two arbitrary [x y] points -- not tied
         // to the turtle's own position, unlike TOWARDS below. Pass POS
