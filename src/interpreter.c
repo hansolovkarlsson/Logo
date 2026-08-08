@@ -1788,6 +1788,33 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         app->waiting_for_key = FALSE;
         return word_value(app->pending_key);
     }
+    // INPUT — the other half of Phase 4's live-input pair: blocks the
+    // running script (same busy-wait technique as WAIT/PAUSE/WAITKEY)
+    // until a full line is typed into the entry box and submitted,
+    // then outputs it as a word (spaces and all, same as a 'raw text'
+    // literal or READLINE's own line) rather than running it as Logo
+    // source, or tokenizing it into a list -- PARSE the result if a
+    // list is what's wanted. See waiting_for_input/input_ready/
+    // pending_input in logo_types.h for the exact protocol with ui.c's
+    // on_entry_key_pressed. Silent no-op (returns the empty word
+    // immediately) if request_redraw is NULL (headless tests): there's
+    // no live entry box there to ever type a line into.
+    if (consume_keyword(ptr, "INPUT")) {
+        if (app->request_redraw == NULL) return word_value("");
+        app->pending_input[0] = '\0';
+        app->input_ready = FALSE;
+        app->waiting_for_input = TRUE;
+        append_output(app, "Waiting for input...\n");
+        app->request_redraw(app);
+        while (!app->input_ready) {
+            while (g_main_context_iteration(NULL, FALSE)) {
+                // drain pending events without blocking
+            }
+            g_usleep(1000);
+        }
+        app->waiting_for_input = FALSE;
+        return word_value(app->pending_input);
+    }
     if (consume_keyword(ptr, "DISTANCE")) {
         // Plain distance between two arbitrary [x y] points -- not tied
         // to the turtle's own position, unlike TOWARDS below. Pass POS

@@ -719,6 +719,28 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
 
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->entry));
 
+    // INPUT is busy-waiting (see interpreter.c) for a submitted line --
+    // unlike WAITKEY, ordinary keys must still type normally here (the
+    // user is composing the line to submit), so only Return/KP_Enter is
+    // special-cased: it captures the whole entry as raw text instead of
+    // running it as a command, and (unlike ordinary command submission)
+    // does so unconditionally, ignoring Shift and is_input_complete --
+    // INPUT reads one line of data, not Logo source that might span
+    // several.
+    if (app->waiting_for_input) {
+        if (keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) {
+            GtkTextIter start, end;
+            gtk_text_buffer_get_bounds(buffer, &start, &end);
+            char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+            snprintf(app->pending_input, sizeof(app->pending_input), "%s", text);
+            g_free(text);
+            gtk_text_buffer_set_text(buffer, "", -1);
+            app->input_ready = TRUE;
+            return TRUE;
+        }
+        return FALSE; // every other key behaves normally: typing, backspace, cursor movement
+    }
+
     GdkModifierType mods = state & gtk_accelerator_get_default_mod_mask();
     if ((keyval == GDK_KEY_Up || keyval == GDK_KEY_Down) && mods == 0) {
         GtkTextIter cursor;

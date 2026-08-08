@@ -503,6 +503,18 @@ TEST(test_waitkey_is_a_silent_no_op_with_no_gui) {
     CHECK_STREQ(captured_output, "before\n\nafter\n");
 }
 
+// --- INPUT (Phase 4: interactive input) ---
+// Same GTK-driven, tested-manually-in-the-app story as WAITKEY above --
+// request_redraw is NULL here, so INPUT is a silent no-op (returns the
+// empty word immediately) rather than busy-waiting forever with no
+// live entry box to ever type a line into.
+
+TEST(test_input_is_a_silent_no_op_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT \"before\nPRINT INPUT\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\n\nafter\n");
+}
+
 // --- POS/HEADING (turtle state queries) ---
 
 TEST(test_pos_reads_back_turtle_position) {
@@ -2713,6 +2725,7 @@ int main(void) {
     RUN(test_bt_is_an_alias_for_backtrace);
     RUN(test_exectime_measures_at_least_the_wrapped_waits_duration);
     RUN(test_waitkey_is_a_silent_no_op_with_no_gui);
+    RUN(test_input_is_a_silent_no_op_with_no_gui);
 
     RUN(test_pos_reads_back_turtle_position);
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);

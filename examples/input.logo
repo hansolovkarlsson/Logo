@@ -1,0 +1,18 @@
+; INPUT: Phase 4's other "pause and wait on a live event" feature.
+; Genuinely halts the script and waits for a full line typed into the
+; entry box and submitted (Enter), then outputs it as a word -- so this
+; example only makes sense run from the actual app, not the headless
+; test driver, where it's a silent no-op (returns the empty word
+; immediately) instead of waiting forever.
+
+PRINT 'What is your name?'
+MAKE "name INPUT
+PRINT SENTENCE "Hello :name
+
+PRINT 'Type a few words, separated by spaces:'
+MAKE "words PARSE INPUT   ; INPUT is one raw word (spaces included);
+                          ; PARSE splits it into a list, same as it
+                          ; already does for a 'raw text' literal
+PRINT SENTENCE "You "typed
+PRINT SENTENCE COUNT :words "words
+PRINT :words

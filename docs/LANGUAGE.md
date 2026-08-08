@@ -1355,6 +1355,30 @@ END
   above) — `WAITKEY` just applies it to a keypress instead of a typed
   command.
 
+```
+PRINT 'What is your name?'
+MAKE "name INPUT
+PRINT SENTENCE "Hello :name
+
+PRINT 'Type a few words, separated by spaces:'
+MAKE "words PARSE INPUT
+```
+
+- `INPUT` is `WAITKEY`'s other half: it halts the script and waits for
+  a full **line** — typed into the entry box and submitted with Enter —
+  rather than a single keypress, and outputs it as a word (spaces and
+  all, same as a `'raw text'` literal), not Logo source and not a list.
+  `PARSE INPUT` is how to split it into a list of words, the same way
+  `PARSE` already does for any other value.
+- While waiting, ordinary typing works exactly as normal (composing the
+  line to submit) — only Return/Enter is special-cased, capturing the
+  whole entry box as raw text instead of running it as a command, and
+  doing so unconditionally (no multi-line composing, no Shift+Enter for
+  a literal newline — `INPUT` always reads exactly one line).
+- Same silent-no-op convention as `WAITKEY`/`PAUSE`: only actually waits
+  in the real app, since there's no live entry box in the headless test
+  driver to ever type a line into.
+
 ## Errors
 
 Malformed input reports an error message to the history pane rather than

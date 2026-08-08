@@ -18,8 +18,6 @@ strictly depend on earlier ones, but roughly track "how big a bet is this"
 *pause* a running script and wait on a live event shares the same
 underlying problem — worth solving once rather than four separate times:
 
-- [ ] `INPUT` (or similar) — read a line of live user input into a
-  variable mid-script, Berkeley Logo's `READLIST`/`READWORD` territory.
 - [ ] Joystick/game-controller input — a genuinely new dependency (no
   game-controller library linked today) on top of the same
   pause-and-resume problem.

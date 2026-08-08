@@ -343,6 +343,17 @@ typedef struct LogoApp {
     gboolean key_ready;
     char pending_key[32];
 
+    // INPUT's own version of the same protocol: unlike WAITKEY, ordinary
+    // typing must still work normally (composing the line to submit),
+    // so the entry box only special-cases Return/KP_Enter while
+    // waiting_for_input is set -- capturing the whole entry text into
+    // pending_input and setting input_ready, instead of running it as a
+    // command (INPUT's answer is raw text, not Logo source). Same
+    // headless-no-op convention as WAITKEY.
+    gboolean waiting_for_input;
+    gboolean input_ready;
+    char pending_input[512];
+
     // How many RUNs are currently nested (RUN doesn't push a Scope of its
     // own -- run code shares the caller's scope, unlike a procedure call
     // -- so this is separate from scope_depth, but capped at the same
