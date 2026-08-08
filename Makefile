@@ -51,7 +51,17 @@ TEST_PARSER_TARGET = build/test_parser
 TEST_PARSER_SRC = tests/test_parser.c src/parser.c src/ast.c src/lexer.c
 TEST_PARSER_CFLAGS = -Wall -Wextra -g -O1 -std=c11
 
-.PHONY: all clean run test test-lexer test-parser
+# eval.c (Stage 1's tree-walking evaluator) is different from
+# lexer.c/ast.c/parser.c above: it deliberately DOES depend on
+# interpreter.h, sharing LogoApp/turtle/variable state directly with
+# eval_logo (see eval.h's own comment) -- so its test binary needs
+# interpreter.c linked in and GTK_LIBS, same as TEST_TARGET above.
+TEST_EVAL_TARGET = build/test_eval
+TEST_EVAL_SRC = tests/test_eval.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
+TEST_EVAL_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+
+.PHONY: all clean run test test-lexer test-parser test-eval
 
 all: $(TARGET)
 
@@ -70,12 +80,13 @@ run: $(TARGET)
 
 # Headless tests for the interpreter core (src/interpreter.c) — no GTK
 # widgets involved, so no window/display is needed to run these — plus
-# lexer.c's and parser.c's own tests, so `make test` remains the one
-# command that verifies everything still works.
-test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET)
+# lexer.c's, parser.c's, and eval.c's own tests, so `make test` remains
+# the one command that verifies everything still works.
+test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET)
 	./$(TEST_TARGET)
 	./$(TEST_LEXER_TARGET)
 	./$(TEST_PARSER_TARGET)
+	./$(TEST_EVAL_TARGET)
 
 $(TEST_TARGET): $(TEST_SRC) $(HEADERS)
 	@mkdir -p build
@@ -94,6 +105,13 @@ test-parser: $(TEST_PARSER_TARGET)
 $(TEST_PARSER_TARGET): $(TEST_PARSER_SRC) src/parser.h src/ast.h src/lexer.h
 	@mkdir -p build
 	$(CC) $(TEST_PARSER_CFLAGS) $(TEST_PARSER_SRC) -o $(TEST_PARSER_TARGET)
+
+test-eval: $(TEST_EVAL_TARGET)
+	./$(TEST_EVAL_TARGET)
+
+$(TEST_EVAL_TARGET): $(TEST_EVAL_SRC) $(HEADERS)
+	@mkdir -p build
+	$(CC) $(TEST_EVAL_CFLAGS) $(TEST_EVAL_SRC) -o $(TEST_EVAL_TARGET) $(TEST_EVAL_LDFLAGS)
 
 clean:
 	rm -rf build bin

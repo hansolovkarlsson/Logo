@@ -178,7 +178,7 @@ static double mod_result(double a, double b) {
 // the current time on first use only — this is turtle-graphics
 // randomness (spirals, scattering, games), not anything needing a
 // cryptographic or reproducible sequence.
-static double random_below(double n) {
+double random_below(double n) {
     static gboolean seeded = FALSE;
     if (!seeded) {
         srand((unsigned int)time(NULL));
@@ -195,11 +195,11 @@ static double random_below(double n) {
 // Where CLEAR and HOME send the turtle back to -- the canvas's current
 // center, not a fixed point, now that SETCANVASSIZE can change
 // canvas_width/height at runtime.
-static double home_x(LogoApp *app) { return app->canvas_width / 2.0; }
-static double home_y(LogoApp *app) { return app->canvas_height / 2.0; }
+double home_x(LogoApp *app) { return app->canvas_width / 2.0; }
+double home_y(LogoApp *app) { return app->canvas_height / 2.0; }
 
 // The turtle currently being controlled by FD/RT/SETXY/etc. — see TELL.
-static Turtle* current_turtle(LogoApp *app) {
+Turtle* current_turtle(LogoApp *app) {
     return &app->turtles[app->current_turtle];
 }
 
@@ -238,7 +238,7 @@ static double wrap_coord(double v, double size) {
 // line segment along the way if the pen is down. Applies the current
 // edge mode (see WRAP/FENCE/WINDOW): WINDOW (the default) does nothing
 // extra here, same as before edge modes existed.
-static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
+void move_turtle_to(LogoApp *app, double new_x, double new_y) {
     Turtle *t = current_turtle(app);
 
     if (app->edge_mode == EDGE_WRAP) {
@@ -266,7 +266,7 @@ static void move_turtle_to(LogoApp *app, double new_x, double new_y) {
 }
 
 // Move the current turtle by `distance` along its current heading.
-static void move_turtle_forward(LogoApp *app, double distance) {
+void move_turtle_forward(LogoApp *app, double distance) {
     double rad = (current_turtle(app)->angle - 90.0) * M_PI / 180.0;
     move_turtle_to(app,
                     current_turtle(app)->x + distance * cos(rad),
@@ -303,7 +303,7 @@ static void append_procedure_text(GString *out, Procedure *proc) {
 // stack from the innermost active call outward, so a procedure's own
 // parameter shadows a same-named variable from an outer call or a
 // global, then falls back to the globals. NULL if unbound anywhere.
-static Variable* find_var(LogoApp *app, const char *name) {
+Variable* find_var(LogoApp *app, const char *name) {
     for (int s = app->scope_depth - 1; s >= 0; s--) {
         Scope *scope = &app->scopes[s];
         for (int i = 0; i < scope->count; i++) {
@@ -337,7 +337,7 @@ static Variable* find_or_create_var(LogoApp *app, const char *name) {
 
 // Set a variable to a number (MAKE "name expr), creating it as a global
 // if it's not already bound in some active scope.
-static void set_var(LogoApp *app, const char *name, double value) {
+void set_var(LogoApp *app, const char *name, double value) {
     Variable *v = find_or_create_var(app, name);
     if (v != NULL) {
         v->type = VALUE_NUMBER;
@@ -359,7 +359,7 @@ static void set_var_list(LogoApp *app, const char *name, int list_head) {
 
 // Set a variable to a word (MAKE "name "word), same binding rules as
 // set_var.
-static void set_var_word(LogoApp *app, const char *name, const char *word) {
+void set_var_word(LogoApp *app, const char *name, const char *word) {
     Variable *v = find_or_create_var(app, name);
     if (v != NULL) {
         v->type = VALUE_WORD;

@@ -324,7 +324,45 @@ footprint.
     restriction (a general-expression varname would swallow the minus
     as subtraction instead). Modeled as its own `ARG_QUOTED_WORD`
     argument kind rather than folded into `ARG_EXPR`.
-- **Next**: growing `BUILTIN_SIGNATURES` toward full coverage, and/or
-  starting on the tree-walking evaluator that actually executes an
-  `AstNode` tree (Stage 1 isn't a real `eval_logo` replacement until
-  something runs the AST, not just builds it).
+- **Tree-walking evaluator: a real, bounded slice done**
+  (`src/eval.h`/`src/eval.c`, tested by `tests/test_eval.c`, run via
+  `make test-eval` or as part of `make test`). Runs the AST built by
+  `parser.c` against a real `LogoApp` — the first component that
+  actually *executes* Stage 1's output rather than just building it.
+  Covers everything `parser.c`'s `BUILTIN_SIGNATURES` does: turtle
+  motion (`FD`/`BK`/`RT`/`LT`/`SETXY`/`SETHEADING`/`PENUP`/`PENDOWN`/
+  `HOME`/`CLEAR`/`CS`), `PRINT`/`MAKE`, `IF`/`IFELSE`/`WHILE`/`REPEAT`,
+  `TO`/`END` with parameters/`OUTPUT`/`STOP`/recursion (including the
+  same `MAX_SCOPE_DEPTH` recursion-too-deep guard, confirmed clean
+  under AddressSanitizer), and the math operators. Confirmed forward
+  references actually *work end to end* now, not just parse cleanly.
+  - **Resolved the evaluator-design decision this way**: exposed a
+    small, curated set of already-correct, pure state-manipulation
+    functions from `interpreter.c` via `interpreter.h`
+    (`current_turtle`/`move_turtle_to`/`move_turtle_forward`/`home_x`/
+    `home_y`/`find_var`/`set_var`/`set_var_word`/`random_below`) rather
+    than reimplementing turtle/variable logic fresh. `interpreter.c`'s
+    actual *parsing* (tokenizing, `eval_logo`'s text-driven dispatch)
+    remains completely untouched and private — only the state
+    underneath it is now shared. This is the one place Stage 1 has
+    touched `interpreter.c` at all so far.
+  - **Deferred, documented, not silent**: list/array values aren't
+    evaluated yet (a variable holding one, or a list literal used as a
+    value, reports a clear message rather than silently misbehaving) —
+    needs `list_pool` allocation, currently private to `interpreter.c`
+    and not yet exposed. Ctrl+C interrupt checking is also absent
+    (`g_interrupt_requested` is a file-static flag with no exposed
+    getter).
+  - **One deliberate simplification worth knowing**: unlike the old
+    interpreter (where `FD`/`PRINT`/`MAKE`/etc. are reachable only as
+    statements, never as expression-position operators — a separate
+    keyword list from `parse_factor`'s own operator chain), this
+    evaluator's `AST_CALL` node serves both roles uniformly, so e.g.
+    `PRINT FD 10` parses and runs here where the old engine would
+    behave quite differently. Narrow — nobody writes real scripts this
+    way — and documented in `eval.c`'s own file comment.
+- **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
+  fuller language coverage, and/or starting the migration's shadow-diff
+  strategy (running both engines against the same input and comparing
+  `captured_output`) now that there's a real second engine to diff
+  against.

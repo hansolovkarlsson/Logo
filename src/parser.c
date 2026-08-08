@@ -60,7 +60,7 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "PENDOWN", 0, { 0 } },
     { "PD", 0, { 0 } },
     { "HOME", 0, { 0 } },
-    { "CLEARSCREEN", 0, { 0 } },
+    { "CLEAR", 0, { 0 } }, // confirmed the real command is CLEAR/CS, not CLEARSCREEN
     { "CS", 0, { 0 } },
 
     // Output/variables.
