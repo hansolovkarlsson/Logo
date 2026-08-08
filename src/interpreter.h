@@ -32,4 +32,14 @@ char *serialize_procedures(LogoApp *app);
 // turtle TELL creates on first use.
 void init_turtle(LogoApp *app, Turtle *t);
 
+// Async-signal-safe: only sets a flag (checked everywhere eval_logo's
+// loops already check stop_requested/throw_requested) asking any
+// currently-running script to stop at the next opportunity, no matter
+// how deeply nested in procedure calls/loops/busy-waits it is. Call
+// from a SIGINT handler (see main.c) to give Ctrl+C in the terminal a
+// way to interrupt a script that's run away -- eval_logo running
+// synchronously means there's otherwise no way to get its attention
+// short of killing the whole process.
+void request_interrupt(void);
+
 #endif // INTERPRETER_H

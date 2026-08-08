@@ -354,6 +354,44 @@ typedef struct LogoApp {
     gboolean input_ready;
     char pending_input[512];
 
+    // Mouse position/button state (MOUSEPOS/MOUSEX/MOUSEY/BUTTON?) --
+    // updated by GTK motion/click controllers on drawing_area (see
+    // logo_activate in ui.c), in the same pixel coordinate space
+    // SETXY/POS already use (origin top-left, no pause needed at all:
+    // unlike WAITKEY/INPUT, this is a passive state query, not
+    // something that waits on an event). Those controllers only fire
+    // when GTK's main loop actually gets to run an iteration, though --
+    // eval_logo's read side (the operators themselves, in
+    // interpreter.c) is what forces that to happen on every read via
+    // refresh_before_read (queues a redraw, then drains -- the redraw
+    // matters too, or a turtle-moving command run earlier in the same
+    // WHILE iteration would never actually get painted until the whole
+    // loop ends), or a WHILE loop built around nothing but these would
+    // never see them update at all. Always 0/FALSE in
+    // headless tests -- there are no GTK controllers there to ever
+    // update them, same as any other GUI-only state, just without a
+    // callback to check first since reading plain data is always safe.
+    double mouse_x;
+    double mouse_y;
+    gboolean mouse_button_down;
+
+    // Joystick/game-controller state (JOYSTICK?/JOYSTICKAXIS/
+    // JOYSTICKBUTTON?), Phase 4's one genuinely new dependency (SDL2,
+    // linked alongside GTK -- see the Makefile). interpreter.c never
+    // touches SDL directly, matching how it stays GTK/Cairo-free too:
+    // these three callbacks (set by ui.c's logo_activate, NULL in
+    // headless tests) poll fresh state (SDL_JoystickUpdate) each call
+    // rather than this being plain continuously-updated data, since
+    // nothing else in the app pumps SDL's own event queue on a timer.
+    // joystick_handle is an opaque SDL_Joystick* (void* here so this
+    // header never needs an SDL include) -- NULL until a joystick is
+    // found, lazily opened on first call so a controller plugged in
+    // after startup still gets picked up.
+    void *joystick_handle;
+    gboolean (*joystick_connected)(struct LogoApp *app);
+    double (*joystick_axis)(struct LogoApp *app, int axis);
+    gboolean (*joystick_button)(struct LogoApp *app, int button);
+
     // How many RUNs are currently nested (RUN doesn't push a Scope of its
     // own -- run code shares the caller's scope, unlike a procedure call
     // -- so this is separate from scope_depth, but capped at the same

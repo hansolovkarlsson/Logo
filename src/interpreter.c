@@ -14,7 +14,21 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <signal.h> // request_interrupt (Ctrl+C, see main.c)
 #include <glib/gstdio.h> // g_remove (DELETEFILE)
+
+// Set only by request_interrupt (an async-signal-safe write, per the C
+// standard's one guarantee for signal handlers), checked everywhere
+// eval_logo's loops already check stop_requested/throw_requested so a
+// SIGINT from the terminal reaches a running script no matter how
+// deeply nested in procedure calls/loops it is. Deliberately not an
+// app->field: a signal handler has no way to receive app, and there's
+// only ever one script actually running per process anyway.
+static volatile sig_atomic_t g_interrupt_requested = 0;
+
+void request_interrupt(void) {
+    g_interrupt_requested = 1;
+}
 
 // --- HELPER FUNCTIONS ---
 
@@ -390,6 +404,44 @@ static int find_free_file_channel(LogoApp *app) {
         if (app->file_channels[i].mode == FILE_CHANNEL_CLOSED) return i;
     }
     return -1;
+}
+
+// Processes every pending GLib main-context event without blocking --
+// the same technique WAIT/PAUSE/WAITKEY's own busy-wait loops already
+// use, just a single pass instead of a loop. Used by MOUSEPOS/BUTTON?/
+// JOYSTICK... below so a tight WHILE loop built around nothing but
+// these still lets GTK's own motion/click signals actually fire in
+// between reads -- otherwise a script that never itself calls WAIT (or
+// anything else that yields) would starve the canvas's own event
+// controllers of any chance to run at all, leaving mouse_x/mouse_y/
+// mouse_button_down stuck at whatever they were before the loop
+// started, no matter how long the user moves the mouse or holds a
+// button. Harmless (and cheap) headless: g_main_context_iteration on
+// the default context with nothing pending just returns FALSE
+// immediately.
+static void drain_pending_events(void) {
+    while (g_main_context_iteration(NULL, FALSE)) {
+        // drain pending events without blocking
+    }
+}
+
+// Queues a redraw, then drains -- used by MOUSEPOS/BUTTON?/JOYSTICK...
+// instead of a bare drain_pending_events, since a turtle-moving command
+// (SETXY, FD, RT, ...) run earlier in the same WHILE iteration only
+// marks the canvas as needing a repaint; nothing ever actually paints
+// it until GTK's main loop runs an iteration that processes that
+// request. Queuing it here first means this same drain immediately
+// satisfies it, so a WHILE loop built around these operators (like
+// followmouse/drivewithjoystick) visibly tracks the mouse/joystick as
+// it happens, rather than only jumping to its final position once the
+// whole loop -- and the one eval_logo call it's running inside of --
+// finally ends. NULL-safe (no-op headless, same as everywhere else
+// request_redraw is used).
+static void refresh_before_read(LogoApp *app) {
+    if (app->request_redraw != NULL) {
+        app->request_redraw(app);
+    }
+    drain_pending_events();
 }
 
 // --- EXPRESSION EVALUATION (numbers, words, lists, :variables, + - * / (), comparisons) ---
@@ -1610,6 +1662,65 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
     if (consume_keyword(ptr, "GETY")) {
         return number_value(current_turtle(app)->y);
     }
+    // MOUSEPOS/MOUSEX/MOUSEY/BUTTON?/JOYSTICK?/JOYSTICKAXIS/
+    // JOYSTICKBUTTON? -- Phase 4's passive-query kind of interactive
+    // input, alongside WAITKEY/INPUT's pausing kind: no busy-wait here,
+    // since mouse_x/mouse_y/mouse_button_down are continuously updated
+    // by ui.c's own motion/click controllers on the canvas (in the same
+    // pixel coordinate space POS/SETXY already use), and SDL's own
+    // joystick state is polled fresh through a callback each call
+    // (joystick_connected/axis/button in logo_types.h) rather than
+    // plain data. Always 0/FALSE headless, or with no joystick
+    // connected -- "no joystick" is a normal, expected condition, not a
+    // user mistake, so this is a silent default rather than an error.
+    //
+    // Every one of these calls refresh_before_read first: it queues a
+    // redraw and drains pending GLib main-context events (same
+    // technique WAIT/PAUSE/WAITKEY's own busy-wait loops already use,
+    // just a single non-blocking pass instead of a loop) -- without it,
+    // a WHILE loop built around nothing but these (like
+    // followmouse/drivewithjoystick in docs/LANGUAGE.md) would neither
+    // see the canvas's own motion/click signals fire (found 2026-08-07:
+    // it just spun until MAX_WHILE_ITERATIONS and reported "too many
+    // iterations", the click that should have ended it sitting
+    // undelivered in GTK's queue the entire time) nor visibly repaint
+    // anything a turtle-moving command inside the same loop did (found
+    // the same day, right after: the turtle only ever jumped to its
+    // final position once the whole loop -- and the one eval_logo call
+    // it's running inside of -- finally ended, instead of visibly
+    // tracking the mouse/joystick as it happened).
+    if (consume_keyword(ptr, "MOUSEPOS")) {
+        refresh_before_read(app);
+        return list_wrap_pair(app, number_value(app->mouse_x), number_value(app->mouse_y));
+    }
+    if (consume_keyword(ptr, "MOUSEX")) {
+        refresh_before_read(app);
+        return number_value(app->mouse_x);
+    }
+    if (consume_keyword(ptr, "MOUSEY")) {
+        refresh_before_read(app);
+        return number_value(app->mouse_y);
+    }
+    if (consume_keyword(ptr, "BUTTON?")) {
+        refresh_before_read(app);
+        return bool_value(app->mouse_button_down);
+    }
+    if (consume_keyword(ptr, "JOYSTICK?")) {
+        refresh_before_read(app);
+        return bool_value(app->joystick_connected != NULL && app->joystick_connected(app));
+    }
+    if (consume_keyword(ptr, "JOYSTICKAXIS")) {
+        int axis = (int)value_to_number(parse_factor(app, ptr));
+        refresh_before_read(app);
+        if (app->joystick_axis == NULL) return number_value(0);
+        return number_value(app->joystick_axis(app, axis));
+    }
+    if (consume_keyword(ptr, "JOYSTICKBUTTON?")) {
+        int button = (int)value_to_number(parse_factor(app, ptr));
+        refresh_before_read(app);
+        if (app->joystick_button == NULL) return bool_value(FALSE);
+        return bool_value(app->joystick_button(app, button));
+    }
     if (consume_keyword(ptr, "WHO")) {
         return number_value(app->current_turtle);
     }
@@ -1779,10 +1890,8 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         app->waiting_for_key = TRUE;
         append_output(app, "Waiting for a keypress...\n");
         app->request_redraw(app);
-        while (!app->key_ready) {
-            while (g_main_context_iteration(NULL, FALSE)) {
-                // drain pending events without blocking
-            }
+        while (!app->key_ready && !g_interrupt_requested) {
+            drain_pending_events();
             g_usleep(1000);
         }
         app->waiting_for_key = FALSE;
@@ -1806,10 +1915,8 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         app->waiting_for_input = TRUE;
         append_output(app, "Waiting for input...\n");
         app->request_redraw(app);
-        while (!app->input_ready) {
-            while (g_main_context_iteration(NULL, FALSE)) {
-                // drain pending events without blocking
-            }
+        while (!app->input_ready && !g_interrupt_requested) {
+            drain_pending_events();
             g_usleep(1000);
         }
         app->waiting_for_input = FALSE;
@@ -2185,7 +2292,7 @@ void eval_logo(LogoApp *app, const char *code) {
     const char *ptr = code;
     app->eval_depth++;
 
-    while (*ptr != '\0' && !app->stop_requested) {
+    while (*ptr != '\0' && !app->stop_requested && !g_interrupt_requested) {
         if (app->throw_requested) {
             // Only the true outermost eval_logo call (this script's own
             // top level -- not some inner REPEAT/IF/WHILE block or
@@ -2470,7 +2577,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 ptr = after_block;
                 for (int i = 0; i < count; i++) {
                     eval_logo(app, block_body);
-                    if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
+                    if (app->stop_requested || app->throw_requested || g_interrupt_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
                 }
             } else {
                 append_output(app, "REPEAT: expected [ block ]\n");
@@ -2499,7 +2606,7 @@ void eval_logo(LogoApp *app, const char *code) {
                         break;
                     }
                     eval_logo(app, block_body);
-                    if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
+                    if (app->stop_requested || app->throw_requested || g_interrupt_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
                     const char *cptr = cond_text;
                     cond = parse_condition(app, &cptr);
                     iterations++;
@@ -2554,7 +2661,7 @@ void eval_logo(LogoApp *app, const char *code) {
                                 }
                                 set_var(app, varname, i);
                                 eval_logo(app, block_body);
-                                if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
+                                if (app->stop_requested || app->throw_requested || g_interrupt_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
                                 iterations++;
                             }
                         }
@@ -2585,7 +2692,7 @@ void eval_logo(LogoApp *app, const char *code) {
                         break;
                     }
                     eval_logo(app, block_body);
-                    if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
+                    if (app->stop_requested || app->throw_requested || g_interrupt_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
                     iterations++;
                 }
             } else {
@@ -3237,17 +3344,15 @@ void eval_logo(LogoApp *app, const char *code) {
                 append_output(app, "ANIMATESPRITE: no sprite set (use SETSPRITE first)\n");
             } else {
                 int frame_count = app->sprite_frame_cols[t->sprite_index] * app->sprite_frame_rows[t->sprite_index];
-                for (int i = 0; i < frames; i++) {
+                for (int i = 0; i < frames && !g_interrupt_requested; i++) {
                     t->sprite_frame = (t->sprite_frame + 1) % frame_count;
                     if (app->request_redraw != NULL) {
                         app->request_redraw(app);
                     }
                     if (delay > 0) {
                         gint64 end_time = g_get_monotonic_time() + (gint64)(delay * G_USEC_PER_SEC);
-                        while (g_get_monotonic_time() < end_time) {
-                            while (g_main_context_iteration(NULL, FALSE)) {
-                                // drain pending events without blocking
-                            }
+                        while (g_get_monotonic_time() < end_time && !g_interrupt_requested) {
+                            drain_pending_events();
                             g_usleep(1000);
                         }
                     }
@@ -3295,10 +3400,8 @@ void eval_logo(LogoApp *app, const char *code) {
                     app->request_redraw(app);
                 }
                 gint64 end_time = g_get_monotonic_time() + (gint64)(seconds * G_USEC_PER_SEC);
-                while (g_get_monotonic_time() < end_time) {
-                    while (g_main_context_iteration(NULL, FALSE)) {
-                        // drain pending events without blocking
-                    }
+                while (g_get_monotonic_time() < end_time && !g_interrupt_requested) {
+                    drain_pending_events();
                     g_usleep(1000);
                 }
             }
@@ -3325,11 +3428,17 @@ void eval_logo(LogoApp *app, const char *code) {
                 snprintf(msg, sizeof(msg), "Paused (level %d). Type CONTINUE to resume.\n", my_level);
                 append_output(app, msg);
                 app->request_redraw(app);
-                while (app->pause_depth >= my_level) {
-                    while (g_main_context_iteration(NULL, FALSE)) {
-                        // drain pending events without blocking
-                    }
+                while (app->pause_depth >= my_level && !g_interrupt_requested) {
+                    drain_pending_events();
                     g_usleep(1000);
+                }
+                // An interrupt breaks the loop without ever going
+                // through CONTINUE's own decrement -- restore pause_depth
+                // to what it would be after this one exact PAUSE resumed
+                // normally, so a leftover level doesn't linger and throw
+                // off every later PAUSE's own numbering.
+                if (g_interrupt_requested) {
+                    app->pause_depth = my_level - 1;
                 }
             }
         }
@@ -3442,7 +3551,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 value_to_source_text(app, &el, el_text, sizeof(el_text));
                 substitute_placeholder(template_text, "?", el_text, code_text, sizeof(code_text));
                 eval_logo(app, code_text);
-                if (app->stop_requested || app->throw_requested) break; // OUTPUT/STOP/THROW inside the template escapes the loop
+                if (app->stop_requested || app->throw_requested || g_interrupt_requested) break; // OUTPUT/STOP/THROW inside the template escapes the loop
             }
         }
         // 4. USER-DEFINED PROCEDURE CALL
@@ -3483,6 +3592,18 @@ void eval_logo(LogoApp *app, const char *code) {
     // is ordinary control flow, not an error to report.
     if (app->eval_depth == 0 && app->stop_requested) {
         app->stop_requested = FALSE;
+    }
+    // g_interrupt_requested (Ctrl+C, see request_interrupt) reaches here
+    // the same way an uncaught THROW does: unlike stop_requested, it's
+    // deliberately never cleared by call_procedure, so it keeps
+    // unwinding through however many nested procedure calls were
+    // running, all the way back to the true outermost call -- which is
+    // what finally reports it and clears the flag, rather than a
+    // procedure boundary swallowing it and letting the rest of the
+    // script run as if nothing happened.
+    if (app->eval_depth == 0 && g_interrupt_requested) {
+        append_output(app, "Interrupted.\n");
+        g_interrupt_requested = 0;
     }
 }
 

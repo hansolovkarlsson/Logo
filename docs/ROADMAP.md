@@ -12,24 +12,18 @@ complexity/risk rather than a strict priority order. Later phases don't
 strictly depend on earlier ones, but roughly track "how big a bet is this"
 — treat this as a menu to pick from, not a committed queue.
 
-### Phase 4 — Interactive input (one shared architectural blocker)
+### Phase 4 — Interactive input
 
-`eval_logo` runs synchronously start-to-finish, so anything that needs to
-*pause* a running script and wait on a live event shares the same
-underlying problem — worth solving once rather than four separate times:
+`WAITKEY`/`INPUT`/`PAUSE` (see `docs/LANGUAGE.md`) share one underlying
+mechanism for pausing `eval_logo` (which otherwise runs synchronously
+start-to-finish) to wait on a live event, solved once rather than three
+separate times. Mouse and joystick input turned out not to need it after
+all — `MOUSEPOS`/`BUTTON?`/`JOYSTICK?`/etc. are passive state queries,
+continuously updated in the background, rather than something that
+waits on an event.
 
-- [ ] Joystick/game-controller input — a genuinely new dependency (no
-  game-controller library linked today) on top of the same
-  pause-and-resume problem.
-- [ ] Mouse position/click input (Terrapin's `MOUSE`/`BUTTON`) — shares
-  the same pause-and-resume problem as the rest of this phase, and
-  arguably more useful than a joystick for a desktop app.
-
-Sound doesn't share the pausing problem above, but is the other genuinely
-new dependency (no audio library linked today) in this same "game engine"
-direction:
-
-- [ ] Sound effects/playback.
+- [ ] Sound effects/playback — the other genuinely new dependency (no
+  audio library linked today) in this same "game engine" direction.
 
 ### Phase 5 — Large architectural bets (need a design discussion first, not just scoping)
 

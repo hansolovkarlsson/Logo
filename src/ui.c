@@ -7,6 +7,7 @@
 
 #include "ui.h"
 #include "interpreter.h"
+#include <SDL2/SDL.h> // JOYSTICK?/JOYSTICKAXIS/JOYSTICKBUTTON? only -- see logo_types.h
 
 #include <ctype.h>
 #include <math.h>
@@ -396,6 +397,84 @@ static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gp
     (void)width;
     (void)height;
     draw_scene((LogoApp *)user_data, cr);
+}
+
+// MOUSEPOS/MOUSEX/MOUSEY: continuously updated from the canvas's own
+// motion events, in the same widget-relative pixel coordinates
+// SETXY/POS already use (origin top-left) -- no conversion needed.
+static void on_canvas_motion(GtkEventControllerMotion *controller, gdouble x, gdouble y, gpointer user_data) {
+    (void)controller;
+    LogoApp *app = (LogoApp *)user_data;
+    app->mouse_x = x;
+    app->mouse_y = y;
+}
+
+// BUTTON?: continuously updated from the canvas's own click events.
+// Deliberately not position/button-number specific -- "is any button
+// down right now", matching Terrapin's own BUTTON.
+static void on_canvas_button_pressed(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
+    (void)gesture;
+    (void)n_press;
+    (void)x;
+    (void)y;
+    ((LogoApp *)user_data)->mouse_button_down = TRUE;
+}
+
+static void on_canvas_button_released(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
+    (void)gesture;
+    (void)n_press;
+    (void)x;
+    (void)y;
+    ((LogoApp *)user_data)->mouse_button_down = FALSE;
+}
+
+// --- JOYSTICK (SDL2) ---
+// Lazily opens the first available joystick and keeps it open across
+// calls, closing and forgetting it if unplugged so a later call can
+// pick up whatever's connected next. SDL_JoystickUpdate refreshes
+// SDL's own internal state -- nothing else in this app pumps SDL's
+// event queue on a timer, so every call does it fresh rather than
+// relying on stale state.
+static SDL_Joystick *ensure_joystick(LogoApp *app) {
+    SDL_JoystickUpdate();
+    SDL_Joystick *joy = (SDL_Joystick *)app->joystick_handle;
+    if (joy != NULL && !SDL_JoystickGetAttached(joy)) {
+        fprintf(stderr, "Joystick disconnected: %s\n", SDL_JoystickName(joy));
+        SDL_JoystickClose(joy);
+        joy = NULL;
+        app->joystick_handle = NULL;
+    }
+    if (joy == NULL && SDL_NumJoysticks() > 0) {
+        joy = SDL_JoystickOpen(0);
+        app->joystick_handle = joy;
+        if (joy == NULL) {
+            fprintf(stderr, "SDL_JoystickOpen(0) failed: %s\n", SDL_GetError());
+        } else {
+            fprintf(stderr, "Joystick connected: %s (%d axes, %d buttons)\n",
+                    SDL_JoystickName(joy), SDL_JoystickNumAxes(joy), SDL_JoystickNumButtons(joy));
+        }
+    }
+    return joy;
+}
+
+static gboolean logo_joystick_connected(LogoApp *app) {
+    return ensure_joystick(app) != NULL;
+}
+
+// Normalized to -100..100 -- this project's own preference for
+// friendlier units over raw hardware ranges (WAIT's seconds instead of
+// 60ths, ANIMATESPRITE's plain frame counts), rather than SDL's raw
+// Sint16 axis range.
+static double logo_joystick_axis(LogoApp *app, int axis) {
+    SDL_Joystick *joy = ensure_joystick(app);
+    if (joy == NULL || axis < 0 || axis >= SDL_JoystickNumAxes(joy)) return 0;
+    return (double)SDL_JoystickGetAxis(joy, axis) / 32768.0 * 100.0;
+}
+
+static gboolean logo_joystick_button(LogoApp *app, int button) {
+    SDL_Joystick *joy = ensure_joystick(app);
+    if (joy == NULL || button < 0 || button >= SDL_JoystickNumButtons(joy)) return FALSE;
+    return SDL_JoystickGetButton(joy, button) != 0;
 }
 
 // Renders the current scene to an off-screen surface at the canvas's
@@ -1020,6 +1099,26 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     logo->save_canvas_image = export_canvas_to_png;
     logo->load_sprite_image = load_named_sprite_image;
     logo->resize_canvas = resize_canvas_widget;
+    logo->joystick_connected = logo_joystick_connected;
+    logo->joystick_axis = logo_joystick_axis;
+    logo->joystick_button = logo_joystick_button;
+
+    // Only the joystick subsystem -- this app doesn't use SDL for
+    // anything else (no window, no event loop of its own; GTK's own
+    // main loop keeps running exactly as before). A failure here just
+    // means JOYSTICK?/etc. report nothing connected rather than
+    // crashing -- ensure_joystick's own SDL_NumJoysticks check degrades
+    // the same way it would for "no joystick plugged in". Logged to
+    // stderr (not the history pane -- this runs before any window
+    // exists to show one in) since a failure here is otherwise
+    // completely silent: JOYSTICK? just reports FALSE, identical to
+    // the "no controller plugged in" case, with nothing to tell them
+    // apart without this.
+    if (SDL_Init(SDL_INIT_JOYSTICK) != 0) {
+        fprintf(stderr, "SDL_Init(SDL_INIT_JOYSTICK) failed: %s\n", SDL_GetError());
+    } else {
+        fprintf(stderr, "SDL joystick subsystem ready; %d joystick(s) detected at startup\n", SDL_NumJoysticks());
+    }
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;
@@ -1036,6 +1135,19 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     gtk_paned_set_start_child(GTK_PANED(paned), logo->drawing_area);
     gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
+
+    // MOUSEPOS/MOUSEX/MOUSEY/BUTTON?: a passive mouse state query, kept
+    // fresh by these two controllers rather than any pause/resume
+    // machinery.
+    GtkEventController *motion_controller = gtk_event_controller_motion_new();
+    g_signal_connect(motion_controller, "motion", G_CALLBACK(on_canvas_motion), logo);
+    gtk_widget_add_controller(logo->drawing_area, motion_controller);
+
+    GtkGesture *click_gesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click_gesture), 0); // any button
+    g_signal_connect(click_gesture, "pressed", G_CALLBACK(on_canvas_button_pressed), logo);
+    g_signal_connect(click_gesture, "released", G_CALLBACK(on_canvas_button_released), logo);
+    gtk_widget_add_controller(logo->drawing_area, GTK_EVENT_CONTROLLER(click_gesture));
 
     GtkWidget *repl_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
     gtk_widget_set_hexpand(repl_box, TRUE);

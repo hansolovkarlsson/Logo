@@ -7,12 +7,19 @@
 
 TO drive
   MAKE "key WAITKEY
-  IF :key = "Up [FD 20]
-  IF :key = "Down [BK 20]
-  IF :key = "Left [LT 15]
-  IF :key = "Right [RT 15]
-  IF NOT MEMBER? :key [Up Down Left Right] [STOP]
-  drive
+  ; WHILE, not self-recursion: this can run for as many keypresses as
+  ; it takes for the user to hit something else, and unlike a
+  ; procedure calling itself, WHILE's loop body doesn't consume a real
+  ; call stack level per iteration -- it's capped at 1,000,000
+  ; iterations (MAX_WHILE_ITERATIONS), not the 200-deep recursion cap
+  ; a self-recursive drive would hit after 200 keypresses.
+  WHILE MEMBER? :key [Up Down Left Right] [
+    IF :key = "Up [FD 20]
+    IF :key = "Down [BK 20]
+    IF :key = "Left [LT 15]
+    IF :key = "Right [RT 15]
+    MAKE "key WAITKEY
+  ]
 END
 
 PRINT 'Press an arrow key to move the turtle -- any other key to stop.'

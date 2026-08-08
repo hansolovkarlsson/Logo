@@ -1,0 +1,46 @@
+; MOUSEPOS/MOUSEX/MOUSEY/BUTTON?: a passive mouse state query -- no
+; pausing at all, unlike WAITKEY/INPUT. Continuously updated by moving
+; the mouse over (and clicking on) the canvas, so this example only
+; shows real values run from the actual app, not the headless test
+; driver, where the mouse never moves and these just read their zero
+; defaults.
+
+PRINT MOUSEPOS   ; [x y], same coordinate space as POS/SETXY
+PRINT BUTTON?    ; TRUE while a mouse button is held down over the canvas
+
+TO followmouse
+  ; WHILE, not self-recursion: this can run indefinitely (capped at
+  ; 1,000,000 iterations, MAX_WHILE_ITERATIONS) without ever touching
+  ; the 200-deep recursion cap a self-recursive followmouse would hit
+  ; after 200 frames -- WHILE's loop body doesn't consume a real call
+  ; stack level per iteration the way calling a procedure does.
+  WHILE NOT BUTTON? [
+    SETXY MOUSEX MOUSEY
+  ]
+END
+
+; JOYSTICK?/JOYSTICKAXIS/JOYSTICKBUTTON?: Phase 4's one genuinely new
+; dependency (SDL2). Also a passive query, but polls SDL for fresh
+; state each call rather than being continuously updated -- again, only
+; meaningful with a real controller plugged into the actual app.
+
+PRINT JOYSTICK?          ; TRUE once any joystick/game controller is connected
+PRINT JOYSTICKAXIS 0     ; -100..100, the first stick's horizontal axis
+PRINT JOYSTICKBUTTON? 0  ; TRUE while button 0 is held down
+
+TO drivewithjoystick
+  ; Stands still, pointing at whatever direction the stick is aimed --
+  ; only actually moves while button 0 is held (button 1 stops it).
+  ; Continuously turning *and* moving every iteration, with no pacing
+  ; at all, sends the turtle flying off in a straight line almost
+  ; instantly: a centered stick reads close to 0, so RT barely turns
+  ; anything, but FD still runs every single spin of the loop -- there's
+  ; nothing here to slow it down to human speed. WAIT paces this to
+  ; about 20 steps/second, matching WAIT's own use elsewhere for
+  ; anything meant to be watched rather than finish as fast as possible.
+  WHILE NOT JOYSTICKBUTTON? 1 [
+    SETHEADING JOYSTICKAXIS 0 * 1.8   ; axis is -100..100; scale to -180..180
+    IF JOYSTICKBUTTON? 0 [FD 5]
+    WAIT 0.05
+  ]
+END

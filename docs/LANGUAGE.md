@@ -1327,14 +1327,23 @@ PRINT EXECTIME [spiral 10]
 ```
 TO drive
   MAKE "key WAITKEY
-  IF :key = "Up [FD 20]
-  IF :key = "Down [BK 20]
-  IF :key = "Left [LT 15]
-  IF :key = "Right [RT 15]
-  IF NOT MEMBER? :key [Up Down Left Right] [STOP]
-  drive
+  WHILE MEMBER? :key [Up Down Left Right] [
+    IF :key = "Up [FD 20]
+    IF :key = "Down [BK 20]
+    IF :key = "Left [LT 15]
+    IF :key = "Right [RT 15]
+    MAKE "key WAITKEY
+  ]
 END
 ```
+
+An event loop like this needs `WHILE`, not a procedure calling itself:
+`WHILE`'s loop body doesn't consume a real call-stack level per
+iteration the way a procedure call does (it's capped at 1,000,000
+iterations instead — see `MAX_WHILE_ITERATIONS`), so it can run for as
+many keypresses as it takes. A self-recursive version of `drive` would
+run into the ordinary 200-deep recursion cap (`Recursion too deep, call
+ignored`) after 200 keypresses and simply stop responding.
 
 - `WAITKEY` halts the running script right where it's called and waits
   for a real keypress in the entry box, then outputs its name as a
@@ -1378,6 +1387,74 @@ MAKE "words PARSE INPUT
 - Same silent-no-op convention as `WAITKEY`/`PAUSE`: only actually waits
   in the real app, since there's no live entry box in the headless test
   driver to ever type a line into.
+
+```
+TO followmouse
+  WHILE NOT BUTTON? [SETXY MOUSEX MOUSEY]
+END
+
+TO drivewithjoystick
+  ; Stands still, pointing wherever the stick is aimed -- only moves
+  ; while button 0 is held (button 1 stops it). Turning *and* moving
+  ; every iteration with no pacing sends the turtle flying off in a
+  ; straight line almost instantly, even with the stick centered
+  ; (axis near 0): FD still runs every single spin of the loop, as
+  ; fast as the loop can go. WAIT paces this to about 20 steps/second.
+  WHILE NOT JOYSTICKBUTTON? 1 [
+    SETHEADING JOYSTICKAXIS 0 * 1.8
+    IF JOYSTICKBUTTON? 0 [FD 5]
+    WAIT 0.05
+  ]
+END
+```
+
+Same `WHILE`-not-recursion reasoning as `drive` above applies here too
+— these are meant to keep running for as long as it takes the user to
+click or press the button, which could easily be more than 200 frames.
+
+- `MOUSEPOS` outputs `[x y]` — the current mouse position over the
+  canvas, in the same pixel coordinate space `POS`/`SETXY` already use
+  (origin top-left). `MOUSEX`/`MOUSEY` read just one coordinate,
+  matching `GETX`/`GETY`'s own precedent. `BUTTON?` outputs `TRUE`
+  while any mouse button is held down over the canvas — not tied to a
+  specific button or position, matching Terrapin's own `BUTTON`.
+- Unlike `WAITKEY`/`INPUT`, none of these ever pause the script — they're
+  a **passive** query, not something that waits on a live event. Before
+  the mouse has ever moved over the canvas, `MOUSEPOS` reads `0 0`.
+- `JOYSTICK?` outputs `TRUE` once any joystick/game controller is
+  connected. `JOYSTICKAXIS n` reads stick axis `n` (0 is typically the
+  first stick's horizontal axis, 1 its vertical one — however many axes
+  a given controller has), normalized to **-100 to 100** rather than
+  the raw hardware range, the same "friendlier units" preference as
+  `WAIT`'s seconds or `ANIMATESPRITE`'s plain frame counts.
+  `JOYSTICKBUTTON? n` reads button `n`, 0-indexed. All three read `0`/
+  `FALSE` rather than erroring if nothing is connected — same
+  "expected, not a mistake" treatment `EOF?` gives a closed file
+  channel — and, like the mouse operators above, never pause.
+- Every one of these seven operators queues a redraw and processes any
+  pending window-system events (motion, clicks, the redraw just
+  queued) before it reads anything, the same technique `WAIT`/`PAUSE`/
+  `WAITKEY` already use for their own busy-waits, just a single pass
+  instead of a loop. This matters more than it looks like it should —
+  a `WHILE` loop built only around these (like `followmouse`/
+  `drivewithjoystick` above) runs as one long `eval_logo` call that
+  never otherwise returns to GTK's own main loop, and GTK only ever
+  fires the canvas's motion/click signals — or actually repaints
+  anything a turtle-moving command drew — when it gets to run an
+  iteration of that loop. Without this, two separate things would go
+  wrong: `mouse_x`/`mouse_y`/`mouse_button_down` would stay frozen at
+  whatever they were the *moment the loop started* (the loop would just
+  spin until `WHILE`'s own 1,000,000-iteration safety cap cut it off,
+  reporting `WHILE: stopped after too many iterations` instead of ever
+  seeing the state it was waiting for), and even once that's fixed, the
+  turtle would only ever visibly jump to its *final* position once the
+  whole loop ends, instead of tracking the mouse/joystick as it happens
+  — both found and fixed the same day (2026-08-08).
+- Phase 4's one genuinely new dependency: joystick/game-controller
+  input needs SDL2 (linked alongside GTK — see the Makefile), the only
+  place in this codebase that isn't GTK/Cairo/GLib. `interpreter.c`
+  itself still never touches SDL directly, reaching it only through
+  the same kind of callback `LOADPIC`/`resize_canvas`/etc. already use.
 
 ## Errors
 
@@ -1515,6 +1592,16 @@ unparseable expression just evaluates to `0`, same as always) — see
   (⌘Q), which closes the app.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
   Text Size, applied to both the history pane and the entry box.
+- **Ctrl+C**, typed in the terminal this app was launched from, interrupts
+  whatever script is currently running — prints `Interrupted.` and stops,
+  however deeply nested in loops or procedure calls, rather than the
+  default behavior of killing the whole app outright. The app itself
+  keeps running afterward, ready for the next command, exactly as if the
+  interrupted script had reached its own natural end. This is the one
+  way to get a script's attention while it's running at all: `eval_logo`
+  runs synchronously start-to-finish, so short of this, a script with a
+  runaway loop (or one that's simply taking a very long time) can't be
+  stopped except by quitting the app entirely.
 
 ## Known limitations (intentional, permanent design choices)
 

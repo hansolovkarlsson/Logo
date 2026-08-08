@@ -515,6 +515,32 @@ TEST(test_input_is_a_silent_no_op_with_no_gui) {
     CHECK_STREQ(captured_output, "before\n\nafter\n");
 }
 
+// --- MOUSEPOS/MOUSEX/MOUSEY/BUTTON? (Phase 4: passive mouse query) ---
+// Unlike WAITKEY/INPUT, these never pause -- mouse_x/mouse_y/
+// mouse_button_down are plain LogoApp data, continuously updated by
+// ui.c's own motion/click controllers on the canvas, so there's no
+// callback to check; headless tests just see whatever new_app's zero
+// init left them as (0, 0, not pressed).
+
+TEST(test_mousepos_defaults_to_the_origin_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT MOUSEPOS\nPRINT MOUSEX\nPRINT MOUSEY\nPRINT BUTTON?");
+    CHECK_STREQ(captured_output, "0 0\n0\n0\nFALSE\n");
+}
+
+// --- JOYSTICK?/JOYSTICKAXIS/JOYSTICKBUTTON? (Phase 4: game-controller
+// input) ---
+// The actual SDL2 polling is GTK-app-only (see ensure_joystick in
+// ui.c); joystick_connected/axis/button are NULL here, same no-op
+// convention as every other GUI-side-effect callback, so these report
+// "nothing connected" rather than erroring or crashing.
+
+TEST(test_joystick_reports_nothing_connected_with_no_gui) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT JOYSTICK?\nPRINT JOYSTICKAXIS 0\nPRINT JOYSTICKBUTTON? 0");
+    CHECK_STREQ(captured_output, "FALSE\n0\nFALSE\n");
+}
+
 // --- POS/HEADING (turtle state queries) ---
 
 TEST(test_pos_reads_back_turtle_position) {
@@ -2668,6 +2694,34 @@ TEST(test_while_iteration_limit_reports_error) {
     CHECK_CONTAINS(captured_output, "WHILE: stopped after too many iterations");
 }
 
+// --- Ctrl+C interrupt (request_interrupt) ---
+// request_interrupt is normally called from main.c's SIGINT handler --
+// genuinely interrupting a script *mid-run* needs real concurrency
+// (a signal arriving asynchronously while eval_logo is looping), which
+// this single-threaded headless harness can't exercise. What these
+// tests confirm instead: the flag set before a script starts is
+// detected at the very first opportunity (no command in the script
+// runs at all), reported once, and cleared again afterward -- the same
+// "unwinds to the true outermost call, reports, clears" shape already
+// established for an uncaught THROW, just for a signal instead of a
+// language feature.
+
+TEST(test_interrupt_set_before_running_stops_immediately) {
+    LogoApp *app = new_app();
+    request_interrupt();
+    eval_logo(app, "PRINT \"one\nPRINT \"two");
+    CHECK_STREQ(captured_output, "Interrupted.\n");
+}
+
+TEST(test_interrupt_is_cleared_after_being_reported) {
+    LogoApp *app = new_app();
+    request_interrupt();
+    eval_logo(app, "PRINT \"one"); // consumes the interrupt, reports it
+    eval_logo(app, "PRINT \"two"); // must run normally -- nothing left over
+    CHECK_CONTAINS(captured_output, "Interrupted.\n");
+    CHECK_CONTAINS(captured_output, "two\n");
+}
+
 int main(void) {
     RUN(test_comment_on_its_own_line_is_ignored);
     RUN(test_trailing_comment_after_a_command_is_ignored);
@@ -2726,6 +2780,8 @@ int main(void) {
     RUN(test_exectime_measures_at_least_the_wrapped_waits_duration);
     RUN(test_waitkey_is_a_silent_no_op_with_no_gui);
     RUN(test_input_is_a_silent_no_op_with_no_gui);
+    RUN(test_mousepos_defaults_to_the_origin_with_no_gui);
+    RUN(test_joystick_reports_nothing_connected_with_no_gui);
 
     RUN(test_pos_reads_back_turtle_position);
     RUN(test_heading_reads_back_turtle_heading_without_wrapping);
@@ -3016,6 +3072,8 @@ int main(void) {
     RUN(test_too_many_variables_reports_error);
     RUN(test_too_many_parameters_reports_error);
 
+    RUN(test_interrupt_set_before_running_stops_immediately);
+    RUN(test_interrupt_is_cleared_after_being_reported);
     RUN(test_recursion_depth_limit_reports_error);
     RUN(test_while_iteration_limit_reports_error);
 
