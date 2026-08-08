@@ -108,15 +108,19 @@ static int lines_match(LogoApp *old_app, LogoApp *new_app_instance) {
 
 #define MAX_DIFF_TOKENS 512
 
-// Runs `source` through both engines and reports any disagreement --
-// in output text, final turtle state, or the actual drawn path -- as
-// a test failure. This is the whole shadow-diff mechanism in one
-// function; every TEST below is just a different script fed through
-// it.
-static void shadow_diff(const char *source) {
+// Runs `old_source` through the old engine and `new_source` through
+// the new one, reporting any disagreement -- in output text, final
+// turtle state, or the actual drawn path -- as a test failure. The two
+// sources are usually identical (see shadow_diff below, the common
+// case); this split version exists for the rare, deliberate exception
+// where a feature's *syntax* itself genuinely differs between engines
+// (see SEND's own test cases further down) -- there, comparing two
+// different-but-equivalent scripts is still a real cross-engine check,
+// just not a literal same-text diff.
+static void shadow_diff_pair(const char *old_source, const char *new_source) {
     captured_output[0] = '\0';
     LogoApp *old_app = new_app();
-    eval_logo(old_app, source);
+    eval_logo(old_app, old_source);
     char old_output[4096];
     snprintf(old_output, sizeof(old_output), "%s", captured_output);
     TurtleSnapshot old_turtle = snapshot_turtle(old_app);
@@ -124,7 +128,7 @@ static void shadow_diff(const char *source) {
     captured_output[0] = '\0';
     LogoApp *new_app_instance = new_app();
     LogoToken tokens[MAX_DIFF_TOKENS];
-    int n = logo_lex(source, tokens, MAX_DIFF_TOKENS);
+    int n = logo_lex(new_source, tokens, MAX_DIFF_TOKENS);
     if (n < 0) {
         failures++;
         printf("FAIL %s: source needed more than %d tokens\n", current_test, MAX_DIFF_TOKENS);
@@ -165,6 +169,11 @@ static void shadow_diff(const char *source) {
         printf("FAIL %s: drawn lines differ (old: %d segment(s), new: %d segment(s))\n",
                current_test, old_app->line_count, new_app_instance->line_count);
     }
+}
+
+// The common case: the same script, run through both engines.
+static void shadow_diff(const char *source) {
+    shadow_diff_pair(source, source);
 }
 
 TEST(test_print_number_and_word) { shadow_diff("PRINT 42\nPRINT \"hello"); }
@@ -518,6 +527,131 @@ TEST(test_property_list_used_as_lightweight_object_state) {
         "describe \"banana");
 }
 
+// --- Prototype-style objects (NEW/SEND) -----------------------------
+// SEND's own syntax is a deliberate exception to "same script, both
+// engines" (see BUILTIN_SIGNATURES's comment on SEND in parser.c): the
+// old engine takes positional arguments (SEND obj "message arg1 ...),
+// the new one takes an explicit argument list (SEND obj "message
+// [arg1 ...]) because real static parsing can't resolve the old
+// engine's mid-parse, value-dependent arity trick. Each test below is
+// the same *behavior* expressed as the two engines' own real syntax,
+// via shadow_diff_pair, not shadow_diff's usual literal same-text
+// comparison.
+
+TEST(test_send_method_registered_directly_on_object) {
+    shadow_diff_pair(
+        "TO dog_bark :self\n"
+        "  PRINT SENTENCE :self \"barks\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"dog_bark\n"
+        "SEND \"dog \"bark",
+        "TO dog_bark :self\n"
+        "  PRINT SENTENCE :self \"barks\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"dog_bark\n"
+        "SEND \"dog \"bark []");
+}
+
+TEST(test_send_finds_method_through_prototype_chain) {
+    shadow_diff_pair(
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "SETPROP \"animal \"sound \"generic\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "SEND \"dog \"speak\n"
+        "SEND \"animal \"speak",
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "SETPROP \"animal \"sound \"generic\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "SEND \"dog \"speak []\n"
+        "SEND \"animal \"speak []");
+}
+
+TEST(test_send_passes_extra_message_arguments) {
+    shadow_diff_pair(
+        "TO animal_greet :self :name\n"
+        "  PRINT SENTENCE :self SENTENCE \"hi :name\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"greet \"animal_greet\n"
+        "SEND \"dog \"greet \"alice",
+        "TO animal_greet :self :name\n"
+        "  PRINT SENTENCE :self SENTENCE \"hi :name\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"greet \"animal_greet\n"
+        "SEND \"dog \"greet [\"alice]");
+}
+
+TEST(test_send_operator_form_captures_output) {
+    shadow_diff_pair(
+        "TO dog_getname :self\n"
+        "  OUTPUT :self\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"getname \"dog_getname\n"
+        "PRINT SEND \"dog \"getname",
+        "TO dog_getname :self\n"
+        "  OUTPUT :self\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"getname \"dog_getname\n"
+        "PRINT SEND \"dog \"getname []");
+}
+
+TEST(test_send_to_unknown_message_reports_does_not_understand) {
+    shadow_diff_pair(
+        "NEW \"dog \"nothing\nSEND \"dog \"bark",
+        "NEW \"dog \"nothing\nSEND \"dog \"bark []");
+}
+
+TEST(test_send_object_used_as_lightweight_class_hierarchy) {
+    // A real-shaped multi-level hierarchy: animal -> dog -> puppy,
+    // combining SEND with regular arithmetic and a second message.
+    shadow_diff_pair(
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "TO animal_legs :self\n"
+        "  OUTPUT 4\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "SETPROP \"animal \"sound \"generic\n"
+        "SETPROP \"animal \"legs \"animal_legs\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "NEW \"puppy \"dog\n"
+        "SEND \"puppy \"speak\n"
+        "PRINT SEND \"puppy \"legs",
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "TO animal_legs :self\n"
+        "  OUTPUT 4\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "SETPROP \"animal \"sound \"generic\n"
+        "SETPROP \"animal \"legs \"animal_legs\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "NEW \"puppy \"dog\n"
+        "SEND \"puppy \"speak []\n"
+        "PRINT SEND \"puppy \"legs []");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -563,6 +697,12 @@ int main(void) {
     RUN(test_setprop_overwrite_and_removeprop);
     RUN(test_proplist_and_separate_plist_names);
     RUN(test_property_list_used_as_lightweight_object_state);
+    RUN(test_send_method_registered_directly_on_object);
+    RUN(test_send_finds_method_through_prototype_chain);
+    RUN(test_send_passes_extra_message_arguments);
+    RUN(test_send_operator_form_captures_output);
+    RUN(test_send_to_unknown_message_reports_does_not_understand);
+    RUN(test_send_object_used_as_lightweight_class_hierarchy);
 
     if (failures == 0) {
         printf("All tests passed.\n");

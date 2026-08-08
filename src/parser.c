@@ -117,6 +117,27 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "GETPROP", 2, { ARG_EXPR, ARG_EXPR } },
     { "REMOVEPROP", 2, { ARG_EXPR, ARG_EXPR } },
     { "PROPLIST", 1, { ARG_EXPR } },
+
+    // Prototype-style objects (eval.c: NEW is sugar for SETPROP obj
+    // "prototype protoname, reusing property lists directly -- see
+    // interpreter.c's own NEW/SEND for the original design).
+    { "NEW", 2, { ARG_EXPR, ARG_EXPR } },
+    // SEND's arity here is fixed at 3, NOT the old engine's positional
+    // "however many args the resolved method takes" -- and that's a
+    // deliberate syntax difference, not a simplification. The old
+    // engine can look up the method's arity mid-parse (it evaluates
+    // obj/message first, since parsing and execution are the same
+    // pass there) and then keep consuming exactly that many more
+    // expression tokens; this parser builds the whole AST before any
+    // value exists to look a property up with, so there is no way to
+    // know at parse time how many trailing tokens a SEND call owns.
+    // Real languages with equivalent runtime dispatch hit the same
+    // wall (Smalltalk's perform:withArguments:, Python's .apply()-
+    // style calls) and solve it the same way: an explicit argument
+    // list. SEND obj "message arglist here, mirroring APPLY's own
+    // existing convention -- arglist is always required, [] for a
+    // zero-argument message.
+    { "SEND", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
 };
 #define BUILTIN_SIGNATURE_COUNT (int)(sizeof(BUILTIN_SIGNATURES) / sizeof(BUILTIN_SIGNATURES[0]))
 

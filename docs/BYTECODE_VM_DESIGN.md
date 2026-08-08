@@ -487,6 +487,44 @@ footprint.
     `exec_call` must be its own function from the start, not a new
     inline branch — the file comment directly above the `do_*`
     functions in `eval.c` says so explicitly.
+- **`NEW`/`SEND` (prototype-style objects): done.** Reuses the
+  property-list infrastructure that just landed — `SEND`'s prototype-
+  chain walk (`eval_resolve_message`/`eval_resolve_method` in
+  `eval.c`) is just repeated `find_plist_entry` lookups (bounded by
+  `MAX_PROTOTYPE_CHAIN_DEPTH`), followed by an ordinary call through
+  `call_ast_procedure` — no new state, no new architecture, just
+  composition of what already existed.
+  - **A real, deliberate syntax difference from the old engine, found
+    during design rather than by surprise**: the old engine's `SEND
+    obj "message arg1 arg2...` only works because it parses and
+    executes in the same pass — it evaluates `obj`/`message` first,
+    then uses those runtime values to look up the method's own
+    parameter count via a property-list chain walk, and only then
+    decides how many more expression tokens to consume. A real static
+    parser builds the whole AST before any value exists, so there is
+    no way to know at parse time how many trailing tokens a `SEND`
+    call owns — the same wall real languages with equivalent dynamic
+    dispatch hit (Smalltalk's `perform:withArguments:`, Python's
+    `.apply()`-style calls). Resolved by giving `SEND` an explicit
+    argument list here — `SEND obj "message arglist`, `[]` for a
+    zero-argument message — mirroring `APPLY`'s own existing
+    convention rather than inventing a new one. Confirmed this also
+    made a real, new check possible that the old engine's positional
+    parsing structurally can't produce (`SEND: wrong number of inputs
+    for message`, mirroring `APPLY`'s own count check) — a genuinely
+    new-engine-only test case, not a regression.
+  - This being a real syntax difference means the shadow-diff corpus
+    can't literally diff the same script text for `SEND`. Extended the
+    harness with `shadow_diff_pair(old_source, new_source)` — two
+    different-but-equivalent scripts, one per engine's own real syntax
+    — alongside `shadow_diff`'s usual same-text comparison, for this
+    exact kind of deliberate divergence. A found-and-fixed bug along
+    the way, from mismatching against the old engine's exact behavior
+    rather than guessing: `SEND`'s "didn't output a value" message
+    needs the *message* name (`bark`), not `SEND`'s own name, AND must
+    stay silent entirely in statement position (nobody asked for a
+    value there) — both confirmed directly against `interpreter.c`'s
+    own `SEND` operator form before the fix, not assumed.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
   fuller language coverage (more turtle commands, type predicates,
   arrays), and growing the shadow-diff corpus alongside it — the

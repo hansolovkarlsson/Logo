@@ -473,6 +473,67 @@ static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, E
     return result;
 }
 
+// --- Prototype-style objects (NEW/SEND) -------------------------------
+//
+// An "object" is just a plist name (see the property-list functions
+// above) with a "prototype" property pointing at its parent -- mirrors
+// interpreter.c's own NEW/SEND exactly in spirit, sharing the same
+// app->plist_entries records, just adapted to this engine's own
+// procedure representation (AST_PROC_DEF nodes via find_proc_def,
+// not a Procedure*) and its own calling convention (see
+// BUILTIN_SIGNATURES's own comment on SEND for why the argument list
+// is now explicit rather than positional).
+
+// Walks obj's own plist for `message`, then follows however many
+// "prototype" links it takes to find one, bounded by
+// MAX_PROTOTYPE_CHAIN_DEPTH (logo_types.h) the same way
+// interpreter.c's own resolve_message is -- a cyclic or absurdly long
+// chain just runs out of hops rather than looping forever.
+static PlistEntry *eval_resolve_message(LogoApp *app, const char *objname, const char *message) {
+    char current[32];
+    snprintf(current, sizeof(current), "%s", objname);
+    for (int depth = 0; depth < MAX_PROTOTYPE_CHAIN_DEPTH; depth++) {
+        int idx = find_plist_entry(app, current, message);
+        if (idx >= 0) return &app->plist_entries[idx];
+        int proto_idx = find_plist_entry(app, current, "prototype");
+        if (proto_idx < 0 || app->plist_entries[proto_idx].type != VALUE_WORD) return NULL;
+        snprintf(current, sizeof(current), "%s", app->plist_entries[proto_idx].word);
+    }
+    return NULL;
+}
+
+// Resolves `message` to a callable AST_PROC_DEF on obj, reporting
+// whichever of SEND's error cases applies -- mirrors interpreter.c's
+// own resolve_method, just returning an AST node index (this engine's
+// own procedure representation) instead of a Procedure*.
+static int eval_resolve_method(LogoApp *app, AstPool *pool, const char *objname, const char *message) {
+    PlistEntry *e = eval_resolve_message(app, objname, message);
+    if (e == NULL) {
+        append_output(app, "SEND: ");
+        append_output(app, objname);
+        append_output(app, " does not understand ");
+        append_output(app, message);
+        append_output(app, "\n");
+        return -1;
+    }
+    int def_node = (e->type == VALUE_WORD) ? find_proc_def(pool, e->word) : -1;
+    if (def_node < 0) {
+        append_output(app, "SEND: ");
+        append_output(app, message);
+        append_output(app, " is not a method on ");
+        append_output(app, objname);
+        append_output(app, "\n");
+        return -1;
+    }
+    if (pool->nodes[def_node].param_count < 1) {
+        append_output(app, "SEND: ");
+        append_output(app, pool->nodes[def_node].text);
+        append_output(app, " must take :self as its first input\n");
+        return -1;
+    }
+    return def_node;
+}
+
 // --- Per-built-in dispatch functions ---------------------------------
 //
 // Every single built-in, however small, gets its own function here --
@@ -691,6 +752,75 @@ static void do_removeprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
 static EvalValue do_proplist(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return eval_proplist(app, eval_expr(app, pool, arg_idx[0]));
 }
+static void do_new(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue obj_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue proto_val = eval_expr(app, pool, arg_idx[1]);
+    eval_setprop(app, obj_val, word_val("prototype"), proto_val);
+}
+// SEND obj "message arglist -- resolves `message` through obj's
+// prototype chain, then calls it with obj prepended as :self and
+// arglist's own elements (a non-list arglist counts as one element,
+// same convention APPLY already uses for its own argument list). Sets
+// *resolved = 0 for SEND's own internal error cases (unknown message,
+// a non-method property, wrong argument count) so eval_expr's generic
+// "didn't output a value" wrapper doesn't ALSO fire after one of these
+// already-specific messages -- mirrors do_user_procedure_call's own
+// use of *resolved for the same reason.
+static EvalValue do_send(LogoApp *app, AstPool *pool, const int *arg_idx, int *resolved, int *produced) {
+    EvalValue obj_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue msg_val = eval_expr(app, pool, arg_idx[1]);
+    char obj_text[32], msg_text[32];
+    eval_value_to_text(app, obj_val, obj_text, sizeof(obj_text));
+    eval_value_to_text(app, msg_val, msg_text, sizeof(msg_text));
+
+    int def_node = eval_resolve_method(app, pool, obj_text, msg_text);
+    if (def_node < 0) {
+        if (resolved != NULL) *resolved = 0;
+        return word_val("");
+    }
+
+    EvalValue arglist = eval_expr(app, pool, arg_idx[2]);
+    EvalValue arg_vals[AST_MAX_PARAMS];
+    arg_vals[0] = word_val(obj_text);
+    int n = 1;
+    if (arglist.type == VALUE_LIST) {
+        for (int idx = arglist.list_head; idx != -1 && n < AST_MAX_PARAMS; idx = app->list_pool[idx].next) {
+            arg_vals[n++] = node_to_value(&app->list_pool[idx]);
+        }
+    } else if (n < AST_MAX_PARAMS) {
+        arg_vals[n++] = arglist;
+    }
+
+    AstNode *def = &pool->nodes[def_node];
+    if (n != def->param_count) {
+        append_output(app, "SEND: wrong number of inputs for message \"");
+        append_output(app, msg_text);
+        append_output(app, "\n");
+        if (resolved != NULL) *resolved = 0;
+        return word_val("");
+    }
+
+    int did_output;
+    EvalValue r = call_ast_procedure(app, pool, def_node, arg_vals, n, &did_output);
+    if (!did_output && produced != NULL) {
+        // Only the operator/expression-position caller (produced !=
+        // NULL) cares whether this produced a value -- a plain
+        // statement-position SEND (produced == NULL, the same
+        // convention every other command here follows) silently
+        // discards a missing OUTPUT, exactly like an ordinary
+        // procedure call does. Uses the message name here, not
+        // "SEND" -- eval_expr's own generic wrapper would use the
+        // AST_CALL node's own text ("SEND"), the wrong name for this
+        // specific message, so *resolved is cleared too to make sure
+        // that generic wrapper never also fires on top of this one.
+        append_output(app, msg_text);
+        append_output(app, ": didn't output a value\n");
+        if (resolved != NULL) *resolved = 0;
+        return word_val("");
+    }
+    if (produced != NULL) *produced = did_output;
+    return r;
+}
 
 // Not a built-in -- must be a hoisted user procedure: the parser
 // already guarantees this by construction (an AST_CALL node only
@@ -835,6 +965,11 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     } else if (strcasecmp(name, "PROPLIST") == 0) {
         if (result != NULL) *result = do_proplist(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "NEW") == 0) {
+        do_new(app, pool, arg_idx);
+    } else if (strcasecmp(name, "SEND") == 0) {
+        EvalValue r = do_send(app, pool, arg_idx, resolved, produced);
+        if (result != NULL) *result = r;
     } else {
         EvalValue r = do_user_procedure_call(app, pool, name, arg_idx, argc, resolved, produced);
         if (result != NULL) *result = r;
