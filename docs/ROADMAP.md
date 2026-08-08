@@ -29,12 +29,14 @@ than adding a second audio library. Phase 4 is now complete.
 
 ### Phase 5 — Large architectural bets (need a design discussion first, not just scoping)
 
-- [ ] Prototype-style object orientation, no classes — everything is an
-  object (`Integer.New`-style construction), message-passing closer to
-  Smalltalk/Self than Berkeley Logo's own (class-based) Object Logo
-  dialect (see `docs/FEATURE_ATLAS.md`'s "Uncharted territory"). A real
-  object value type plus message dispatch is a language redesign, not a
-  feature — needs its own design conversation before scoping.
+Prototype-style objects (`NEW`/`SEND` — see `docs/LANGUAGE.md`'s
+"Prototype-style objects" section) turned out not to need the language
+redesign originally scoped here: an object is just a property list
+(already shipped in an earlier phase) with a `"prototype` link, and
+`SEND` reuses the exact command/operator split ordinary procedure
+calls already have. No new value type, no changes to variable scoping
+or `call_procedure` at all.
+
 - [ ] Compile to a bytecode VM instead of directly tree-walking
   `eval_logo` over raw text. An order of magnitude bigger than
   everything else on this page — the current interpreter is

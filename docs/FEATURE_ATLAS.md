@@ -92,8 +92,11 @@ command. Worth knowing about; not a quick add.
 Bolted real object-oriented programming onto Logo — classes, inheritance, and
 message-passing via an `ask` construct, sitting on top of the same procedural
 core. One of the only Logo dialects to take OOP seriously.
-> Would mean a second object model living alongside procedures and variables —
-> a language redesign, not a feature.
+> This project ended up adding a lighter-weight cousin (`NEW`/`SEND`, see
+> `docs/LANGUAGE.md`'s "Prototype-style objects") — prototype-based like
+> Self/JavaScript rather than class-based like Object Logo, and no language
+> redesign after all: an object is just a property list plus a message-lookup
+> convention on top of the existing procedure-call mechanism.
 
 **MultiLogo** — *Mitchel Resnick, MIT Media Lab, 1990*
 Introduced an `agent` construct: multiple independent Logo processes running

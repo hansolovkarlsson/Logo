@@ -406,6 +406,80 @@ self-explanatory.)
   there's no `LOCAL`-style scoping for properties the way there is for
   variables.
 
+## Prototype-style objects
+
+```
+TO animal_speak :self
+  PRINT SENTENCE :self GETPROP :self "sound
+END
+
+NEW "animal "nothing
+SETPROP "animal "speak "animal_speak
+SETPROP "animal "sound "generic
+
+NEW "dog "animal
+SETPROP "dog "sound "Woof
+
+SEND "dog "speak      -> dog Woof
+SEND "animal "speak   -> animal generic
+```
+
+No classes, no new value type — an "object" is just a property list
+(see "Property lists" above) with a `"prototype` property pointing at
+its parent, the same prototype-based style Self/JavaScript use rather
+than Berkeley Logo's own (class-based) Object Logo dialect.
+
+- `NEW objname prototypename` sets `objname`'s `"prototype` property to
+  `prototypename` — shorthand for writing that `SETPROP` by hand, only
+  more readable at the call site. `prototypename` can name anything,
+  including an object that doesn't otherwise exist yet, or a
+  placeholder like `"nothing` for the root of a hierarchy.
+- A **method** is an ordinary procedure taking `:self` as its first
+  input, registered under a message name with plain `SETPROP` — e.g.
+  `SETPROP "animal "speak "animal_speak` registers `animal_speak` (any
+  procedure name, no naming convention enforced beyond the leading
+  `:self`) to answer `speak`.
+- `SEND obj "message arg1 arg2...` looks `message` up on `obj`'s own
+  property list first; if it's not there, follows `obj`'s own
+  `"prototype` property and checks there instead, repeating up the
+  chain until something answers or the chain runs out. `self` is never
+  one of `SEND`'s own arguments — it's always `obj`, automatically
+  prepended to whatever args followed the message name, so a method
+  declared `TO animal_greet :self :name` is sent as `SEND "dog "greet
+  "alice`, not `SEND "dog "greet "dog "alice`.
+- Like an ordinary procedure call, `SEND` comes in both the command
+  form above (a method run for its side effects, discarding any
+  `OUTPUT`) and an operator form usable inside an expression (`PRINT
+  SEND "dog "getname`, `MAKE "n SEND "dog "getname`) — same
+  `didn't output a value` error if the resolved method never
+  `OUTPUT`s, for the same reason a plain procedure used as an operator
+  needs one.
+- **Methods inherit through the chain; data fields don't.** `SEND`
+  walks `"prototype` links looking for a message; plain `GETPROP` never
+  does, even on an object built with `NEW`. A shared *default* value
+  has to be a method that outputs a constant (like `animal_speak`
+  above falling back to `"generic`), not a plain property, if it's
+  meant to be inherited — an object with no property of its own for a
+  given key just gets the empty list back from `GETPROP`, prototype or
+  not.
+- Errors: `SEND: obj does not understand message` if nothing in the
+  whole chain (up to `obj` itself) has that property at all;
+  `SEND: message is not a method on obj` if it's there but its value
+  isn't a word naming a real procedure (e.g. it's a plain data field,
+  or the procedure it once named was redefined away); `SEND: name must
+  take :self as its first input` if the resolved procedure has zero
+  parameters.
+- A cyclic prototype chain (an object that's its own ancestor, directly
+  or through a longer cycle) doesn't hang — the chain walk is capped
+  the same bounded-loop way `WHILE`'s own runaway-loop cap works, so it
+  just runs out of chain and reports `does not understand` instead of
+  looping forever.
+- Property lists share one flat, global table of `MAX_PLIST_ENTRIES`
+  (200) records total across *every* plist in the whole program (see
+  "Property lists" above) — objects don't get their own budget, so a
+  program creating many objects with several properties each can run
+  into `too many properties defined` sooner than it might expect.
+
 ## Words & lists
 
 ```

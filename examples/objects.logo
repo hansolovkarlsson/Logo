@@ -1,0 +1,50 @@
+; Prototype-style objects: an "object" is just a plist name (see
+; SETPROP/GETPROP/PROPLIST) with a "prototype" property pointing at its
+; parent. NEW sets that property; SEND looks a message up on the
+; object's own plist, falling back through however many "prototype"
+; links it takes to find one -- no classes, no new value type, just a
+; naming convention on top of property lists that already existed.
+
+TO animal_speak :self
+  PRINT SENTENCE :self GETPROP :self "sound
+END
+
+NEW "animal "nothing   ; the root of this hierarchy has no prototype
+SETPROP "animal "speak "animal_speak
+SETPROP "animal "sound "generic
+
+NEW "dog "animal        ; dog descends from animal
+SETPROP "dog "sound "Woof
+
+SEND "dog "speak       ; dog Woof     -- dog's own "sound" wins
+SEND "animal "speak    ; animal generic
+
+; Methods inherit through the chain; data fields don't -- GETPROP
+; never walks "prototype" on its own, only SEND's own message lookup
+; does. So a "puppy" with no "sound" of its own inherits dog's "speak"
+; method (which dog itself inherited from animal), but that method's
+; own GETPROP :self "sound" call still comes back empty for puppy.
+NEW "puppy "dog
+SEND "puppy "speak     ; puppy        -- inherited method, but no sound of its own
+
+; A method can take more than just :self -- SEND prepends the object
+; automatically, then passes along whatever args followed the message.
+TO animal_greet :self :name
+  PRINT SENTENCE :self SENTENCE "hi :name
+END
+SETPROP "animal "greet "animal_greet
+SEND "dog "greet "alice   ; dog hi alice
+
+; SEND is also an operator, not just a command -- a method that OUTPUTs
+; can have its value captured, the same way a plain procedure can when
+; used as an operator (PRINT double 5).
+TO animal_getname :self
+  OUTPUT :self
+END
+SETPROP "animal "getname "animal_getname
+PRINT SEND "dog "getname   ; dog
+MAKE "n SEND "dog "getname
+PRINT :n                   ; dog
+
+; SEND "dog "fly would report "SEND: dog does not understand fly" --
+; there's no such message anywhere in dog's prototype chain.

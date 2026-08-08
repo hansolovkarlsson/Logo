@@ -42,6 +42,13 @@
 #define MAX_TURTLES 10
 #define MAX_LIST_NODES 8192
 #define MAX_PLIST_ENTRIES 200
+// SEND's prototype-chain walk (see resolve_message in interpreter.c):
+// an object's "prototype" property points at its parent, so a cyclic
+// or absurdly long chain is bounded by this instead of spinning
+// forever -- same bounded-loop-as-safety-net precedent as
+// MAX_WHILE_ITERATIONS, just a far smaller cap since a real prototype
+// hierarchy is never this deep.
+#define MAX_PROTOTYPE_CHAIN_DEPTH 20
 #define MAX_OPEN_FILES 16
 #define MAX_TURTLE_SPRITES 20
 // Every sprite is scaled into this fixed square box on load (LOADSPRITE)

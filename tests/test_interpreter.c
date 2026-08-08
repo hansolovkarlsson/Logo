@@ -768,6 +768,123 @@ TEST(test_setprop_can_use_a_computed_plist_name_and_key) {
     CHECK_STREQ(captured_output, "red\n");
 }
 
+// --- Prototype-style objects (NEW/SEND, Phase 5) ---
+// An "object" is just a plist name (see PlistEntry) with a "prototype"
+// property; NEW is sugar for setting it, SEND walks the chain to find
+// a message (see resolve_message/resolve_method in interpreter.c).
+
+TEST(test_send_calls_a_method_registered_directly_on_the_object) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO dog_bark :self\n"
+        "  PRINT SENTENCE :self \"barks\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"dog_bark\n"
+        "SEND \"dog \"bark");
+    CHECK_STREQ(captured_output, "dog barks\n");
+}
+
+TEST(test_send_finds_a_method_through_the_prototype_chain) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "SETPROP \"animal \"sound \"generic\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "SEND \"dog \"speak\n" // own sound property wins
+        "SEND \"animal \"speak"); // falls back to its own sound
+    CHECK_STREQ(captured_output, "dog Woof\nanimal generic\n");
+}
+
+TEST(test_send_inherits_methods_but_not_data_fields) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "NEW \"puppy \"dog\n" // no own "sound" -- GETPROP never chain-walks
+        "SEND \"puppy \"speak");
+    CHECK_STREQ(captured_output, "puppy\n"); // sound came back empty
+}
+
+TEST(test_send_passes_extra_message_arguments_after_self) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO animal_greet :self :name\n"
+        "  PRINT SENTENCE :self SENTENCE \"hi :name\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"greet \"animal_greet\n"
+        "SEND \"dog \"greet \"alice");
+    CHECK_STREQ(captured_output, "dog hi alice\n");
+}
+
+TEST(test_send_operator_form_captures_output) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO dog_getname :self\n"
+        "  OUTPUT :self\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"getname \"dog_getname\n"
+        "PRINT SEND \"dog \"getname\n"
+        "MAKE \"n SEND \"dog \"getname\n"
+        "PRINT :n");
+    CHECK_STREQ(captured_output, "dog\ndog\n");
+}
+
+TEST(test_send_operator_form_errors_if_method_never_outputs) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO dog_bark :self\n"
+        "  PRINT \"Woof\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"dog_bark\n"
+        "PRINT SEND \"dog \"bark");
+    CHECK_CONTAINS(captured_output, "Woof\n");
+    CHECK_CONTAINS(captured_output, "bark: didn't output a value\n");
+}
+
+TEST(test_send_to_unknown_message_reports_does_not_understand) {
+    LogoApp *app = new_app();
+    eval_logo(app, "NEW \"dog \"nothing\nSEND \"dog \"bark");
+    CHECK_CONTAINS(captured_output, "SEND: dog does not understand bark\n");
+}
+
+TEST(test_send_on_a_data_property_reports_not_a_method) {
+    LogoApp *app = new_app();
+    eval_logo(app, "NEW \"dog \"nothing\nSETPROP \"dog \"sound \"Woof\nSEND \"dog \"sound");
+    CHECK_CONTAINS(captured_output, "sound is not a method on dog");
+}
+
+TEST(test_send_method_without_self_param_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app,
+        "TO badmethod\n"
+        "  PRINT \"oops\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"badmethod\n"
+        "SEND \"dog \"bark");
+    CHECK_CONTAINS(captured_output, "badmethod must take :self as its first input");
+}
+
+TEST(test_send_cyclic_prototype_chain_is_bounded_not_infinite) {
+    LogoApp *app = new_app();
+    eval_logo(app, "NEW \"a \"b\nNEW \"b \"a\nSEND \"a \"speak");
+    CHECK_CONTAINS(captured_output, "SEND: a does not understand speak\n");
+}
+
 TEST(test_tell_out_of_range_reports_error) {
     LogoApp *app = new_app();
     eval_logo(app, "TELL 99");
@@ -2830,6 +2947,16 @@ int main(void) {
     RUN(test_proplist_lists_alternating_keys_and_values);
     RUN(test_proplist_of_unknown_name_is_the_empty_list);
     RUN(test_setprop_can_use_a_computed_plist_name_and_key);
+    RUN(test_send_calls_a_method_registered_directly_on_the_object);
+    RUN(test_send_finds_a_method_through_the_prototype_chain);
+    RUN(test_send_inherits_methods_but_not_data_fields);
+    RUN(test_send_passes_extra_message_arguments_after_self);
+    RUN(test_send_operator_form_captures_output);
+    RUN(test_send_operator_form_errors_if_method_never_outputs);
+    RUN(test_send_to_unknown_message_reports_does_not_understand);
+    RUN(test_send_on_a_data_property_reports_not_a_method);
+    RUN(test_send_method_without_self_param_reports_error);
+    RUN(test_send_cyclic_prototype_chain_is_bounded_not_infinite);
     RUN(test_tell_out_of_range_reports_error);
 
     RUN(test_hideturtle_showturtle_toggles_visibility);

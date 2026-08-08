@@ -397,6 +397,65 @@ static int find_plist_entry(LogoApp *app, const char *plist_name, const char *ke
     return -1;
 }
 
+// SEND's prototype-chain lookup (Phase 5's prototype-style objects —
+// see NEW/SEND below): checks obj's own plist for `message` first,
+// then follows however many "prototype" links it takes to find one,
+// same records as any other SETPROP-based plist, nothing object-
+// specific about the storage itself. MAX_PROTOTYPE_CHAIN_DEPTH bounds
+// this (rather than detecting cycles explicitly) — an object pointing
+// back at itself, directly or through a longer cycle, just runs out of
+// hops and reports "does not understand", the same way a real missing
+// message would.
+static PlistEntry *resolve_message(LogoApp *app, const char *objname, const char *message) {
+    char current[32];
+    snprintf(current, sizeof(current), "%s", objname);
+    for (int depth = 0; depth < MAX_PROTOTYPE_CHAIN_DEPTH; depth++) {
+        int idx = find_plist_entry(app, current, message);
+        if (idx >= 0) return &app->plist_entries[idx];
+        int proto_idx = find_plist_entry(app, current, "prototype");
+        if (proto_idx < 0 || app->plist_entries[proto_idx].type != VALUE_WORD) return NULL;
+        snprintf(current, sizeof(current), "%s", app->plist_entries[proto_idx].word);
+    }
+    return NULL;
+}
+
+// Resolves `message` to a callable method Procedure on obj (see
+// resolve_message above), reporting whichever of SEND's error cases
+// applies so neither of SEND's two call sites (the command form below,
+// and the operator form in parse_factor) has to duplicate this. A
+// method is just a property whose value is a word naming a real
+// procedure — not a new value type, just a naming convention on top of
+// ordinary SETPROP storage — and that procedure must take :self as its
+// first input, the explicit-self convention every method is written
+// with (SEND prepends obj as that argument itself).
+static Procedure *resolve_method(LogoApp *app, const char *objname, const char *message) {
+    PlistEntry *e = resolve_message(app, objname, message);
+    if (e == NULL) {
+        append_output(app, "SEND: ");
+        append_output(app, objname);
+        append_output(app, " does not understand ");
+        append_output(app, message);
+        append_output(app, "\n");
+        return NULL;
+    }
+    if (e->type != VALUE_WORD || find_procedure(app, e->word) == NULL) {
+        append_output(app, "SEND: ");
+        append_output(app, message);
+        append_output(app, " is not a method on ");
+        append_output(app, objname);
+        append_output(app, "\n");
+        return NULL;
+    }
+    Procedure *proc = find_procedure(app, e->word);
+    if (proc->param_count < 1) {
+        append_output(app, "SEND: ");
+        append_output(app, e->word);
+        append_output(app, " must take :self as its first input\n");
+        return NULL;
+    }
+    return proc;
+}
+
 // Find an unused slot in app->file_channels (OPENREAD/OPENWRITE/
 // OPENAPPEND), or -1 if all MAX_OPEN_FILES are currently open.
 static int find_free_file_channel(LogoApp *app) {
@@ -2014,6 +2073,37 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         }
         return list_value(head);
     }
+    // SEND's operator form (see the command form's own comment, above
+    // in eval_logo's statement dispatch, for the SETPROP-based object
+    // model this is dispatching against) — for a method called for its
+    // return value rather than its side effects, e.g. PRINT SEND "dog
+    // "getname or MAKE "n SEND "dog "getage. Same "must OUTPUT or it's
+    // an error" rule the generic procedure-as-operator fallback further
+    // below already enforces for plain procedures, and the same
+    // did_output plumbing (call_procedure itself doesn't know or care
+    // whether it's being called as a command or an operator).
+    if (consume_keyword(ptr, "SEND")) {
+        Value obj_val = parse_expr(app, ptr);
+        Value msg_val = parse_expr(app, ptr);
+        char obj_text[32], msg_text[32];
+        value_to_text(app, &obj_val, obj_text, sizeof(obj_text));
+        value_to_text(app, &msg_val, msg_text, sizeof(msg_text));
+        Procedure *proc = resolve_method(app, obj_text, msg_text);
+        if (proc == NULL) return word_value("");
+        Value arg_vals[MAX_PARAMS];
+        arg_vals[0] = word_value(obj_text);
+        for (int p = 1; p < proc->param_count; p++) {
+            arg_vals[p] = parse_expr(app, ptr);
+        }
+        gboolean did_output = FALSE;
+        Value result = call_procedure(app, proc, arg_vals, &did_output);
+        if (!did_output) {
+            append_output(app, msg_text);
+            append_output(app, ": didn't output a value\n");
+            return word_value("");
+        }
+        return result;
+    }
     if (**ptr == ':') {
         (*ptr)++;
         char name[32] = {0};
@@ -2838,6 +2928,68 @@ void eval_logo(LogoApp *app, const char *code) {
             // (rather than shifting everything down) is fine here.
             if (idx >= 0) {
                 app->plist_entries[idx] = app->plist_entries[--app->plist_entry_count];
+            }
+        }
+        // 3b''. NEW objname prototypename — Phase 5's prototype-style
+        // objects: an "object" is just a plist name (see PlistEntry
+        // above), no new value type at all, so NEW is nothing more than
+        // SETPROP's own find-or-create logic, writing a "prototype"
+        // property that SEND's chain walk (resolve_message above)
+        // follows to find inherited methods/data. Equivalent to writing
+        // SETPROP objname "prototype prototypename by hand -- NEW just
+        // makes the intent ("this object descends from that one")
+        // readable at the call site.
+        else if (strcasecmp(token, "NEW") == 0) {
+            Value name_val = parse_expr(app, &ptr);
+            Value proto_val = parse_expr(app, &ptr);
+            char name_text[32], proto_text[32];
+            value_to_text(app, &name_val, name_text, sizeof(name_text));
+            value_to_text(app, &proto_val, proto_text, sizeof(proto_text));
+            int idx = find_plist_entry(app, name_text, "prototype");
+            if (idx < 0) {
+                if (app->plist_entry_count >= MAX_PLIST_ENTRIES) {
+                    append_output(app, "NEW: too many properties defined, not created\n");
+                    idx = -1;
+                } else {
+                    idx = app->plist_entry_count++;
+                    snprintf(app->plist_entries[idx].plist_name, sizeof(app->plist_entries[idx].plist_name), "%s", name_text);
+                    snprintf(app->plist_entries[idx].key, sizeof(app->plist_entries[idx].key), "prototype");
+                }
+            }
+            if (idx >= 0) {
+                PlistEntry *e = &app->plist_entries[idx];
+                e->type = VALUE_WORD;
+                e->number = 0;
+                snprintf(e->word, sizeof(e->word), "%s", proto_text);
+                e->list_head = -1;
+            }
+        }
+        // 3b'''. SEND obj "message arg1 arg2... — Phase 5's message
+        // dispatch: resolve_method (above) walks obj's prototype chain
+        // to find `message`, and this is the command (statement) form —
+        // for a method called only for its side effects, discarding
+        // whatever it OUTPUTs, the same way an ordinary procedure call
+        // at this same statement level discards its own OUTPUT. See the
+        // matching operator form in parse_factor for capturing a
+        // method's return value instead (PRINT SEND ..., MAKE "x SEND
+        // ...) — same command/operator split ordinary procedures
+        // already get. `self` isn't parsed as an argument here — it's
+        // always `obj` itself, prepended automatically to whatever args
+        // follow the message name.
+        else if (strcasecmp(token, "SEND") == 0) {
+            Value obj_val = parse_expr(app, &ptr);
+            Value msg_val = parse_expr(app, &ptr);
+            char obj_text[32], msg_text[32];
+            value_to_text(app, &obj_val, obj_text, sizeof(obj_text));
+            value_to_text(app, &msg_val, msg_text, sizeof(msg_text));
+            Procedure *proc = resolve_method(app, obj_text, msg_text);
+            if (proc != NULL) {
+                Value arg_vals[MAX_PARAMS];
+                arg_vals[0] = word_value(obj_text);
+                for (int p = 1; p < proc->param_count; p++) {
+                    arg_vals[p] = parse_expr(app, &ptr);
+                }
+                call_procedure(app, proc, arg_vals, NULL);
             }
         }
         // 3a'''. SETITEM index array value — the one in-place mutation
