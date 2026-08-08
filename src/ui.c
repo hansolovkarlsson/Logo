@@ -439,7 +439,6 @@ static SDL_Joystick *ensure_joystick(LogoApp *app) {
     SDL_JoystickUpdate();
     SDL_Joystick *joy = (SDL_Joystick *)app->joystick_handle;
     if (joy != NULL && !SDL_JoystickGetAttached(joy)) {
-        fprintf(stderr, "Joystick disconnected: %s\n", SDL_JoystickName(joy));
         SDL_JoystickClose(joy);
         joy = NULL;
         app->joystick_handle = NULL;
@@ -447,12 +446,6 @@ static SDL_Joystick *ensure_joystick(LogoApp *app) {
     if (joy == NULL && SDL_NumJoysticks() > 0) {
         joy = SDL_JoystickOpen(0);
         app->joystick_handle = joy;
-        if (joy == NULL) {
-            fprintf(stderr, "SDL_JoystickOpen(0) failed: %s\n", SDL_GetError());
-        } else {
-            fprintf(stderr, "Joystick connected: %s (%d axes, %d buttons)\n",
-                    SDL_JoystickName(joy), SDL_JoystickNumAxes(joy), SDL_JoystickNumButtons(joy));
-        }
     }
     return joy;
 }
@@ -1212,15 +1205,9 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     // running exactly as before). A failure here just means JOYSTICK?/
     // TONE/etc. degrade to reporting nothing connected / silently doing
     // nothing rather than crashing (ensure_joystick/ensure_audio_device
-    // both check for this). Logged to stderr (not the history pane --
-    // this runs before any window exists to show one in) since a
-    // failure here is otherwise completely silent, with nothing to
-    // tell it apart from "no controller plugged in"/"no sound played".
-    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) != 0) {
-        fprintf(stderr, "SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) failed: %s\n", SDL_GetError());
-    } else {
-        fprintf(stderr, "SDL joystick/audio subsystems ready; %d joystick(s) detected at startup\n", SDL_NumJoysticks());
-    }
+    // both check for this), same as "no controller plugged in"/"no
+    // sound played" -- not worth a separate report.
+    SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO);
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;
