@@ -14,6 +14,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <glib/gstdio.h> // g_remove (DELETEFILE)
 
 // --- HELPER FUNCTIONS ---
 
@@ -378,6 +379,15 @@ static int find_plist_entry(LogoApp *app, const char *plist_name, const char *ke
             strcasecmp(app->plist_entries[i].key, key) == 0) {
             return i;
         }
+    }
+    return -1;
+}
+
+// Find an unused slot in app->file_channels (OPENREAD/OPENWRITE/
+// OPENAPPEND), or -1 if all MAX_OPEN_FILES are currently open.
+static int find_free_file_channel(LogoApp *app) {
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (app->file_channels[i].mode == FILE_CHANNEL_CLOSED) return i;
     }
     return -1;
 }
@@ -1074,6 +1084,32 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         word[i] = '\0';
         return word_value(word);
     }
+    // 'raw text' — a single word, exactly as typed between the quotes,
+    // spaces (and any other character except ' itself) included.
+    // "word above can never hold a space, since its reading stops at
+    // the first one; this is the one way to write a literal space (or
+    // any other whitespace) directly in Logo source rather than only
+    // getting one via external input like READLINE. It's still a plain
+    // VALUE_WORD, not a list -- PARSE 'hello world' splits it into
+    // [hello world] using the same whitespace-tokenizing PARSE already
+    // does for any value's text, rather than this syntax needing its
+    // own separate list-building logic.
+    if (**ptr == '\'') {
+        (*ptr)++;
+        char word[512] = {0};
+        size_t i = 0;
+        while (**ptr != '\0' && **ptr != '\'' && i < sizeof(word) - 1) {
+            word[i++] = **ptr;
+            (*ptr)++;
+        }
+        word[i] = '\0';
+        if (**ptr == '\'') {
+            (*ptr)++;
+            return word_value(word);
+        }
+        append_output(app, "'...': missing closing ' or too long\n");
+        return word_value("");
+    }
     if (**ptr == '[') {
         int head;
         const char *after = parse_list_literal(app, *ptr, &head);
@@ -1565,6 +1601,130 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             if (node < 0) return list_pool_exhausted_error(app);
             *next_slot = node;
             next_slot = &app->list_pool[node].next;
+        }
+        return list_value(head);
+    }
+    // General file I/O: OPENREAD/OPENWRITE/OPENAPPEND/READLINE/EOF?
+    // (operators, since each returns a value) and CLOSE/FILEPRINT/
+    // DELETEFILE (statements, further below) -- adapted from Terrapin's
+    // single overloaded OPEN-plus-mode-flag design into three
+    // self-descriptive verbs instead, following this project's own
+    // Phase 3 policy of renaming for clarity over matching a dialect
+    // exactly. Whole-file, not real streaming I/O -- see FileChannel's
+    // own comment in logo_types.h for why.
+    //
+    // OPENREAD "path — loads the whole file into a fresh channel for
+    // READLINE/EOF?, and returns its channel number (or -1 on failure:
+    // the file doesn't exist, or every one of MAX_OPEN_FILES channels
+    // is already open), matching Terrapin's own OPEN failure
+    // convention.
+    if (consume_keyword(ptr, "OPENREAD")) {
+        Value path_val = parse_factor(app, ptr);
+        char path_text[512];
+        value_to_text(app, &path_val, path_text, sizeof(path_text));
+        int idx = find_free_file_channel(app);
+        if (idx < 0) return number_value(-1);
+        char *contents = NULL;
+        GError *error = NULL;
+        if (!g_file_get_contents(path_text, &contents, NULL, &error)) {
+            g_error_free(error);
+            return number_value(-1);
+        }
+        FileChannel *fc = &app->file_channels[idx];
+        fc->mode = FILE_CHANNEL_READ;
+        fc->read_buffer = contents;
+        fc->read_pos = 0;
+        return number_value(idx);
+    }
+    // OPENWRITE "path — opens a fresh (empty) channel for FILEPRINT;
+    // nothing touches disk until CLOSE flushes it. Returns the channel
+    // number, or -1 if every channel is already open.
+    if (consume_keyword(ptr, "OPENWRITE")) {
+        Value path_val = parse_factor(app, ptr);
+        char path_text[512];
+        value_to_text(app, &path_val, path_text, sizeof(path_text));
+        int idx = find_free_file_channel(app);
+        if (idx < 0) return number_value(-1);
+        FileChannel *fc = &app->file_channels[idx];
+        fc->mode = FILE_CHANNEL_WRITE;
+        fc->write_buffer = g_string_new(NULL);
+        snprintf(fc->path, sizeof(fc->path), "%s", path_text);
+        return number_value(idx);
+    }
+    // OPENAPPEND "path — like OPENWRITE, but preloads the file's
+    // existing content (if any) so CLOSE writes the combined result
+    // back rather than replacing it.
+    if (consume_keyword(ptr, "OPENAPPEND")) {
+        Value path_val = parse_factor(app, ptr);
+        char path_text[512];
+        value_to_text(app, &path_val, path_text, sizeof(path_text));
+        int idx = find_free_file_channel(app);
+        if (idx < 0) return number_value(-1);
+        FileChannel *fc = &app->file_channels[idx];
+        fc->mode = FILE_CHANNEL_WRITE;
+        char *existing = NULL;
+        if (g_file_get_contents(path_text, &existing, NULL, NULL)) {
+            fc->write_buffer = g_string_new(existing);
+            g_free(existing);
+        } else {
+            fc->write_buffer = g_string_new(NULL);
+        }
+        snprintf(fc->path, sizeof(fc->path), "%s", path_text);
+        return number_value(idx);
+    }
+    // READLINE channel — the next line (up to the next newline, which
+    // is consumed but not included) from an OPENREAD channel, as a
+    // word. Silently reports the empty word on a closed/invalid channel
+    // or at EOF, same "return a sentinel rather than error" convention
+    // as GETPROP -- check EOF? first if the distinction matters.
+    if (consume_keyword(ptr, "READLINE")) {
+        int idx = (int)value_to_number(parse_factor(app, ptr));
+        if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
+            return word_value("");
+        }
+        FileChannel *fc = &app->file_channels[idx];
+        size_t len = strlen(fc->read_buffer);
+        if (fc->read_pos >= len) return word_value("");
+        size_t start = fc->read_pos;
+        const char *newline = strchr(fc->read_buffer + start, '\n');
+        size_t end = newline != NULL ? (size_t)(newline - fc->read_buffer) : len;
+        char line[512];
+        size_t line_len = end - start;
+        if (line_len >= sizeof(line)) line_len = sizeof(line) - 1;
+        memcpy(line, fc->read_buffer + start, line_len);
+        line[line_len] = '\0';
+        if (line_len > 0 && line[line_len - 1] == '\r') line[line_len - 1] = '\0'; // CRLF files
+        fc->read_pos = newline != NULL ? end + 1 : len;
+        return word_value(line);
+    }
+    // EOF? channel — TRUE once an OPENREAD channel has no more lines
+    // left (also TRUE for a closed/invalid channel, same reasoning as
+    // EMPTY? treating a non-container as never having elements left).
+    if (consume_keyword(ptr, "EOF?")) {
+        int idx = (int)value_to_number(parse_factor(app, ptr));
+        if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
+            return bool_value(TRUE);
+        }
+        FileChannel *fc = &app->file_channels[idx];
+        return bool_value(fc->read_pos >= strlen(fc->read_buffer));
+    }
+    // DIRECTORY — every file/subdirectory name in the current working
+    // directory, as a list of words (in whatever order the OS returns
+    // them, same as Terrapin's own DIRECTORY makes no ordering
+    // guarantee either).
+    if (consume_keyword(ptr, "DIRECTORY")) {
+        int head = -1;
+        int *next_slot = &head;
+        GDir *dir = g_dir_open(".", 0, NULL);
+        if (dir != NULL) {
+            const char *name;
+            while ((name = g_dir_read_name(dir)) != NULL) {
+                int node = list_node_from_value(app, word_value(name));
+                if (node < 0) { g_dir_close(dir); return list_pool_exhausted_error(app); }
+                *next_slot = node;
+                next_slot = &app->list_pool[node].next;
+            }
+            g_dir_close(dir);
         }
         return list_value(head);
     }
@@ -2082,6 +2242,62 @@ void eval_logo(LogoApp *app, const char *code) {
                 g_free(content);
             } else {
                 append_output(app, "SAVE: expected a \"path\n");
+            }
+        }
+        // 1d''. CLOSE channel — closes a channel opened by OPENREAD/
+        // OPENWRITE/OPENAPPEND. A write channel's buffered content is
+        // only actually written to disk right here (see FileChannel's
+        // own comment in logo_types.h) -- CLOSE is what makes a write
+        // channel's output real, not just OPENWRITE/FILEPRINT alone.
+        else if (strcasecmp(token, "CLOSE") == 0) {
+            int idx = (int)value_to_number(parse_expr(app, &ptr));
+            if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode == FILE_CHANNEL_CLOSED) {
+                append_output(app, "CLOSE: no such open channel\n");
+            } else {
+                FileChannel *fc = &app->file_channels[idx];
+                if (fc->mode == FILE_CHANNEL_WRITE) {
+                    GError *error = NULL;
+                    if (!g_file_set_contents(fc->path, fc->write_buffer->str, (gssize)fc->write_buffer->len, &error)) {
+                        append_output(app, "CLOSE: could not write file\n");
+                        g_error_free(error);
+                    }
+                    g_string_free(fc->write_buffer, TRUE);
+                    fc->write_buffer = NULL;
+                } else {
+                    g_free(fc->read_buffer);
+                    fc->read_buffer = NULL;
+                }
+                fc->mode = FILE_CHANNEL_CLOSED;
+            }
+        }
+        // 1d'''. FILEPRINT channel thing — writes thing (converted to
+        // text exactly like PRINT does) plus a newline into an
+        // OPENWRITE/OPENAPPEND channel's buffer. Doesn't touch disk
+        // itself; CLOSE is what flushes it.
+        else if (strcasecmp(token, "FILEPRINT") == 0) {
+            int idx = (int)value_to_number(parse_expr(app, &ptr));
+            Value val = parse_expr(app, &ptr);
+            if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_WRITE) {
+                append_output(app, "FILEPRINT: channel not open for writing\n");
+            } else {
+                char line[512];
+                value_to_text(app, &val, line, sizeof(line));
+                g_string_append(app->file_channels[idx].write_buffer, line);
+                g_string_append_c(app->file_channels[idx].write_buffer, '\n');
+            }
+        }
+        // 1d''''. DELETEFILE "path — removes a file from disk.
+        else if (strcasecmp(token, "DELETEFILE") == 0) {
+            char path_buf[512] = {0};
+            if (sscanf(ptr, "%511s%n", path_buf, &read_bytes) == 1 && path_buf[0] == '"') {
+                ptr += read_bytes;
+                if (g_remove(path_buf + 1) != 0) {
+                    append_output(app, "DELETEFILE: could not delete \"");
+                    append_output(app, path_buf + 1);
+                    append_output(app, "\n");
+                }
+            } else {
+                append_output(app, "DELETEFILE: expected a \"path\n");
             }
         }
         // 1d'. LOADPIC "path — load an image file as the canvas

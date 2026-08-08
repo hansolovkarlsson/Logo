@@ -12,12 +12,6 @@ complexity/risk rather than a strict priority order. Later phases don't
 strictly depend on earlier ones, but roughly track "how big a bet is this"
 — treat this as a menu to pick from, not a committed queue.
 
-### Phase 3 — New data types, background/sprite images
-
-- [ ] General file I/O beyond today's procedure-only `LOAD`/`SAVE` —
-  reading/writing arbitrary files and listing directory contents
-  (Terrapin's `OPEN`/`CLOSE`/`CREATE`/`DELETE`/`DIRECTORY`).
-
 ### Phase 4 — Interactive input (one shared architectural blocker)
 
 `eval_logo` runs synchronously start-to-finish, so anything that needs to
@@ -89,3 +83,19 @@ direction:
   through `arg_vals`/`Scope.vars`/`APPLY`'s argument list — a real but
   contained change, not attempted here since it's orthogonal to arrays
   themselves.
+- [ ] `FOREACH` (and likely `MAP`/`FILTER`/`REDUCE`, which share the same
+  template-substitution machinery) mishandles a **word** element — found
+  2026-08-07 while writing an example for `'raw text'` literals.
+  `FOREACH [PRINT ?] [the turtle draws a square]` prints `0` and
+  `I don't know how to the` for every word, instead of printing each
+  word: `value_to_source_text` (the helper that renders an element back
+  into source text before substituting it for `?`) re-brackets a `LIST`
+  element but never re-quotes a `WORD`/`NUMBER` one with a leading `"`,
+  so a word like `the` lands in the substituted code bare — indistinguishable
+  from an attempted command — rather than as the literal `"the`
+  it needs to be. Never surfaced before since `docs/LANGUAGE.md`'s own
+  `FOREACH` example only ever demonstrates it with numbers (`[1 2 3]`),
+  which round-trip fine unquoted. Fixing this means having
+  `value_to_source_text` prepend `"` for a `WORD`/`NUMBER` element (not
+  just bracket a `LIST` one) — a small, contained change, not attempted
+  here since it's orthogonal to what was actually being worked on.

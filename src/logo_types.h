@@ -42,6 +42,7 @@
 #define MAX_TURTLES 10
 #define MAX_LIST_NODES 8192
 #define MAX_PLIST_ENTRIES 200
+#define MAX_OPEN_FILES 16
 #define MAX_TURTLE_SPRITES 20
 // Every sprite is scaled into this fixed square box on load (LOADSPRITE)
 // — matches how LOADPIC scales to the whole canvas, just at turtle
@@ -225,6 +226,30 @@ typedef struct {
                     // type == VALUE_ARRAY: start index of `number` contiguous cells
 } PlistEntry;
 
+// One entry of LogoApp.file_channels (OPENREAD/OPENWRITE/OPENAPPEND/
+// CLOSE/FILEPRINT/READLINE/EOF?) — a channel number is just its index
+// into that array. Deliberately whole-file, not a real streaming
+// libc FILE*, so file I/O stays built on the same GLib functions
+// (g_file_get_contents/g_file_set_contents) LOAD/SAVE already use: a
+// read channel loads the entire file up front and serves READLINE out
+// of read_buffer/read_pos; a write channel accumulates everything
+// written into write_buffer and only actually touches disk when CLOSE
+// flushes it (matching Terrapin's own CLOSE warning: "if an output
+// stream is not closed, you may lose data").
+typedef enum {
+    FILE_CHANNEL_CLOSED,
+    FILE_CHANNEL_READ,
+    FILE_CHANNEL_WRITE,
+} FileChannelMode;
+
+typedef struct {
+    FileChannelMode mode;
+    char *read_buffer;   // READ: whole file content, owned, g_free'd on CLOSE
+    size_t read_pos;     // READ: byte offset of the next unread character
+    GString *write_buffer; // WRITE: accumulated content, owned, freed on CLOSE
+    char path[512];      // WRITE: where to flush write_buffer on CLOSE
+} FileChannel;
+
 // All interpreter state plus the GTK widgets that display it.
 typedef struct LogoApp {
     // Multiple turtles: turtles[0..turtle_count-1] all exist and are all
@@ -291,6 +316,7 @@ typedef struct LogoApp {
     int var_count;
 
     PlistEntry plist_entries[MAX_PLIST_ENTRIES]; // see SETPROP/GETPROP/REMOVEPROP/PROPLIST
+    FileChannel file_channels[MAX_OPEN_FILES]; // see OPENREAD/OPENWRITE/OPENAPPEND/CLOSE
     int plist_entry_count;
 
     Scope scopes[MAX_SCOPE_DEPTH]; // one per active (possibly recursive) call

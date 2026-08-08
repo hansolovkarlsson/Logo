@@ -1443,6 +1443,43 @@ TEST(test_parse_splits_the_printed_text_of_a_list_on_whitespace) {
     CHECK_STREQ(captured_output, "red green blue\n3\n");
 }
 
+// --- 'raw string' literals ---
+// The one way to write a literal space (or other whitespace) directly
+// in Logo source -- "word's own reading always stops at the first one.
+// A plain VALUE_WORD, not a list, so it prints identically to a
+// SENTENCE/PARSE-built list of the same words; COUNT (characters vs.
+// elements) is what actually tells the two apart.
+
+TEST(test_single_quote_string_reads_a_raw_multiword_word) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT 'hello world'\nPRINT COUNT 'hello world'");
+    CHECK_STREQ(captured_output, "hello world\n11\n"); // 11 characters, not 2 words
+}
+
+TEST(test_single_quote_string_composes_with_parse) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT COUNT PARSE 'hello world'");
+    CHECK_STREQ(captured_output, "2\n"); // PARSE splits it into [hello world], 2 elements
+}
+
+TEST(test_single_quote_string_can_be_empty) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT ''\nPRINT \"after");
+    CHECK_STREQ(captured_output, "\nafter\n");
+}
+
+TEST(test_single_quote_string_missing_closing_quote_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT 'unterminated");
+    CHECK_CONTAINS(captured_output, "'...': missing closing ' or too long");
+}
+
+TEST(test_single_quote_string_works_with_make_and_variables) {
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"greeting 'hello world'\nPRINT :greeting");
+    CHECK_STREQ(captured_output, "hello world\n");
+}
+
 TEST(test_subst_replaces_every_matching_element) {
     LogoApp *app = new_app();
     eval_logo(app, "PRINT SUBST \"b \"x [a b c b]");
@@ -2225,6 +2262,130 @@ TEST(test_loadpic_savepic_are_a_safe_no_op_with_no_gui) {
     CHECK_STREQ(captured_output, "before\nafter\n");
 }
 
+// --- General file I/O (OPENREAD/OPENWRITE/OPENAPPEND/CLOSE/FILEPRINT/
+// READLINE/EOF?/DELETEFILE/DIRECTORY) ---
+// Real file I/O against build/, same convention as the LOAD/SAVE tests
+// above (already gitignored scratch space, no dependency on /tmp being
+// writable). Each test cleans up the file it wrote.
+
+TEST(test_openwrite_fileprint_close_writes_the_file) {
+    const char *path = "build/test_openwrite.txt";
+    remove(path);
+
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"ch OPENWRITE \"build/test_openwrite.txt\n"
+                   "FILEPRINT :ch \"hello\n"
+                   "FILEPRINT :ch \"world\n"
+                   "CLOSE :ch");
+
+    char *contents = NULL;
+    CHECK(g_file_get_contents(path, &contents, NULL, NULL));
+    if (contents != NULL) {
+        CHECK(strcmp(contents, "hello\nworld\n") == 0);
+        g_free(contents);
+    }
+
+    remove(path);
+}
+
+TEST(test_openread_readline_reads_lines_then_eof) {
+    const char *path = "build/test_openread.txt";
+    remove(path);
+    g_file_set_contents(path, "line one\nline two\n", -1, NULL);
+
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"ch OPENREAD \"build/test_openread.txt\n"
+                   "PRINT READLINE :ch\n"
+                   "PRINT READLINE :ch\n"
+                   "PRINT EOF? :ch\n"
+                   "CLOSE :ch");
+    CHECK_STREQ(captured_output, "line one\nline two\nTRUE\n");
+
+    remove(path);
+}
+
+TEST(test_openappend_appends_to_existing_content) {
+    const char *path = "build/test_openappend.txt";
+    remove(path);
+    g_file_set_contents(path, "first\n", -1, NULL);
+
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"ch OPENAPPEND \"build/test_openappend.txt\n"
+                   "FILEPRINT :ch \"second\n"
+                   "CLOSE :ch");
+
+    char *contents = NULL;
+    CHECK(g_file_get_contents(path, &contents, NULL, NULL));
+    if (contents != NULL) {
+        CHECK(strcmp(contents, "first\nsecond\n") == 0);
+        g_free(contents);
+    }
+
+    remove(path);
+}
+
+TEST(test_openread_of_missing_file_returns_negative_one) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT OPENREAD \"build/definitely_does_not_exist_either.txt");
+    CHECK_STREQ(captured_output, "-1\n");
+}
+
+TEST(test_close_of_invalid_channel_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "CLOSE 3");
+    CHECK_CONTAINS(captured_output, "CLOSE: no such open channel");
+}
+
+TEST(test_fileprint_on_a_read_channel_reports_error) {
+    const char *path = "build/test_fileprint_wrong_mode.txt";
+    remove(path);
+    g_file_set_contents(path, "data\n", -1, NULL);
+
+    LogoApp *app = new_app();
+    eval_logo(app, "MAKE \"ch OPENREAD \"build/test_fileprint_wrong_mode.txt\n"
+                   "FILEPRINT :ch \"oops");
+    CHECK_CONTAINS(captured_output, "FILEPRINT: channel not open for writing");
+
+    remove(path);
+}
+
+TEST(test_readline_and_eof_on_a_closed_channel_are_safe_sentinels) {
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT READLINE 5\nPRINT EOF? 5");
+    CHECK_STREQ(captured_output, "\nTRUE\n");
+}
+
+TEST(test_deletefile_removes_a_file) {
+    const char *path = "build/test_deletefile.txt";
+    g_file_set_contents(path, "x", -1, NULL);
+
+    LogoApp *app = new_app();
+    eval_logo(app, "DELETEFILE \"build/test_deletefile.txt");
+    CHECK_STREQ(captured_output, "");
+    CHECK(!g_file_test(path, G_FILE_TEST_EXISTS));
+}
+
+TEST(test_deletefile_of_missing_file_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "DELETEFILE \"build/definitely_does_not_exist_at_all.txt");
+    CHECK_CONTAINS(captured_output, "DELETEFILE: could not delete");
+}
+
+TEST(test_deletefile_without_quote_reports_error) {
+    LogoApp *app = new_app();
+    eval_logo(app, "DELETEFILE path");
+    CHECK_CONTAINS(captured_output, "DELETEFILE: expected a");
+}
+
+TEST(test_directory_lists_the_current_working_directory) {
+    // Tests run from the repo root (see Makefile's test rule), so
+    // Makefile itself is a stable, always-present entry -- no need to
+    // create a marker file just to test DIRECTORY.
+    LogoApp *app = new_app();
+    eval_logo(app, "PRINT MEMBER? \"Makefile DIRECTORY");
+    CHECK_STREQ(captured_output, "TRUE\n");
+}
+
 // --- Errors ---
 
 TEST(test_unknown_command_reports_error) {
@@ -2578,6 +2739,11 @@ int main(void) {
     RUN(test_flatten_of_a_bare_word_or_number_is_one_element);
     RUN(test_parse_tokenizes_a_word_into_a_one_element_list);
     RUN(test_parse_splits_the_printed_text_of_a_list_on_whitespace);
+    RUN(test_single_quote_string_reads_a_raw_multiword_word);
+    RUN(test_single_quote_string_composes_with_parse);
+    RUN(test_single_quote_string_can_be_empty);
+    RUN(test_single_quote_string_missing_closing_quote_reports_error);
+    RUN(test_single_quote_string_works_with_make_and_variables);
     RUN(test_subst_replaces_every_matching_element);
     RUN(test_subst_recurses_into_sublists);
     RUN(test_subst_can_replace_a_whole_matching_sublist);
@@ -2686,6 +2852,18 @@ int main(void) {
     RUN(test_loadpic_without_quote_reports_error);
     RUN(test_savepic_without_quote_reports_error);
     RUN(test_loadpic_savepic_are_a_safe_no_op_with_no_gui);
+
+    RUN(test_openwrite_fileprint_close_writes_the_file);
+    RUN(test_openread_readline_reads_lines_then_eof);
+    RUN(test_openappend_appends_to_existing_content);
+    RUN(test_openread_of_missing_file_returns_negative_one);
+    RUN(test_close_of_invalid_channel_reports_error);
+    RUN(test_fileprint_on_a_read_channel_reports_error);
+    RUN(test_readline_and_eof_on_a_closed_channel_are_safe_sentinels);
+    RUN(test_deletefile_removes_a_file);
+    RUN(test_deletefile_of_missing_file_reports_error);
+    RUN(test_deletefile_without_quote_reports_error);
+    RUN(test_directory_lists_the_current_working_directory);
 
     RUN(test_unknown_command_reports_error);
     RUN(test_malformed_repeat_does_not_crash);

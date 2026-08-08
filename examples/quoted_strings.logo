@@ -1,0 +1,14 @@
+; 'raw text': a word literal that can hold spaces, unlike "word (whose
+; own reading always stops at the first one). Still one word, not a
+; list -- PARSE splits it into a list of words if that's what you want
+; instead.
+
+PRINT 'hello world'              ; hello world
+PRINT COUNT 'hello world'        ; 11 -- characters, since it's one word
+PRINT COUNT PARSE 'hello world'  ; 2 -- PARSE splits it into [hello world]
+
+MAKE "greeting 'nice to meet you'
+PRINT :greeting
+PRINT FIRST PARSE :greeting      ; nice
+
+PRINT LAST PARSE 'the turtle draws a square'   ; square

@@ -1,0 +1,24 @@
+; OPENREAD/OPENWRITE/OPENAPPEND/CLOSE/FILEPRINT/READLINE/EOF?/
+; DELETEFILE/DIRECTORY: general file I/O, beyond LOAD/SAVE's
+; procedure-definitions-only scope. Adapted from Terrapin's single
+; overloaded OPEN-plus-mode-flag design into three separate,
+; self-descriptive verbs instead.
+
+MAKE "ch OPENWRITE "scratch.txt   ; nothing touches disk until CLOSE
+FILEPRINT :ch SENTENCE "first "line   ; FILEPRINT converts its argument to
+FILEPRINT :ch SENTENCE "second "line  ; text exactly like PRINT does, so a
+CLOSE :ch                             ; list writes out space-separated,
+                                       ; no brackets -- "first line"
+MAKE "rd OPENREAD "scratch.txt
+WHILE NOT EOF? :rd [
+  PRINT READLINE :rd
+]
+CLOSE :rd
+
+MAKE "ap OPENAPPEND "scratch.txt   ; preloads scratch.txt's existing content
+FILEPRINT :ap SENTENCE "third "line
+CLOSE :ap
+
+PRINT MEMBER? "scratch.txt DIRECTORY   ; TRUE -- it's right there in the cwd
+
+DELETEFILE "scratch.txt

@@ -420,6 +420,16 @@ IF :greeting = [Hello there, friend!] [PRINT "matched]
 
 - `MAKE "name "word` sets a variable to a **word** — a single token, no
   spaces — instead of a number. `:name` still reads it back the same way.
+- `'raw text'` is also a word, but everything between the quotes exactly
+  as typed, spaces included — the one way to write a literal space (or
+  any other whitespace) directly in Logo source, since `"word`'s own
+  reading always stops at the first one. `PRINT 'hello world'` prints
+  `hello world`; `COUNT 'hello world'` is `11` (characters), not `2`
+  (words) — it's still one word, not a list, so `PARSE 'hello world'`
+  is how to split it into `[hello world]` if you want that instead.
+  Missing the closing `'` prints `'...': missing closing ' or too long`
+  (and, same as an unterminated `[...]`, consumes the rest of the input
+  looking for it rather than stopping at the end of the line).
 - `MAKE "name [some words]` sets a variable to a **list**: the elements
   inside the brackets, in order, with whitespace between them normalized
   (so `[hello   world]` and `[hello world]` produce the same value). This
@@ -1064,6 +1074,64 @@ SAVE "/Users/you/scripts/star.logo
 - If the file can't be read or written, prints "LOAD: could not read
   file" / "SAVE: could not write file" rather than crashing.
 
+### General file I/O
+
+```
+MAKE "ch OPENWRITE "scratch.txt
+FILEPRINT :ch SENTENCE "first "line
+FILEPRINT :ch SENTENCE "second "line
+CLOSE :ch
+
+MAKE "rd OPENREAD "scratch.txt
+WHILE NOT EOF? :rd [PRINT READLINE :rd]
+CLOSE :rd
+
+MAKE "ap OPENAPPEND "scratch.txt
+FILEPRINT :ap SENTENCE "third "line
+CLOSE :ap
+
+PRINT MEMBER? "scratch.txt DIRECTORY   -> TRUE
+DELETEFILE "scratch.txt
+```
+
+Reading or writing arbitrary files — not just procedure definitions the
+way `LOAD`/`SAVE` are limited to. Adapted from Terrapin's single
+overloaded `OPEN` (plus a mode-flag argument) into three separate,
+self-descriptive verbs instead, following this project's own Phase 3
+policy of renaming for clarity over matching a dialect exactly.
+
+- `OPENREAD "path` opens a file for reading and outputs a **channel
+  number** (a small nonnegative integer) to use with `READLINE`/`EOF?`/
+  `CLOSE`, or `-1` if the file doesn't exist (or every channel is
+  already in use — there's room for 16 open at once).
+- `OPENWRITE "path` opens a fresh, empty channel for `FILEPRINT`.
+  Nothing touches disk yet — only `CLOSE` actually writes the file, so
+  losing power or crashing before closing loses the data, the same
+  tradeoff Terrapin's own `CLOSE` warns about. Outputs a channel number,
+  or `-1` if every channel is already in use.
+- `OPENAPPEND "path` is `OPENWRITE`, but preloads the file's existing
+  content (if any) first, so `CLOSE` writes the combined result back
+  instead of replacing it.
+- `CLOSE channel` closes a channel opened by any of the three above —
+  for a write channel, this is the point the file is actually saved.
+  Prints `CLOSE: no such open channel` for an invalid or already-closed
+  channel number.
+- `FILEPRINT channel thing` converts `thing` to text exactly like
+  `PRINT` does (so a list writes out space-separated with no brackets)
+  and appends it plus a newline to an open write channel's buffer.
+  Prints `FILEPRINT: channel not open for writing` otherwise.
+- `READLINE channel` outputs the next line (as a word, newline
+  consumed but not included) from an open read channel, or the empty
+  word at EOF or on an invalid/closed channel — check `EOF?` first if
+  the difference matters.
+- `EOF? channel` outputs `TRUE` once a read channel has no more lines
+  left (also `TRUE` for an invalid/closed channel).
+- `DELETEFILE "path` removes a file from disk. Prints `DELETEFILE:
+  could not delete "path` if it doesn't exist or can't be removed.
+- `DIRECTORY` outputs every file/subdirectory name in the current
+  working directory as a list of words, in whatever order the OS
+  returns them.
+
 ## Background image
 
 ```
@@ -1264,7 +1332,8 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   (`PRINT [...]`, `MAKE "name [...]`, an argument to `FIRST`/`FPUT`/etc.)
   prints `[ list ]: missing closing ] or too long` if it's unterminated
   or oversized, rather than silently treated as ending at the input's
-  end.
+  end. A `'raw text'` literal is the same story: `'...': missing
+  closing ' or too long` if it's unterminated or oversized.
 - `MAKE`, `ERASE`, `SHOW`, `LOAD`, `SAVE`, `LOADPIC`, `SAVEPIC`,
   `LOADSPRITE`, `LOADSPRITESHEET`, and `SETSPRITE` each print
   `<COMMAND>: expected a "name`/`"path` if the required quoted word is
@@ -1282,6 +1351,12 @@ silently doing nothing (or, in one case that's now fixed, crashing):
   canvas's current size untouched.
 - `CONTINUE`/`CO` prints `CONTINUE: nothing is paused` if there's no
   active `PAUSE` to resume.
+- `CLOSE`, `FILEPRINT`, and `DELETEFILE` print `CLOSE: no such open
+  channel`, `FILEPRINT: channel not open for writing`, and
+  `DELETEFILE: could not delete "<path>` respectively, on a bad
+  channel/path; `OPENREAD`/`OPENWRITE`/`OPENAPPEND` report failure by
+  returning `-1` instead (no message), matching the rest of this
+  interpreter's operators.
 - `TO <name>: procedure body too long, not defined` if a procedure's body
   exceeds the interpreter's internal buffer (8KB).
 - `TO <name>: too many parameters, extra parameters ignored` if more than
