@@ -65,5 +65,4 @@ docs/               language reference and roadmap
 Makefile            make / make run / make test / make clean
 build.sh            one-shot alternative build script
 scripts/            Homebrew/GTK setup helpers
-archive/            earlier prototype iterations, kept for reference
 ```
