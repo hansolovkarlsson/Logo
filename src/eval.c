@@ -465,6 +465,113 @@ static int eval_list_as_two_numbers(LogoApp *app, EvalValue v, double out[2]) {
     return n == 2;
 }
 
+// Same as eval_list_as_two_numbers, but for a 3-element vector --
+// CROSS's own "same length" check, since a 3D cross product is only
+// defined for 3-element vectors. Mirrors interpreter.c's own
+// list_as_three_numbers exactly.
+static int eval_list_as_three_numbers(LogoApp *app, EvalValue v, double out[3]) {
+    if (v.type != VALUE_LIST) return 0;
+    int n = 0;
+    for (int idx = v.list_head; idx != -1; idx = app->list_pool[idx].next, n++) {
+        if (n < 3) out[n] = eval_to_number(node_to_value(&app->list_pool[idx]));
+    }
+    return n == 3;
+}
+
+// Tokenizes `text` by whitespace into a list of words -- the shared
+// core of PARSE (any value's printed text). Pure text split, not
+// bracket- or quote-aware, mirroring interpreter.c's own
+// list_tokenize_words exactly: a quoted word or a [bracketed block] in
+// the source keeps its punctuation as literal characters glued onto
+// whichever token it's part of. Sets *out_head and returns 1, or
+// returns 0 (pool exhausted partway through) -- an out-parameter, not a
+// -1 return, because -1 (empty list) is itself a legitimate successful
+// result here (empty/all-whitespace text), not distinguishable from
+// failure if the head were the only thing returned.
+static int eval_list_tokenize_words(LogoApp *app, const char *text, int *out_head) {
+    int head = -1;
+    int *next_slot = &head;
+    const char *p = text;
+    while (*p) {
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p == '\0') break;
+        const char *start = p;
+        while (*p && !isspace((unsigned char)*p)) p++;
+        int node = list_alloc_node(app);
+        if (node < 0) return 0;
+        size_t len = (size_t)(p - start);
+        if (len >= sizeof(app->list_pool[node].word)) len = sizeof(app->list_pool[node].word) - 1;
+        memcpy(app->list_pool[node].word, start, len);
+        app->list_pool[node].word[len] = '\0';
+        app->list_pool[node].type = LIST_ELEM_WORD;
+        app->list_pool[node].next = -1;
+        *next_slot = node;
+        next_slot = &app->list_pool[node].next;
+    }
+    *out_head = head;
+    return 1;
+}
+
+// FLATTEN: recursively collects every leaf (number/word) reachable from
+// `list_head`'s chain into one flat chain, appended via *next_slot --
+// a sublist's own container node is discarded, only its leaves survive
+// in order. Mirrors interpreter.c's own list_flatten_into exactly.
+// Returns 0 (pool exhausted partway through) or 1.
+static int eval_list_flatten_into(LogoApp *app, int list_head, int **next_slot) {
+    for (int idx = list_head; idx != -1; idx = app->list_pool[idx].next) {
+        ListNode *node = &app->list_pool[idx];
+        if (node->type == LIST_ELEM_LIST) {
+            if (!eval_list_flatten_into(app, node->sublist_head, next_slot)) return 0;
+        } else {
+            int new_idx = list_alloc_node(app);
+            if (new_idx < 0) return 0;
+            app->list_pool[new_idx] = *node;
+            app->list_pool[new_idx].next = -1;
+            **next_slot = new_idx;
+            *next_slot = &app->list_pool[new_idx].next;
+        }
+    }
+    return 1;
+}
+
+// SUBST: rebuilds `list_head`'s chain, replacing every element equal to
+// `old_val` (compared the same way MEMBER?/eval_values_equal already
+// do, so a whole matching sublist substitutes as one unit too, not just
+// a leaf) with `new_val`. A non-matching sublist is recursed into and
+// rebuilt in place. Mirrors interpreter.c's own list_subst_into
+// exactly. Sets *out_head and returns 1, or returns 0 (pool exhausted
+// partway through) -- same out-parameter reasoning as
+// eval_list_tokenize_words above (an empty resulting list is itself a
+// legitimate -1 head, not an error).
+static int eval_list_subst_into(LogoApp *app, int list_head, EvalValue old_val, EvalValue new_val, int *out_head) {
+    int head = -1;
+    int *next_slot = &head;
+    for (int idx = list_head; idx != -1; idx = app->list_pool[idx].next) {
+        ListNode *node = &app->list_pool[idx];
+        EvalValue elem = node_to_value(node);
+        int new_idx;
+        if (eval_values_equal(app, elem, old_val)) {
+            new_idx = value_to_node(app, new_val);
+        } else if (node->type == LIST_ELEM_LIST) {
+            int sub_head;
+            if (!eval_list_subst_into(app, node->sublist_head, old_val, new_val, &sub_head)) return 0;
+            new_idx = list_alloc_node(app);
+            if (new_idx >= 0) {
+                app->list_pool[new_idx].type = LIST_ELEM_LIST;
+                app->list_pool[new_idx].sublist_head = sub_head;
+            }
+        } else {
+            new_idx = value_to_node(app, elem);
+        }
+        if (new_idx < 0) return 0;
+        app->list_pool[new_idx].next = -1;
+        *next_slot = new_idx;
+        next_slot = &app->list_pool[new_idx].next;
+    }
+    *out_head = head;
+    return 1;
+}
+
 // --- Property lists (SETPROP/GETPROP/REMOVEPROP/PROPLIST) -----------
 //
 // A separate namespace from ordinary variables, sharing
@@ -1026,6 +1133,120 @@ static EvalValue do_sentence(LogoApp *app, AstPool *pool, const int *arg_idx) {
 static EvalValue do_list(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return eval_list_wrap_pair(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
+// PICK thing -- a random element of a list, a random character of a
+// word, a random cell of an array, or the bare value itself for a
+// number (a bare number counts as a one-element list). Mirrors
+// interpreter.c's own PICK exactly, sharing the same random_below.
+static EvalValue do_pick(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    if (arg.type == VALUE_LIST) {
+        int count = 0;
+        for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
+        if (count == 0) {
+            append_output(app, "PICK: empty list\n");
+            return word_val("");
+        }
+        int target = (int)random_below(count);
+        int i = 0;
+        for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next, i++) {
+            if (i == target) return node_to_value(&app->list_pool[idx]);
+        }
+    }
+    if (arg.type == VALUE_WORD) {
+        size_t len = strlen(arg.word);
+        if (len == 0) {
+            append_output(app, "PICK: empty word\n");
+            return word_val("");
+        }
+        char ch[2] = {arg.word[(int)random_below((double)len)], '\0'};
+        return word_val(ch);
+    }
+    if (arg.type == VALUE_ARRAY) {
+        int idx = (int)random_below(arg.number);
+        return node_to_value(&app->list_pool[arg.list_head + idx]);
+    }
+    return arg; // a bare number counts as a one-element list
+}
+// FLATTEN list -- collects every leaf reachable from list's chain,
+// discarding sublist structure. Wraps a non-list argument as a
+// one-element list first, same convention as MAP/FOREACH's own
+// non-list handling.
+static EvalValue do_flatten(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    int input_head = (arg.type == VALUE_LIST) ? arg.list_head : value_to_node(app, arg);
+    if (arg.type != VALUE_LIST && input_head < 0) return list_pool_exhausted(app);
+    int head = -1;
+    int *next_slot = &head;
+    if (!eval_list_flatten_into(app, input_head, &next_slot)) return list_pool_exhausted(app);
+    return list_val(head);
+}
+// PARSE thing -- tokenizes any value's printed text (same rendering
+// PRINT uses) by whitespace into a list of words, the reverse of what
+// PRINT/eval_value_to_text already does for a plain word.
+static EvalValue do_parse(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+    char text[512];
+    eval_value_to_text(app, arg, text, sizeof(text));
+    int head;
+    if (!eval_list_tokenize_words(app, text, &head)) return list_pool_exhausted(app);
+    return list_val(head);
+}
+// SUBST old new thing -- a non-list thing just compares directly
+// (old->new if it matches, thing unchanged otherwise); a list rebuilds
+// its whole chain via eval_list_subst_into.
+static EvalValue do_subst(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue old_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue new_val = eval_expr(app, pool, arg_idx[1]);
+    EvalValue thing = eval_expr(app, pool, arg_idx[2]);
+    if (thing.type != VALUE_LIST) {
+        return eval_values_equal(app, thing, old_val) ? new_val : thing;
+    }
+    int head;
+    if (!eval_list_subst_into(app, thing.list_head, old_val, new_val, &head)) return list_pool_exhausted(app);
+    return list_val(head);
+}
+// DOT a b -- the dot product of two same-length numeric lists.
+static EvalValue do_dot(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue a = eval_expr(app, pool, arg_idx[0]);
+    EvalValue b = eval_expr(app, pool, arg_idx[1]);
+    if (a.type != VALUE_LIST || b.type != VALUE_LIST) {
+        append_output(app, "DOT: expected two lists\n");
+        return num_val(0);
+    }
+    double sum = 0;
+    int idx_a = a.list_head, idx_b = b.list_head;
+    while (idx_a != -1 && idx_b != -1) {
+        sum += eval_to_number(node_to_value(&app->list_pool[idx_a]))
+             * eval_to_number(node_to_value(&app->list_pool[idx_b]));
+        idx_a = app->list_pool[idx_a].next;
+        idx_b = app->list_pool[idx_b].next;
+    }
+    if (idx_a != -1 || idx_b != -1) {
+        append_output(app, "DOT: lists must be the same length\n");
+        return num_val(0);
+    }
+    return num_val(sum);
+}
+// CROSS a b -- the 3D cross product of two 3-element numeric lists.
+static EvalValue do_cross(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue a = eval_expr(app, pool, arg_idx[0]);
+    EvalValue b = eval_expr(app, pool, arg_idx[1]);
+    double av[3], bv[3];
+    if (!eval_list_as_three_numbers(app, a, av) || !eval_list_as_three_numbers(app, b, bv)) {
+        append_output(app, "CROSS: expected two 3-element lists\n");
+        return list_val(-1);
+    }
+    double cx = av[1] * bv[2] - av[2] * bv[1];
+    double cy = av[2] * bv[0] - av[0] * bv[2];
+    double cz = av[0] * bv[1] - av[1] * bv[0];
+    int n0 = value_to_node(app, num_val(cx));
+    int n1 = value_to_node(app, num_val(cy));
+    int n2 = value_to_node(app, num_val(cz));
+    if (n0 < 0 || n1 < 0 || n2 < 0) return list_pool_exhausted(app);
+    app->list_pool[n0].next = n1;
+    app->list_pool[n1].next = n2;
+    return list_val(n0);
+}
 // MEMBER? thing container -- a list checks element membership
 // (eval_values_equal per element), a word checks substring containment
 // (its "elements" are characters), anything else (a number, or an
@@ -1558,6 +1779,24 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "LIST") == 0) {
         if (result != NULL) *result = do_list(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "PICK") == 0) {
+        if (result != NULL) *result = do_pick(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "FLATTEN") == 0) {
+        if (result != NULL) *result = do_flatten(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "PARSE") == 0) {
+        if (result != NULL) *result = do_parse(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "SUBST") == 0) {
+        if (result != NULL) *result = do_subst(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "DOT") == 0) {
+        if (result != NULL) *result = do_dot(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "CROSS") == 0) {
+        if (result != NULL) *result = do_cross(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "MEMBER?") == 0) {
         if (result != NULL) *result = do_memberp(app, pool, arg_idx);

@@ -350,6 +350,63 @@ TEST(test_list_literal_keeps_a_glued_leading_sign_as_one_element) {
     CHECK_STREQ(captured_output, "2\n0 -100\n-100\n3\n0 - 100\n2\n0 +5\n");
 }
 
+TEST(test_pick_from_a_list_word_array_and_bare_number) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT PICK [only]\n"
+        "PRINT PICK \"a\n"
+        "MAKE \"a ARRAY 1\nSETITEM 1 :a \"solo\nPRINT PICK :a\n"
+        "PRINT PICK 42");
+    CHECK_STREQ(captured_output, "only\na\nsolo\n42\n");
+}
+
+TEST(test_pick_reports_error_on_empty_list_or_word) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT PICK []\nPRINT PICK BUTFIRST \"a");
+    CHECK_STREQ(captured_output, "PICK: empty list\n\nPICK: empty word\n\n");
+}
+
+TEST(test_flatten_collects_every_leaf_discarding_nesting) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]\nPRINT FLATTEN 5");
+    CHECK_STREQ(captured_output, "1 2 3 4 5 6 7\n5\n");
+}
+
+TEST(test_parse_tokenizes_a_values_printed_text_by_whitespace) {
+    // A list's rendered text is not bracket-aware when re-tokenized --
+    // PARSE [a b [c d] e] yields 5 flat word tokens (a, b, "[c", "d]",
+    // e), not a real nested list back out, matching interpreter.c's own
+    // documented PARSE behavior exactly.
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT PARSE 'hello world'\nPRINT COUNT PARSE 'hello world'\n"
+        "PRINT COUNT PARSE [a b [c d] e]\nPRINT PARSE [a b [c d] e]\n"
+        "PRINT PARSE 42");
+    CHECK_STREQ(captured_output, "hello world\n2\n5\na b [c d] e\n42\n");
+}
+
+TEST(test_subst_replaces_matching_elements_including_a_whole_sublist) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT SUBST \"b \"z [a b c b]\n"
+        "PRINT SUBST [1 2] \"x [a [1 2] c]\n"
+        "PRINT SUBST \"a \"z \"a\n"
+        "PRINT SUBST \"a \"z \"b");
+    CHECK_STREQ(captured_output, "a z c z\na x c\nz\nb\n");
+}
+
+TEST(test_dot_product_of_two_numeric_lists) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT DOT [1 2 3] [4 5 6]\nPRINT DOT [1 2] [1 2 3]");
+    CHECK_STREQ(captured_output, "32\nDOT: lists must be the same length\n0\n");
+}
+
+TEST(test_cross_product_of_two_3element_lists) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT CROSS [1 0 0] [0 1 0]\nPRINT CROSS [1 2] [1 2 3]");
+    CHECK_STREQ(captured_output, "0 0 1\nCROSS: expected two 3-element lists\n\n");
+}
+
 TEST(test_local_scope_shadows_global) {
     // Not named "setx": that's a genuine built-in in the real
     // interpreter (sets the turtle's X coordinate) this evaluator
@@ -945,6 +1002,13 @@ int main(void) {
     RUN(test_towards_reports_error_on_non_list_argument);
     RUN(test_setheading_towards_then_forward_reaches_the_point);
     RUN(test_list_literal_keeps_a_glued_leading_sign_as_one_element);
+    RUN(test_pick_from_a_list_word_array_and_bare_number);
+    RUN(test_pick_reports_error_on_empty_list_or_word);
+    RUN(test_flatten_collects_every_leaf_discarding_nesting);
+    RUN(test_parse_tokenizes_a_values_printed_text_by_whitespace);
+    RUN(test_subst_replaces_matching_elements_including_a_whole_sublist);
+    RUN(test_dot_product_of_two_numeric_lists);
+    RUN(test_cross_product_of_two_3element_lists);
     RUN(test_local_scope_shadows_global);
     RUN(test_list_literal_prints_space_separated_without_brackets);
     RUN(test_nested_list_literal_prints_with_inner_brackets);

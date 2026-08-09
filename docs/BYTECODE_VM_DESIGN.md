@@ -792,8 +792,55 @@ footprint.
     state comparison exercises the fix too, not just `PRINT` text).
     Confirmed clean under AddressSanitizer on both `test_eval` and
     `test_shadow_diff`.
+- **Remaining word/list operators: mostly done** (`PICK`/`FLATTEN`/
+  `PARSE`/`SUBST`/`DOT`/`CROSS`, third batch off `docs/ROADMAP.md`'s
+  Phase 5 Stage 1 checklist). Direct ports: `PICK` shares `random_below`
+  (already shared) across list/word/array/bare-number, matching
+  interpreter.c's own fallback exactly; `FLATTEN`/`PARSE`/`SUBST` needed
+  three new pure helpers mirroring interpreter.c's own
+  `list_flatten_into`/`list_tokenize_words`/`list_subst_into` (all
+  `app->list_pool`-based, no new state to expose); `DOT`/`CROSS` are
+  plain numeric-list ports, `CROSS` reusing a new
+  `eval_list_as_three_numbers` (same shape as `DISTANCE`/`TOWARDS`'s own
+  `eval_list_as_two_numbers`).
+  - **A design mistake caught before it shipped, not after**: the first
+    draft of `eval_list_tokenize_words`/`eval_list_subst_into` returned
+    the new list's head node index directly (`-1` meaning "pool
+    exhausted, bail out"), copying the shape of other single-purpose
+    helpers in this file. But `-1` is also the **legitimate** head of a
+    real empty list (e.g. `PARSE` of empty/all-whitespace text, or
+    `SUBST` producing an empty result) — collapsing "ran out of pool
+    space" and "correctly produced nothing" onto the same sentinel is
+    exactly the bug interpreter.c's own versions avoid by returning a
+    `gboolean` success flag *and* writing the head through an
+    out-parameter. Caught while writing the first draft's own doc
+    comment (an unexplainable `if (sub_head < -1) return -1;` check —
+    impossible for any real `int`, a sign something upstream didn't add
+    up) rather than by a failing test; rewritten to the same
+    out-parameter pattern interpreter.c uses before it was ever run.
+  - **`TEXT` deliberately deferred, not silently skipped**: interpreter.c's
+    own `TEXT` reads a procedure's raw source-text body (via
+    `find_procedure`/`Procedure.body`, its private text-based procedure
+    storage) and tokenizes it the same way `PARSE` does. This engine's
+    own procedures are `AST_PROC_DEF` nodes with no raw source text
+    retained anywhere — only the already-parsed tree — so there is
+    nothing for `TEXT` to read today. Needs either storing each
+    procedure's original source text alongside its AST (new state, not
+    yet part of `AstPool`/`AST_PROC_DEF`) or re-serializing the AST back
+    to text (lossy, and a much bigger undertaking than this batch's
+    other six operators combined) — left as a genuinely open design
+    question for a future pass, not bundled into this one.
+  - 7 new `tests/test_eval.c` cases and 2 new shadow-diff scripts
+    (turtle-state-queries' own script grew by one; a new script covers
+    this batch, including `PICK` restricted to single-element
+    containers so its outcome is deterministic regardless of which draw
+    either engine's shared RNG stream happens to make — same reasoning
+    already on record for excluding multi-element `RANDOM`/`PICK`
+    scripts from this corpus). Confirmed clean under AddressSanitizer on
+    both `test_eval` and `test_shadow_diff`.
 - **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist
-  — the remaining word/list operators (`FLATTEN`/`SUBST`/`PARSE`/`PICK`/
-  `TEXT`/`DOT`/`CROSS`) are the next batch, followed by introspection,
-  control flow, `TELL`, file I/O, and drawing primitives — see that file
-  for the full breakdown and what's deliberately out of scope.
+  — variable/procedure introspection (`THING`/`NAMES`/`PROCEDURES`/
+  `LOCAL`) is the next batch, followed by control flow, `TELL`, file
+  I/O, and drawing primitives — see that file for the full breakdown and
+  what's deliberately out of scope. `TEXT` (deferred above) stays on the
+  checklist rather than being checked off with the rest of this batch.

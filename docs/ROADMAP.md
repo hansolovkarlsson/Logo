@@ -64,9 +64,13 @@ work batches, each roughly a "commit and push" unit; check off a group as it
 lands and delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has
 the detail, per this file's usual convention.
 
-- [ ] Remaining word/list operators: `FLATTEN`/`SUBST`/`PARSE`/`PICK`/
-  `TEXT`/`DOT`/`CROSS` (see `docs/LANGUAGE.md`'s "FLATTEN, PARSE, SUBST"
-  and "DOT, CROSS" sections).
+- [ ] `TEXT` (see `docs/LANGUAGE.md`'s "FLATTEN, PARSE, SUBST" section) —
+  the rest of that batch (`FLATTEN`/`SUBST`/`PARSE`/`PICK`/`DOT`/`CROSS`)
+  is done. `TEXT` needs either storing each procedure's original source
+  text alongside its `AST_PROC_DEF` (not currently retained anywhere —
+  only the parsed tree survives) or re-serializing the AST back to
+  text; a genuinely open design question, not a straightforward port
+  like the rest of this batch — see `docs/BYTECODE_VM_DESIGN.md`.
 - [ ] Variable/procedure introspection: `THING`/`NAMES`/`PROCEDURES`/
   `LOCAL`.
 - [ ] Deferred execution and control flow: `RUN`/`APPLY`/`FOR`/`FOREVER`/

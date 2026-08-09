@@ -293,6 +293,28 @@ TEST(test_turtle_state_queries) {
         "SETHEADING TOWARDS [0 100]\nFORWARD DISTANCE POS [0 100]\nPRINT POS");
 }
 
+TEST(test_remaining_word_and_list_operators) {
+    shadow_diff(
+        "PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]\nPRINT FLATTEN 5\n"
+        "PRINT PARSE 'hello world'\nPRINT COUNT PARSE 'hello world'\n"
+        "PRINT COUNT PARSE [a b [c d] e]\nPRINT PARSE [a b [c d] e]\n"
+        "PRINT PARSE 42\n"
+        "PRINT SUBST \"b \"z [a b c b]\n"
+        "PRINT SUBST [1 2] \"x [a [1 2] c]\n"
+        "PRINT SUBST \"a \"z \"a\nPRINT SUBST \"a \"z \"b\n"
+        "PRINT DOT [1 2 3] [4 5 6]\nPRINT DOT [1 2] [1 2 3]\n"
+        "PRINT CROSS [1 0 0] [0 1 0]\nPRINT CROSS [1 2] [1 2 3]\n"
+        // PICK draws from the shared RNG stream, so only single-element
+        // containers are used here -- the outcome is deterministic
+        // regardless of which draw either engine's random_below call
+        // happens to make, unlike a real multi-element PICK (see the
+        // file comment on RANDOM's own exclusion from this corpus).
+        "PRINT PICK [only]\nPRINT PICK \"a\n"
+        "PRINT PICK []\nPRINT PICK BUTFIRST \"a\n"
+        "MAKE \"arr ARRAY 1\nSETITEM 1 :arr \"solo\nPRINT PICK :arr\n"
+        "PRINT PICK 42");
+}
+
 TEST(test_recursive_procedure_with_turtle_motion) {
     // A fractal-shaped script (real Logo usage, not a synthetic
     // grammar exercise): recursion, arithmetic, and turtle motion
@@ -811,6 +833,7 @@ int main(void) {
     RUN(test_math_operators);
     RUN(test_trig_log_and_mod_operators);
     RUN(test_turtle_state_queries);
+    RUN(test_remaining_word_and_list_operators);
     RUN(test_recursive_procedure_with_turtle_motion);
     RUN(test_nested_repeat_loops);
     RUN(test_nested_if_inside_while);

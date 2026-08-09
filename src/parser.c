@@ -130,6 +130,12 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SENTENCE", 2, { ARG_EXPR, ARG_EXPR } },
     { "SE", 2, { ARG_EXPR, ARG_EXPR } },
     { "LIST", 2, { ARG_EXPR, ARG_EXPR } },
+    { "PICK", 1, { ARG_EXPR } },
+    { "FLATTEN", 1, { ARG_EXPR } },
+    { "PARSE", 1, { ARG_EXPR } },
+    { "SUBST", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "DOT", 2, { ARG_EXPR, ARG_EXPR } },
+    { "CROSS", 2, { ARG_EXPR, ARG_EXPR } },
     { "MEMBER?", 2, { ARG_EXPR, ARG_EXPR } },
     // MAP/FILTER/REDUCE's first argument is a template list literal
     // (e.g. [? * 2]), parsed as ordinary ARG_EXPR data like any other
