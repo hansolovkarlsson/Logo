@@ -64,9 +64,6 @@ work batches, each roughly a "commit and push" unit; check off a group as it
 lands and delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has
 the detail, per this file's usual convention.
 
-- [ ] Math operators: `SIN`/`COS`/`TAN`/`ASIN`/`ACOS`/`ARCTAN`/`LN`/`LOG`/
-  `EXP`/`MOD`. Straightforward, same shape as `ABS`/`SQRT`/`POWER` already
-  ported.
 - [ ] Turtle state queries: `GETX`/`GETY`/`HEADING`/`POS`/`TOWARDS`/
   `DISTANCE`/`SETX`/`SETY`/`CANVASSIZE`. Read-only or simple-write
   extensions of the turtle state `FD`/`SETXY`/etc. already share via

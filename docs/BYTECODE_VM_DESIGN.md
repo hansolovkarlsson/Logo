@@ -719,14 +719,41 @@ footprint.
     `FILTER`/`REDUCE`'s expression/condition-only snippets, since it
     hoists procedures and builds a whole `AST_BLOCK` per iteration)
     introduced no new stack-fragility regression either.
-- **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward fuller
-  language coverage (more turtle commands, file I/O, `TELL`/
-  multi-turtle), and growing the shadow-diff corpus alongside it — the
-  mechanism itself is proven; the value from here on is coverage. Worth
-  a dedicated audit at some point: the two `parse_list_literal` fidelity
-  bugs found so far (quoted words, then `:varref`s) both came from the
-  same root cause — the lexer strips a leading marker character that a
-  list literal's raw-text storage needs to keep — so any other
-  token type whose lexer form strips a marker (if one exists) is worth
-  checking proactively rather than waiting for a third template bug to
-  surface it.
+- **Math operators: done** (`MOD`/`SIN`/`COS`/`TAN`/`ASIN`/`ACOS`/
+  `ARCTAN`/`LN`/`LOG`/`EXP`, the first batch off `docs/ROADMAP.md`'s new
+  Phase 5 Stage 1 checklist). Direct ports of interpreter.c's own
+  `parse_factor` cases: `SIN`/`COS`/`TAN` take degrees (converted to
+  radians), `ASIN`/`ACOS`/`ARCTAN` return degrees (converted back) —
+  matches the turtle-angle convention used throughout, not the C math
+  library's native radians. `LOG` is base-10 (`log10`), `LN` is natural
+  log. `MOD`'s own `mod_result` helper (result takes the sign of the
+  divisor, Python-style, not C `fmod`'s sign-of-dividend truncation) is
+  pure/stateless, so it's mirrored directly as `eval_mod_result` in
+  `eval.c` rather than exposed through `interpreter.h` — no state to
+  share, unlike the turtle/variable/list helpers.
+  - **Not a new bug, but confirmed directly rather than assumed**: `MOD 7
+    -3` (no parens) fails to parse — the same pre-existing "greedy
+    subtraction" call-argument ambiguity already documented for
+    `SETXY`/`SETHEADING` (a call argument's own expression parse
+    consumes a following `- expr` as subtraction rather than stopping at
+    the next argument boundary). `MOD 7 (-3)` parses and runs correctly
+    in both engines (confirmed the old engine supports plain arithmetic
+    parenthesization generally — a separate, older capability from the
+    boolean-grouping-in-conditions feature that's new-engine-only). Test
+    scripts use the parenthesized form for negative `MOD` arguments, same
+    as the existing `SETXY` test does.
+  - 2 new `tests/test_eval.c` cases and 1 new shadow-diff script.
+    Confirmed clean under AddressSanitizer on both `test_eval` and
+    `test_shadow_diff`.
+- **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist
+  — turtle state queries (`GETX`/`GETY`/`HEADING`/`POS`/`TOWARDS`/
+  `DISTANCE`/`SETX`/`SETY`/`CANVASSIZE`) are the next batch, followed by
+  the remaining word/list operators, introspection, control flow,
+  `TELL`, file I/O, and drawing primitives — see that file for the full
+  breakdown and what's deliberately out of scope. Worth a dedicated audit
+  at some point: the two `parse_list_literal` fidelity bugs found so far
+  (quoted words, then `:varref`s) both came from the same root cause —
+  the lexer strips a leading marker character that a list literal's
+  raw-text storage needs to keep — so any other token type whose lexer
+  form strips a marker (if one exists) is worth checking proactively
+  rather than waiting for a third template bug to surface it.

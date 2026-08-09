@@ -88,6 +88,16 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "RANDOM", 1, { ARG_EXPR } },
     { "ROUND", 1, { ARG_EXPR } },
     { "INT", 1, { ARG_EXPR } },
+    { "MOD", 2, { ARG_EXPR, ARG_EXPR } },
+    { "SIN", 1, { ARG_EXPR } },
+    { "COS", 1, { ARG_EXPR } },
+    { "TAN", 1, { ARG_EXPR } },
+    { "ASIN", 1, { ARG_EXPR } },
+    { "ACOS", 1, { ARG_EXPR } },
+    { "ARCTAN", 1, { ARG_EXPR } },
+    { "LN", 1, { ARG_EXPR } },
+    { "LOG", 1, { ARG_EXPR } },
+    { "EXP", 1, { ARG_EXPR } },
 
     // List/word operators (eval.c: list values are now real, built in
     // app->list_pool, the same pool interpreter.c's own list operators

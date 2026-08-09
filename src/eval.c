@@ -808,6 +808,52 @@ static EvalValue do_round(LogoApp *app, AstPool *pool, const int *arg_idx) {
 static EvalValue do_int(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return num_val(trunc(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
 }
+// Mirrors interpreter.c's own mod_result exactly: fmod's result takes
+// the sign of the dividend, but MOD's result should take the sign of
+// the divisor instead (Python-style, not C-style) -- e.g. -7 MOD 3 is
+// 2, not -1.
+static double eval_mod_result(double a, double b) {
+    if (b == 0) return 0;
+    double r = fmod(a, b);
+    if (r != 0 && ((r < 0) != (b < 0))) r += b;
+    return r;
+}
+static EvalValue do_mod(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double a = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double b = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+    return num_val(eval_mod_result(a, b));
+}
+// SIN/COS/TAN take degrees (converted to radians); ASIN/ACOS/ARCTAN
+// return degrees (converted back from radians) -- matches
+// interpreter.c's own convention throughout (SETHEADING/turtle angles
+// are degrees), not the C math library's native radians.
+static EvalValue do_sin(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(sin(eval_to_number(eval_expr(app, pool, arg_idx[0])) * M_PI / 180.0));
+}
+static EvalValue do_cos(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(cos(eval_to_number(eval_expr(app, pool, arg_idx[0])) * M_PI / 180.0));
+}
+static EvalValue do_tan(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(tan(eval_to_number(eval_expr(app, pool, arg_idx[0])) * M_PI / 180.0));
+}
+static EvalValue do_asin(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(asin(eval_to_number(eval_expr(app, pool, arg_idx[0]))) * 180.0 / M_PI);
+}
+static EvalValue do_acos(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(acos(eval_to_number(eval_expr(app, pool, arg_idx[0]))) * 180.0 / M_PI);
+}
+static EvalValue do_arctan(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(atan(eval_to_number(eval_expr(app, pool, arg_idx[0]))) * 180.0 / M_PI);
+}
+static EvalValue do_ln(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(log(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
+static EvalValue do_log(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(log10(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
+static EvalValue do_exp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return num_val(exp(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+}
 static EvalValue do_first(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue arg = eval_expr(app, pool, arg_idx[0]);
     if (arg.type == VALUE_LIST) {
@@ -1340,6 +1386,36 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "INT") == 0) {
         if (result != NULL) *result = do_int(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "MOD") == 0) {
+        if (result != NULL) *result = do_mod(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "SIN") == 0) {
+        if (result != NULL) *result = do_sin(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "COS") == 0) {
+        if (result != NULL) *result = do_cos(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "TAN") == 0) {
+        if (result != NULL) *result = do_tan(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "ASIN") == 0) {
+        if (result != NULL) *result = do_asin(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "ACOS") == 0) {
+        if (result != NULL) *result = do_acos(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "ARCTAN") == 0) {
+        if (result != NULL) *result = do_arctan(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "LN") == 0) {
+        if (result != NULL) *result = do_ln(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "LOG") == 0) {
+        if (result != NULL) *result = do_log(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "EXP") == 0) {
+        if (result != NULL) *result = do_exp(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "FIRST") == 0) {
         if (result != NULL) *result = do_first(app, pool, arg_idx);

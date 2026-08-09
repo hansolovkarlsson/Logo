@@ -251,6 +251,34 @@ TEST(test_math_operators) {
     CHECK_STREQ(captured_output, "5\n4\n1024\n5\n4\n");
 }
 
+TEST(test_trig_and_log_operators) {
+    // SIN/COS/TAN take degrees, ASIN/ACOS/ARCTAN return degrees --
+    // matches interpreter.c's own convention (SETHEADING/turtle angles
+    // are degrees), confirmed directly against the running interpreter
+    // rather than assumed.
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT SIN 90\nPRINT COS 0\nPRINT TAN 45\n"
+        "PRINT ARCTAN 1\nPRINT ASIN 1\nPRINT ACOS 1\n"
+        "PRINT LN 1\nPRINT LOG 100\nPRINT EXP 0\nPRINT EXP 1");
+    CHECK_STREQ(captured_output, "1\n1\n1\n45\n90\n0\n0\n2\n1\n2.71828\n");
+}
+
+TEST(test_mod_operator) {
+    // A negative second argument needs parens (MOD 7 (-3), not
+    // MOD 7 -3) -- the same pre-existing "greedy subtraction" grammar
+    // ambiguity already documented for SETXY/SETHEADING (a call
+    // argument's own expression parse consumes a following "- expr" as
+    // subtraction rather than stopping at the next argument boundary),
+    // confirmed directly (MOD 7 -3 fails to parse; MOD 7 (-3) doesn't)
+    // rather than assumed. MOD's result takes the sign of the divisor,
+    // not the dividend (Python-style, not C fmod's truncation), also
+    // confirmed against the real interpreter's own mod_result.
+    LogoApp *app = new_app();
+    run_source(app, "PRINT MOD 7 3\nPRINT MOD 7 (-3)\nPRINT MOD (-7) 3\nPRINT MOD (-7) (-3)\nPRINT MOD 5 0");
+    CHECK_STREQ(captured_output, "1\n-2\n2\n-1\n0\n");
+}
+
 TEST(test_local_scope_shadows_global) {
     // Not named "setx": that's a genuine built-in in the real
     // interpreter (sets the turtle's X coordinate) this evaluator
@@ -835,6 +863,8 @@ int main(void) {
     RUN(test_recursive_procedure);
     RUN(test_recursion_depth_cap_reports_error_not_a_crash);
     RUN(test_math_operators);
+    RUN(test_trig_and_log_operators);
+    RUN(test_mod_operator);
     RUN(test_local_scope_shadows_global);
     RUN(test_list_literal_prints_space_separated_without_brackets);
     RUN(test_nested_list_literal_prints_with_inner_brackets);

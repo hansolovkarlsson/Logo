@@ -261,6 +261,18 @@ TEST(test_math_operators) {
     shadow_diff("PRINT ABS -5\nPRINT SQRT 16\nPRINT POWER 2 10\nPRINT ROUND 4.6\nPRINT INT 4.9");
 }
 
+TEST(test_trig_log_and_mod_operators) {
+    shadow_diff(
+        "PRINT SIN 90\nPRINT COS 0\nPRINT TAN 45\n"
+        "PRINT ARCTAN 1\nPRINT ASIN 1\nPRINT ACOS 1\n"
+        "PRINT LN 1\nPRINT LOG 100\nPRINT EXP 0\nPRINT EXP 1\n"
+        // Parenthesized negative arguments -- MOD 7 -3 (no parens) hits
+        // the same pre-existing "greedy subtraction" call-argument
+        // ambiguity already documented for SETXY/SETHEADING, unrelated
+        // to MOD itself (see test_mod_operator in test_eval.c).
+        "PRINT MOD 7 3\nPRINT MOD 7 (-3)\nPRINT MOD (-7) 3\nPRINT MOD (-7) (-3)\nPRINT MOD 5 0");
+}
+
 TEST(test_recursive_procedure_with_turtle_motion) {
     // A fractal-shaped script (real Logo usage, not a synthetic
     // grammar exercise): recursion, arithmetic, and turtle motion
@@ -777,6 +789,7 @@ int main(void) {
     RUN(test_recursive_procedure);
     RUN(test_local_scope_shadows_global);
     RUN(test_math_operators);
+    RUN(test_trig_log_and_mod_operators);
     RUN(test_recursive_procedure_with_turtle_motion);
     RUN(test_nested_repeat_loops);
     RUN(test_nested_if_inside_while);
