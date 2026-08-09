@@ -824,6 +824,52 @@ TEST(test_foreach_runs_a_statement_template_per_element) {
         "FOREACH [PRINT FIRST ?] [[10 20] [30 40]]");
 }
 
+TEST(test_for_and_forever_loops) {
+    shadow_diff(
+        "FOR [i 1 3] [PRINT :i]\n"
+        // Exercises FOR's header accepting a full expression, not just
+        // a literal, for its limit -- confirmed directly against
+        // interpreter.c that this is genuinely supported (see
+        // test_for_limit_is_a_full_expression_not_just_a_literal in
+        // test_eval.c).
+        "MAKE \"n 2\n"
+        "FOR [i 1 :n + 1] [PRINT :i]\n"
+        "FOR [i 0 10 5] [PRINT :i]\n"
+        "FOR [i 3 1] [PRINT :i]\n"
+        "FOR [i 1 3 0] [PRINT :i]\n"
+        "MAKE \"j 0\n"
+        "FOREVER [MAKE \"j :j + 1 PRINT :j IF :j = 3 [STOP]]");
+}
+
+TEST(test_run_and_apply_deferred_execution) {
+    shadow_diff(
+        "RUN [PRINT 1 + 2]\n"
+        "MAKE \"x [RUN :x]\n"
+        "RUN :x\n" // self-referential -- capped by run_depth, not a crash
+        "PRINT 1\n"
+        "TO add2 :a :b\n"
+        "  PRINT :a + :b\n"
+        "END\n"
+        "APPLY \"add2 [3 4]\n"
+        "APPLY \"nosuch [1 2]\n"
+        "APPLY \"add2 [1 2 3]");
+}
+
+TEST(test_catch_and_throw_unwind_correctly) {
+    shadow_diff(
+        "CATCH \"err [PRINT 1 THROW \"err PRINT 2]\n"
+        "PRINT 3\n"
+        // A non-matching tag propagates past this CATCH, and (since
+        // nothing else catches it either) is recovered at the genuine
+        // top level -- reported, then execution keeps going with the
+        // rest of the script, matching interpreter.c's own eval_depth
+        // == 1 recovery exactly.
+        "CATCH \"other [THROW \"err]\n"
+        "PRINT 99\n"
+        "THROW \"nope\n"
+        "PRINT 4");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -886,6 +932,9 @@ int main(void) {
     RUN(test_memberp_on_list_word_and_number);
     RUN(test_map_filter_reduce_over_numbers_and_words);
     RUN(test_foreach_runs_a_statement_template_per_element);
+    RUN(test_for_and_forever_loops);
+    RUN(test_run_and_apply_deferred_execution);
+    RUN(test_catch_and_throw_unwind_correctly);
 
     if (failures == 0) {
         printf("All tests passed.\n");

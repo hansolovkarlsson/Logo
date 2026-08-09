@@ -87,6 +87,27 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     // parse_if).
     { "REPEAT", 2, { ARG_EXPR, ARG_BLOCK } },
     { "WHILE", 2, { ARG_CONDITION, ARG_BLOCK } },
+    { "FOREVER", 1, { ARG_BLOCK } },
+    // FOR isn't here -- its header ([var start limit step], a
+    // variable-length shape with a bareword name followed by 2-3
+    // expressions) doesn't fit any single ArgKind, so it gets its own
+    // parse_for, the same way IF/IFELSE and TO/END do (see parse_if).
+
+    // CATCH/THROW (eval.c: shares app->throw_requested/throw_tag with
+    // interpreter.c's own THROW/CATCH). tag is a plain expression, not
+    // ARG_QUOTED_WORD -- interpreter.c's own THROW/CATCH both read it
+    // via parse_expr, not a raw sscanf %s, so e.g. THROW WORD "a "b
+    // works exactly like it does today.
+    { "CATCH", 2, { ARG_EXPR, ARG_BLOCK } },
+    { "THROW", 1, { ARG_EXPR } },
+
+    // RUN/APPLY (eval.c: deferred execution, reusing FOREACH's own
+    // re-entrant lex/parse machinery for RUN). Neither ever hands back
+    // a value -- confirmed directly in docs/LANGUAGE.md, matching
+    // interpreter.c's own RUN/APPLY -- so both are statement-only,
+    // same as REPEAT/WHILE/FOREVER above.
+    { "RUN", 1, { ARG_EXPR } },
+    { "APPLY", 2, { ARG_EXPR, ARG_EXPR } },
 
     // A representative set of prefix math operators (expression
     // position only -- SUM/DIFFERENCE-shaped, not the infix +/-
@@ -753,6 +774,56 @@ static int parse_if(Parser *p) {
     return node;
 }
 
+// FOR [var start limit step] [block] -- irregular like IF/TO: the
+// header is [ bareword-varname expr expr expr? ], not a plain list
+// literal (AST_LIST_LITERAL's own elements are untyped data atoms, not
+// expression subtrees) or a single block/condition, so it gets its own
+// parse function rather than fitting BUILTIN_SIGNATURES. start/limit/
+// step are ordinary expressions, not just literals -- confirmed
+// directly: interpreter.c accepts `FOR [i 1 :n + 1] [...]` -- so each
+// is parsed straight off the live token stream via parse_expr_value,
+// the same way REPEAT's count argument is, rather than being collected
+// as list-literal text and re-lexed later the way FOREACH's template
+// is (there's no substitution step here, so no need to reconstruct
+// text at all). step is optional; whether the third header element is
+// step or the loop already ended at ] is exec_for's job to resolve at
+// runtime (see eval.c), same as interpreter.c defaulting step to +1/-1
+// there.
+static int parse_for(Parser *p) {
+    const LogoToken *for_tok = peek(p);
+    advance_token(p); // FOR
+    int node = ast_alloc(p->pool, AST_FOR, for_tok->line, for_tok->col);
+
+    if (peek(p)->type != LOGO_TOK_LBRACKET) {
+        report_error(p, for_tok->line, for_tok->col, "%s", "FOR: expected [ var start limit step ]");
+        return node;
+    }
+    advance_token(p); // [
+
+    const LogoToken *var_tok = peek(p);
+    if (var_tok->type != LOGO_TOK_BAREWORD) {
+        report_error(p, var_tok->line, var_tok->col, "%s", "FOR: expected a loop variable name");
+        return node;
+    }
+    token_text_copy(var_tok, p->pool->nodes[node].text, AST_MAX_TEXT);
+    advance_token(p);
+
+    ast_append_child(p->pool, node, parse_expr_value(p)); // start
+    ast_append_child(p->pool, node, parse_expr_value(p)); // limit
+    if (peek(p)->type != LOGO_TOK_RBRACKET) {
+        ast_append_child(p->pool, node, parse_expr_value(p)); // step, if present
+    }
+
+    if (peek(p)->type == LOGO_TOK_RBRACKET) {
+        advance_token(p);
+    } else {
+        report_error(p, for_tok->line, for_tok->col, "%s", "FOR: expected [ var start limit step ]");
+    }
+
+    ast_append_child(p->pool, node, parse_block(p)); // loop body
+    return node;
+}
+
 // TO name :p1 :p2 ... [ body statements ] END -- irregular enough
 // (a variable-length parameter list, then a body that ends at a
 // keyword rather than a bracket) that it gets its own function rather
@@ -809,6 +880,7 @@ static int parse_statement(Parser *p) {
     const LogoToken *tok = peek(p);
     if (token_is_bareword_ci(tok, "TO")) return parse_proc_def(p);
     if (token_is_bareword_ci(tok, "IF") || token_is_bareword_ci(tok, "IFELSE")) return parse_if(p);
+    if (token_is_bareword_ci(tok, "FOR")) return parse_for(p);
     return parse_call_statement(p);
 }
 

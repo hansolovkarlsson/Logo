@@ -868,10 +868,96 @@ footprint.
     twice with the same name in one call, mirroring interpreter.c's own
     "already local" no-op check). Confirmed clean under AddressSanitizer
     on both `test_eval` and `test_shadow_diff`.
-- **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist
-  — deferred execution and control flow (`RUN`/`APPLY`/`FOR`/`FOREVER`/
-  `CATCH`/`THROW`) is the next batch, followed by `TELL`, file I/O, and
+- **Deferred execution and control flow: done** (`RUN`/`APPLY`/`FOR`/
+  `FOREVER`/`CATCH`/`THROW`, fifth batch off `docs/ROADMAP.md`'s Phase 5
+  Stage 1 checklist).
+  - **`RUN`/`APPLY` reuse `FOREACH`'s own re-entrant lex/parse
+    machinery**, not new machinery: `do_run` lexes/parses its argument's
+    text into a fresh, caller-heap-allocated `ParseResult` and runs it
+    through `exec_block`, exactly like a `FOREACH` template does per
+    element, guarded by the existing `app->run_depth`/`MAX_RUN_DEPTH`
+    fields (already shared, no exposure needed) against a
+    self-referential `RUN` blowing the C stack. `APPLY` is a smaller
+    departure from interpreter.c's own version than usual: interpreter.c
+    resolves its procedure name through `find_procedure` (its private
+    text-based table), but this engine resolves through
+    `find_proc_def`/`call_ast_procedure` instead — the same pair
+    `do_user_procedure_call`/`do_send` already use, since (as the
+    `PROCEDURES` milestone already established) this engine's procedures
+    were never registered into that table at all. Confirmed directly
+    that neither `RUN` nor `APPLY` ever hands a value back to its caller
+    (docs/LANGUAGE.md: "deliberately not something this interpreter's
+    commands hand back") — both are `void` `do_*` functions, statement
+    position only, matching their `BUILTIN_SIGNATURES` entries.
+  - **`FOR` needed its own dedicated parse function, not a
+    `BUILTIN_SIGNATURES` entry**: its header (`[var start limit step]`)
+    is a bareword name followed by 2-3 *expressions* — confirmed
+    directly against interpreter.c that the limit/step positions accept
+    a full expression, not just a literal (`FOR [i 1 :n + 1] [...]`
+    really does work today) — a shape no existing `ArgKind` covers, so
+    it gets a new `AST_FOR` node type and `parse_for`, parsed the same
+    way `parse_if`/`parse_proc_def` are (see `parser.c`). Unlike
+    `FOREACH`'s template, there's no substitution step here, so
+    start/limit/step are parsed directly off the live token stream via
+    `parse_expr_value` rather than being collected as text and re-lexed
+    later. `exec_for` (`eval.c`) evaluates start/limit/step once up
+    front (matching interpreter.c, which doesn't re-evaluate them per
+    iteration either), defaults a missing step to `+1`/`-1` based on
+    direction, and sets the loop variable via a plain `set_var` each
+    iteration — no `push_scope`, matching interpreter.c's own
+    non-scoping `FOR`/`REPEAT`/`WHILE` blocks exactly.
+  - **`FOREVER` is a direct, small port**: `do_forever` mirrors
+    `do_while`'s shape with no condition at all, capped by the same
+    `MAX_WHILE_ITERATIONS` ceiling.
+  - **`CATCH`/`THROW` needed genuinely new unwind plumbing, the one
+    piece of this batch with no prior-batch precedent**: shares
+    `app->throw_requested`/`throw_tag` directly with interpreter.c (both
+    already plain `LogoApp` fields, no exposure needed) but required
+    teaching every existing loop (`exec_block`, `do_repeat`, `do_while`,
+    plus this batch's own `do_forever`/`exec_for`) to also break on
+    `throw_requested`, not just `stop_requested` — otherwise an
+    uncaught `THROW` inside a loop body would keep iterating right past
+    it. `do_catch` runs its block then clears `throw_requested` only if
+    it's still set *and* its tag matches this `CATCH`'s own tag; a
+    non-matching tag is deliberately left set so it keeps propagating
+    toward whichever ancestor `CATCH` (if any) matches, exactly
+    mirroring interpreter.c.
+  - **`ast_eval` itself had to change shape**, not just gain a check:
+    interpreter.c's `eval_logo` is reused at every nesting depth, with an
+    `eval_depth` counter distinguishing the genuine outermost call (which
+    recovers from an uncaught `THROW` — reports it, clears the flag, and
+    lets the *rest* of the top-level script keep running) from every
+    inner call (which just breaks, letting the throw keep propagating).
+    This engine has no equivalent counter — `ast_eval` is the one true
+    top level, and every nested execution goes through the plain
+    `exec_block` used for loop bodies/procedure bodies/`RUN`'d chunks
+    instead. So `ast_eval` was rewritten from a single `exec_block` call
+    into its own per-statement loop that checks `throw_requested` after
+    *each* top-level statement and recovers right there, while
+    `exec_block` (used everywhere else) just breaks on it with no
+    recovery — reproducing interpreter.c's `eval_depth == 1` vs. `> 1`
+    split without needing a counter, since there's structurally only one
+    place `ast_eval` itself runs.
+  - Ground-truth-verified directly against a standalone probe binary
+    linked against `interpreter.c` before writing any permanent test
+    (this project's usual habit) — every case matched byte-for-byte,
+    including `FOR`'s `step must not be 0` error, `APPLY`'s "no such
+    procedure"/"wrong number of inputs" errors, `RUN`'s "too deeply
+    nested" cap, and both matched- and unmatched-tag `CATCH`/`THROW`
+    paths. One case was *not* carried into the permanent suite: `PRINT
+    APPLY ...` (using `APPLY`/`RUN` in expression position) turned out to
+    be an old-engine parsing accident, not a designed behavior —
+    interpreter.c's `parse_factor` doesn't recognize `APPLY`/`RUN` as
+    operators at all, so `strtod` silently returns `0` without consuming
+    any input, and the *same* `APPLY ...` text then runs a second time as
+    the next top-level statement. Reproducing that specific accident
+    would mean copying a bug, not a behavior, so it's left untested on
+    both sides rather than shadow-diffed.
+  - 15 new `tests/test_eval.c` cases and 3 new shadow-diff scripts.
+    Confirmed clean under AddressSanitizer on both `test_eval` and
+    `test_shadow_diff`.
+- **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1
+  checklist — `TELL`/multi-turtle is next, followed by file I/O and
   drawing primitives — see that file for the full breakdown and what's
-  deliberately out of scope. `TEXT` (deferred two milestones ago) stays
-  on the checklist rather than being checked off with the rest of that
-  batch.
+  deliberately out of scope. `TEXT` (deferred a few milestones ago)
+  stays on the checklist, still an open design question.

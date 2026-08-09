@@ -1008,6 +1008,99 @@ TEST(test_send_wrong_argument_count_reports_error) {
     CHECK_CONTAINS(captured_output, "SEND: wrong number of inputs for message \"greet");
 }
 
+TEST(test_for_counts_up_by_default_step) {
+    LogoApp *app = new_app();
+    run_source(app, "FOR [i 1 3] [PRINT :i]");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
+TEST(test_for_limit_is_a_full_expression_not_just_a_literal) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"n 2\nFOR [i 1 :n + 1] [PRINT :i]");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
+TEST(test_for_with_explicit_step) {
+    LogoApp *app = new_app();
+    run_source(app, "FOR [i 0 10 5] [PRINT :i]");
+    CHECK_STREQ(captured_output, "0\n5\n10\n");
+}
+
+TEST(test_for_counts_down_when_limit_is_less_than_start) {
+    LogoApp *app = new_app();
+    run_source(app, "FOR [i 3 1] [PRINT :i]");
+    CHECK_STREQ(captured_output, "3\n2\n1\n");
+}
+
+TEST(test_for_step_zero_reports_an_error) {
+    LogoApp *app = new_app();
+    run_source(app, "FOR [i 1 3 0] [PRINT :i]");
+    CHECK_STREQ(captured_output, "FOR: step must not be 0\n");
+}
+
+TEST(test_forever_runs_until_stop) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"i 0\nFOREVER [MAKE \"i :i + 1 PRINT :i IF :i = 3 [STOP]]");
+    CHECK_STREQ(captured_output, "1\n2\n3\n");
+}
+
+TEST(test_run_executes_a_stored_list_as_source) {
+    LogoApp *app = new_app();
+    run_source(app, "RUN [PRINT 1 + 2]");
+    CHECK_STREQ(captured_output, "3\n");
+}
+
+TEST(test_run_self_referential_is_capped_not_a_crash) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"x [RUN :x]\nRUN :x\nPRINT 1");
+    CHECK_CONTAINS(captured_output, "RUN: too deeply nested, ignored");
+    CHECK_CONTAINS(captured_output, "1");
+}
+
+TEST(test_apply_calls_a_procedure_with_a_list_of_arguments) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "TO add :a :b\n"
+        "  PRINT :a + :b\n"
+        "END\n"
+        "APPLY \"add [3 4]");
+    CHECK_STREQ(captured_output, "7\n");
+}
+
+TEST(test_apply_unknown_procedure_reports_an_error) {
+    LogoApp *app = new_app();
+    run_source(app, "APPLY \"nosuch [1 2]");
+    CHECK_CONTAINS(captured_output, "APPLY: no such procedure \"nosuch");
+}
+
+TEST(test_apply_wrong_argument_count_reports_an_error) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "TO add :a :b\n"
+        "  OUTPUT :a + :b\n"
+        "END\n"
+        "APPLY \"add [1 2 3]");
+    CHECK_CONTAINS(captured_output, "APPLY: wrong number of inputs for procedure \"add");
+}
+
+TEST(test_catch_recovers_when_the_thrown_tag_matches) {
+    LogoApp *app = new_app();
+    run_source(app, "CATCH \"err [PRINT 1 THROW \"err PRINT 2]\nPRINT 3");
+    CHECK_STREQ(captured_output, "1\n3\n");
+}
+
+TEST(test_throw_with_no_matching_catch_reports_and_recovers_at_top_level) {
+    LogoApp *app = new_app();
+    run_source(app, "CATCH \"other [THROW \"err]\nPRINT 99");
+    CHECK_STREQ(captured_output, "THROW: no CATCH found for \"err\n99\n");
+}
+
+TEST(test_uncaught_throw_at_top_level_reports_and_later_statements_still_run) {
+    LogoApp *app = new_app();
+    run_source(app, "THROW \"nope\nPRINT 1");
+    CHECK_STREQ(captured_output, "THROW: no CATCH found for \"nope\n1\n");
+}
+
 int main(void) {
     RUN(test_print_a_number_and_a_word);
     RUN(test_arithmetic_with_precedence);
@@ -1114,6 +1207,21 @@ int main(void) {
     RUN(test_send_method_without_self_param_reports_error);
     RUN(test_send_cyclic_prototype_chain_is_bounded_not_infinite);
     RUN(test_send_wrong_argument_count_reports_error);
+
+    RUN(test_for_counts_up_by_default_step);
+    RUN(test_for_limit_is_a_full_expression_not_just_a_literal);
+    RUN(test_for_with_explicit_step);
+    RUN(test_for_counts_down_when_limit_is_less_than_start);
+    RUN(test_for_step_zero_reports_an_error);
+    RUN(test_forever_runs_until_stop);
+    RUN(test_run_executes_a_stored_list_as_source);
+    RUN(test_run_self_referential_is_capped_not_a_crash);
+    RUN(test_apply_calls_a_procedure_with_a_list_of_arguments);
+    RUN(test_apply_unknown_procedure_reports_an_error);
+    RUN(test_apply_wrong_argument_count_reports_an_error);
+    RUN(test_catch_recovers_when_the_thrown_tag_matches);
+    RUN(test_throw_with_no_matching_catch_reports_and_recovers_at_top_level);
+    RUN(test_uncaught_throw_at_top_level_reports_and_later_statements_still_run);
 
     if (failures == 0) {
         printf("All tests passed.\n");

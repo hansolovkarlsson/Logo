@@ -33,6 +33,7 @@ typedef enum {
     AST_IF,            // first_child = condition, next sibling = true-AST_BLOCK, optional next sibling = false-AST_BLOCK (mirrors today's IF/IFELSE sharing one code path -- IF can take an optional second block too, ELSE keyword or not)
     AST_BLOCK,         // children (via first_child/next_sibling) are a sequence of statements
     AST_PROC_DEF,      // TO name :p1 :p2 ... END -- .text holds the name, .param_count/.param_names hold parameters, first_child = the body AST_BLOCK
+    AST_FOR,           // FOR [var start limit step] [block] -- .text holds the loop variable name (no leading ':'); first_child = start expr, next sibling = limit expr, optional next sibling = step expr, last sibling = the body AST_BLOCK. Irregular like AST_IF (a variable-length header, not a fixed ArgKind shape), so it isn't an AST_CALL.
 } AstNodeType;
 
 typedef enum { AST_OP_ADD, AST_OP_SUB, AST_OP_MUL, AST_OP_DIV } AstBinOp;

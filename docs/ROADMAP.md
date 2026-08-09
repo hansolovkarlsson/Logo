@@ -71,11 +71,6 @@ the detail, per this file's usual convention.
   only the parsed tree survives) or re-serializing the AST back to
   text; a genuinely open design question, not a straightforward port
   like the rest of this batch — see `docs/BYTECODE_VM_DESIGN.md`.
-- [ ] Deferred execution and control flow: `RUN`/`APPLY`/`FOR`/`FOREVER`/
-  `CATCH`/`THROW`. `RUN`/`APPLY` need the same re-entrant lex/parse
-  machinery `FOREACH` just built (running a word/list as a fresh
-  program); `CATCH`/`THROW` need genuinely new state (an unwind target),
-  unlike anything ported so far.
 - [ ] `TELL`/multi-turtle: needs exposing `app->turtles[]`/`turtle_count`/
   `MAX_TURTLES`/`init_turtle` from `interpreter.c` (only `current_turtle`
   is shared today) — bigger surface-area change than the groups above.

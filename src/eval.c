@@ -1024,7 +1024,7 @@ static void do_stop(LogoApp *app) {
 static void do_repeat(LogoApp *app, AstPool *pool, const int *arg_idx) {
     int count = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
     int block_node = arg_idx[1];
-    for (int i = 0; i < count && !app->stop_requested; i++) {
+    for (int i = 0; i < count && !app->stop_requested && !app->throw_requested; i++) {
         exec_block(app, pool, block_node);
     }
 }
@@ -1038,7 +1038,24 @@ static void do_while(LogoApp *app, AstPool *pool, const int *arg_idx) {
             break;
         }
         exec_block(app, pool, block_node);
-        if (app->stop_requested) break;
+        if (app->stop_requested || app->throw_requested) break;
+        iterations++;
+    }
+}
+// FOREVER [block] -- an infinite loop, only escaped via STOP/OUTPUT/
+// THROW inside the block, capped by the same iteration ceiling as
+// WHILE so a script that forgets its own STOP doesn't hang. Mirrors
+// interpreter.c's own FOREVER exactly.
+static void do_forever(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int block_node = arg_idx[0];
+    int iterations = 0;
+    for (;;) {
+        if (iterations >= MAX_WHILE_ITERATIONS) {
+            append_output(app, "FOREVER: stopped after too many iterations\n");
+            break;
+        }
+        exec_block(app, pool, block_node);
+        if (app->stop_requested || app->throw_requested) break;
         iterations++;
     }
 }
@@ -1547,10 +1564,10 @@ static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // result through exec_block. Same caller-reused scratch ParseResult as
 // the others. A malformed substituted statement is skipped rather than
 // executed, the same "quietly inert" fallback used elsewhere in this
-// file for a bad template. OUTPUT/STOP inside the template ends the
-// loop early via app->stop_requested, the same flag REPEAT/WHILE check
-// -- there's no THROW/interrupt equivalent in this engine yet to also
-// check, unlike interpreter.c's own three-way condition here.
+// file for a bad template. OUTPUT/STOP/THROW inside the template ends
+// the loop early via app->stop_requested/throw_requested, the same
+// flags REPEAT/WHILE/FOREVER check (no interrupt equivalent exists in
+// this engine, unlike interpreter.c's own three-way condition here).
 static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
     EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
@@ -1569,9 +1586,109 @@ static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
             logo_parse(tokens, n, scratch);
             if (scratch->error_count == 0) exec_block(app, &scratch->pool, scratch->program);
         }
-        if (app->stop_requested) break;
+        if (app->stop_requested || app->throw_requested) break;
     }
     free(scratch);
+}
+// RUN thing -- executes a stored word/list as Logo source, exactly as
+// if it had been typed directly (RUN'd code shares the caller's scope,
+// no push_scope, matching interpreter.c). Reuses FOREACH's own
+// re-entrant lex/parse-into-a-scratch-ParseResult machinery, since a
+// RUN'd thing is likewise a whole statement sequence, not a single
+// expression/condition. Capped by run_depth (a much lower ceiling than
+// ordinary recursion, since RUN is considerably more expensive per
+// level) rather than scope_depth, guarding against a self-referential
+// RUN (MAKE "x [RUN :x] / RUN :x) blowing the C call stack. RUN never
+// hands back a value (confirmed in docs/LANGUAGE.md), so this is void
+// -- statement position only, matching its BUILTIN_SIGNATURES entry.
+static void do_run(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue val = eval_expr(app, pool, arg_idx[0]);
+    if (app->run_depth >= MAX_RUN_DEPTH) {
+        append_output(app, "RUN: too deeply nested, ignored\n");
+        return;
+    }
+    char code_text[512];
+    eval_value_to_text(app, val, code_text, sizeof(code_text));
+
+    app->run_depth++;
+    LogoToken tokens[MAX_TEMPLATE_TOKENS];
+    int n = logo_lex(code_text, tokens, MAX_TEMPLATE_TOKENS);
+    if (n >= 0) {
+        ParseResult *scratch = calloc(1, sizeof(ParseResult));
+        logo_parse(tokens, n, scratch);
+        if (scratch->error_count == 0) exec_block(app, &scratch->pool, scratch->program);
+        free(scratch);
+    }
+    app->run_depth--;
+}
+// APPLY "name arglist -- calls a procedure with arguments taken from a
+// list, instead of parsed positionally from the command line. A
+// non-list argument counts as a one-element list, the same convention
+// SEND's own arglist already uses. Unlike interpreter.c's own APPLY
+// (which looks up a text-based Procedure via find_procedure), this
+// engine's procedures are AST_PROC_DEF nodes, so it resolves through
+// find_proc_def/call_ast_procedure instead -- the same pair
+// do_user_procedure_call and do_send already use. Never hands back a
+// value (confirmed in docs/LANGUAGE.md, matching RUN), so void.
+static void do_apply(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue name_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue list_val = eval_expr(app, pool, arg_idx[1]);
+    char name_text[64];
+    eval_value_to_text(app, name_val, name_text, sizeof(name_text));
+
+    int def_node = find_proc_def(pool, name_text);
+    if (def_node < 0) {
+        append_output(app, "APPLY: no such procedure \"");
+        append_output(app, name_text);
+        append_output(app, "\n");
+        return;
+    }
+
+    EvalValue arg_vals[AST_MAX_PARAMS];
+    int n = 0;
+    if (list_val.type == VALUE_LIST) {
+        for (int idx = list_val.list_head; idx != -1 && n < AST_MAX_PARAMS; idx = app->list_pool[idx].next) {
+            arg_vals[n++] = node_to_value(&app->list_pool[idx]);
+        }
+    } else if (n < AST_MAX_PARAMS) {
+        arg_vals[n++] = list_val;
+    }
+
+    AstNode *def = &pool->nodes[def_node];
+    if (n != def->param_count) {
+        append_output(app, "APPLY: wrong number of inputs for procedure \"");
+        append_output(app, name_text);
+        append_output(app, "\n");
+        return;
+    }
+
+    int did_output;
+    call_ast_procedure(app, pool, def_node, arg_vals, n, &did_output);
+}
+// THROW "tag -- sets throw_requested/throw_tag, exactly mirroring
+// interpreter.c's own THROW. Unwinding itself (breaking out of nested
+// exec_block/do_repeat/do_while/do_forever/do_foreach calls) is
+// handled at each of those sites, not here.
+static void do_throw(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue tag_val = eval_expr(app, pool, arg_idx[0]);
+    eval_value_to_text(app, tag_val, app->throw_tag, sizeof(app->throw_tag));
+    app->throw_requested = TRUE;
+}
+// CATCH "tag [block] -- runs block, then clears throw_requested only if
+// it's set AND its tag matches this CATCH's own tag; a non-matching
+// throw is deliberately left set so it keeps propagating toward
+// whichever ancestor CATCH (if any) does match, exactly mirroring
+// interpreter.c's own CATCH.
+static void do_catch(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue tag_val = eval_expr(app, pool, arg_idx[0]);
+    char tag_text[64];
+    eval_value_to_text(app, tag_val, tag_text, sizeof(tag_text));
+    int block_node = arg_idx[1];
+
+    exec_block(app, pool, block_node);
+    if (app->throw_requested && strcasecmp(app->throw_tag, tag_text) == 0) {
+        app->throw_requested = FALSE;
+    }
 }
 static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
@@ -1773,6 +1890,16 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_repeat(app, pool, arg_idx);
     } else if (strcasecmp(name, "WHILE") == 0) {
         do_while(app, pool, arg_idx);
+    } else if (strcasecmp(name, "FOREVER") == 0) {
+        do_forever(app, pool, arg_idx);
+    } else if (strcasecmp(name, "CATCH") == 0) {
+        do_catch(app, pool, arg_idx);
+    } else if (strcasecmp(name, "THROW") == 0) {
+        do_throw(app, pool, arg_idx);
+    } else if (strcasecmp(name, "RUN") == 0) {
+        do_run(app, pool, arg_idx);
+    } else if (strcasecmp(name, "APPLY") == 0) {
+        do_apply(app, pool, arg_idx);
     } else if (strcasecmp(name, "ABS") == 0) {
         if (result != NULL) *result = do_abs(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
@@ -2062,11 +2189,57 @@ static void exec_if(LogoApp *app, AstPool *pool, int if_node) {
     }
 }
 
+// FOR [var start limit step] [block] -- a counted loop; the loop
+// variable is set via plain set_var each iteration (no push_scope,
+// matching REPEAT/WHILE's own blocks -- MAKE-ing over an outer
+// variable of the same name has the same effect it always would),
+// unlike a real parameter. start/limit/step are evaluated once, up
+// front, exactly mirroring interpreter.c's own FOR -- reevaluating
+// them per-iteration isn't what today's interpreter does either.
+// step's node may be absent (parse_for only appends it when the
+// header had a 4th element before ]); when absent, node->first_child's
+// chain has exactly 3 children (start, limit, block) instead of 4, and
+// step defaults to +1 (or -1 if limit < start), same as interpreter.c.
+static void exec_for(LogoApp *app, AstPool *pool, int for_node) {
+    AstNode *node = &pool->nodes[for_node];
+    int start_node = node->first_child;
+    int limit_node = pool->nodes[start_node].next_sibling;
+    int third_node = pool->nodes[limit_node].next_sibling;
+    int fourth_node = pool->nodes[third_node].next_sibling;
+    int step_node = (fourth_node >= 0) ? third_node : -1;
+    int block_node = (fourth_node >= 0) ? fourth_node : third_node;
+
+    double start = eval_to_number(eval_expr(app, pool, start_node));
+    double limit = eval_to_number(eval_expr(app, pool, limit_node));
+    double step = (step_node >= 0) ? eval_to_number(eval_expr(app, pool, step_node))
+                                    : ((limit >= start) ? 1 : -1);
+    if (step == 0) {
+        append_output(app, "FOR: step must not be 0\n");
+        return;
+    }
+
+    int iterations = 0;
+    for (double i = start; (step > 0) ? (i <= limit) : (i >= limit); i += step) {
+        if (iterations >= MAX_WHILE_ITERATIONS) {
+            append_output(app, "FOR: stopped after too many iterations\n");
+            break;
+        }
+        set_var(app, node->text, i);
+        exec_block(app, pool, block_node);
+        if (app->stop_requested || app->throw_requested) break;
+        iterations++;
+    }
+}
+
 static void exec_statement(LogoApp *app, AstPool *pool, int node_idx) {
     AstNode *node = &pool->nodes[node_idx];
     if (node->type == AST_PROC_DEF) return; // already resolvable via find_proc_def; nothing to run
     if (node->type == AST_IF) {
         exec_if(app, pool, node_idx);
+        return;
+    }
+    if (node->type == AST_FOR) {
+        exec_for(app, pool, node_idx);
         return;
     }
     exec_call(app, pool, node_idx, NULL, NULL, NULL); // a plain command: discard whatever it OUTPUTs
@@ -2075,14 +2248,37 @@ static void exec_statement(LogoApp *app, AstPool *pool, int node_idx) {
 static void exec_block(LogoApp *app, AstPool *pool, int block_node) {
     for (int c = pool->nodes[block_node].first_child; c >= 0; c = pool->nodes[c].next_sibling) {
         exec_statement(app, pool, c);
-        // No g_interrupt_requested check here (see the file comment
-        // at the top) -- only OUTPUT/STOP unwinds a block early today.
-        if (app->stop_requested) break;
+        // No g_interrupt_requested check here (see the file comment at
+        // the top) -- only OUTPUT/STOP/THROW unwinds a block early
+        // today. Unlike ast_eval's own top-level loop below, a nested
+        // block never recovers from an uncaught throw_requested itself
+        // -- it just breaks, letting the throw keep propagating up the
+        // C call stack toward whichever CATCH (or ast_eval's own
+        // outermost recovery) actually stops it, exactly mirroring
+        // interpreter.c's eval_logo at any nesting depth greater than 1.
+        if (app->stop_requested || app->throw_requested) break;
     }
 }
 
+// The genuine top level -- unlike exec_block above (used for every
+// nested block: loop bodies, procedure bodies, RUN'd chunks), this is
+// the one place that recovers from an uncaught THROW, mirroring
+// eval_logo's own eval_depth == 1 recovery. Runs statement-by-statement
+// (rather than one exec_block call) so that recovery can happen after
+// each one and let the *rest* of the top-level script keep running,
+// instead of a single uncaught THROW aborting everything that follows
+// it in the same script.
 void ast_eval(LogoApp *app, AstPool *pool, int program_node) {
-    exec_block(app, pool, program_node);
+    for (int c = pool->nodes[program_node].first_child; c >= 0; c = pool->nodes[c].next_sibling) {
+        exec_statement(app, pool, c);
+        if (app->throw_requested) {
+            append_output(app, "THROW: no CATCH found for \"");
+            append_output(app, app->throw_tag);
+            append_output(app, "\n");
+            app->throw_requested = FALSE;
+        }
+        if (app->stop_requested) break;
+    }
     // A STOP with no enclosing procedure call, mirroring eval_logo's
     // own top-level recovery -- otherwise it would stay set forever
     // and silently no-op every later top-level statement.
