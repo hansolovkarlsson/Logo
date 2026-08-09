@@ -59,15 +59,11 @@ engines and checks they agree. What's left is coverage: growing
 `interpreter.c` already has, one `do_*` function at a time (each gets its
 own function — see `eval.c`'s file comment — plus shadow-diff tests, and
 the ground-truth-against-the-real-interpreter verification habit this
-project has already caught two real fidelity bugs with). Grouped by natural
+project has already caught three real fidelity bugs with). Grouped by natural
 work batches, each roughly a "commit and push" unit; check off a group as it
 lands and delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has
 the detail, per this file's usual convention.
 
-- [ ] Turtle state queries: `GETX`/`GETY`/`HEADING`/`POS`/`TOWARDS`/
-  `DISTANCE`/`SETX`/`SETY`/`CANVASSIZE`. Read-only or simple-write
-  extensions of the turtle state `FD`/`SETXY`/etc. already share via
-  `current_turtle`.
 - [ ] Remaining word/list operators: `FLATTEN`/`SUBST`/`PARSE`/`PICK`/
   `TEXT`/`DOT`/`CROSS` (see `docs/LANGUAGE.md`'s "FLATTEN, PARSE, SUBST"
   and "DOT, CROSS" sections).

@@ -279,6 +279,77 @@ TEST(test_mod_operator) {
     CHECK_STREQ(captured_output, "1\n-2\n2\n-1\n0\n");
 }
 
+TEST(test_turtle_state_queries) {
+    LogoApp *app = new_app();
+    run_source(app, "SETXY 30 40\nSETHEADING 45\nPRINT GETX\nPRINT GETY\nPRINT HEADING\nPRINT POS");
+    CHECK_STREQ(captured_output, "30\n40\n45\n30 40\n");
+}
+
+TEST(test_canvassize_reports_width_and_height) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT CANVASSIZE");
+    CHECK_STREQ(captured_output, "500 500\n");
+}
+
+TEST(test_setx_sety_move_one_axis_only) {
+    LogoApp *app = new_app();
+    run_source(app, "SETXY 10 20\nSETX 99\nPRINT POS\nSETY 55\nPRINT POS");
+    CHECK_STREQ(captured_output, "99 20\n99 55\n");
+}
+
+TEST(test_distance_between_two_points) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT DISTANCE [0 0] [3 4]");
+    CHECK_STREQ(captured_output, "5\n");
+}
+
+TEST(test_distance_reports_error_on_non_list_argument) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT DISTANCE 5 [1 2]");
+    CHECK_STREQ(captured_output, "DISTANCE: expected two 2-element lists\n0\n");
+}
+
+TEST(test_towards_computes_compass_bearing_toward_a_point) {
+    // Confirmed directly against the running interpreter, including the
+    // negative-coordinate case ([0 -100]) that exercises the
+    // parse_list_literal leading-sign fidelity fix below directly (a
+    // list literal like [0 -100] must stay a 2-element list, not split
+    // into 0/-/100).
+    LogoApp *app = new_app();
+    run_source(app, "HOME\nPRINT TOWARDS [0 100]\nPRINT TOWARDS [100 0]\nPRINT TOWARDS [0 -100]");
+    CHECK_STREQ(captured_output, "300.964\n329.036\n324.462\n");
+}
+
+TEST(test_towards_reports_error_on_non_list_argument) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT TOWARDS 5");
+    CHECK_STREQ(captured_output, "TOWARDS: expected a 2-element list\n0\n");
+}
+
+TEST(test_setheading_towards_then_forward_reaches_the_point) {
+    // A real-shaped usage: SETHEADING TOWARDS point, then FORWARD
+    // DISTANCE POS point, should walk straight to point.
+    LogoApp *app = new_app();
+    run_source(app, "HOME\nSETHEADING TOWARDS [0 100]\nFORWARD DISTANCE POS [0 100]\nPRINT POS");
+    CHECK_STREQ(captured_output, "-1.52006e-13 100\n");
+}
+
+TEST(test_list_literal_keeps_a_glued_leading_sign_as_one_element) {
+    // parse_list_literal fidelity fix: this lexer always splits a
+    // leading -/+ off as its own token (needed elsewhere for
+    // subtraction/negation), but interpreter.c's own list-literal scan
+    // has no concept of tokens at all -- [0 -100] is genuinely the
+    // 2-element list `0 -100`, confirmed directly against the running
+    // interpreter (COUNT [0 -100] is 2, not 3). A sign with whitespace
+    // on both sides (real subtraction, [0 - 100]) must NOT merge.
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT COUNT [0 -100]\nPRINT [0 -100]\nPRINT FIRST BUTFIRST [0 -100]\n"
+        "PRINT COUNT [0 - 100]\nPRINT [0 - 100]\n"
+        "PRINT COUNT [0 +5]\nPRINT [0 +5]");
+    CHECK_STREQ(captured_output, "2\n0 -100\n-100\n3\n0 - 100\n2\n0 +5\n");
+}
+
 TEST(test_local_scope_shadows_global) {
     // Not named "setx": that's a genuine built-in in the real
     // interpreter (sets the turtle's X coordinate) this evaluator
@@ -865,6 +936,15 @@ int main(void) {
     RUN(test_math_operators);
     RUN(test_trig_and_log_operators);
     RUN(test_mod_operator);
+    RUN(test_turtle_state_queries);
+    RUN(test_canvassize_reports_width_and_height);
+    RUN(test_setx_sety_move_one_axis_only);
+    RUN(test_distance_between_two_points);
+    RUN(test_distance_reports_error_on_non_list_argument);
+    RUN(test_towards_computes_compass_bearing_toward_a_point);
+    RUN(test_towards_reports_error_on_non_list_argument);
+    RUN(test_setheading_towards_then_forward_reaches_the_point);
+    RUN(test_list_literal_keeps_a_glued_leading_sign_as_one_element);
     RUN(test_local_scope_shadows_global);
     RUN(test_list_literal_prints_space_separated_without_brackets);
     RUN(test_nested_list_literal_prints_with_inner_brackets);

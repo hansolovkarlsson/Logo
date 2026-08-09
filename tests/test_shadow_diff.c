@@ -273,6 +273,26 @@ TEST(test_trig_log_and_mod_operators) {
         "PRINT MOD 7 3\nPRINT MOD 7 (-3)\nPRINT MOD (-7) 3\nPRINT MOD (-7) (-3)\nPRINT MOD 5 0");
 }
 
+TEST(test_turtle_state_queries) {
+    shadow_diff(
+        "SETXY 30 40\nSETHEADING 45\n"
+        "PRINT GETX\nPRINT GETY\nPRINT HEADING\nPRINT POS\n"
+        "PRINT CANVASSIZE\n"
+        "SETX 99\nPRINT POS\nSETY 55\nPRINT POS\n"
+        "PRINT DISTANCE [0 0] [3 4]\n"
+        "PRINT DISTANCE 5 [1 2]\n"
+        "HOME\n"
+        "PRINT TOWARDS [0 100]\nPRINT TOWARDS [100 0]\n"
+        // [0 -100]: exercises the parse_list_literal leading-sign fix
+        // directly -- a list literal with a glued negative number must
+        // stay a 2-element list, not split into 0/-/100 (see
+        // test_list_literal_keeps_a_glued_leading_sign_as_one_element in
+        // test_eval.c).
+        "PRINT TOWARDS [0 -100]\n"
+        "PRINT TOWARDS 5\n"
+        "SETHEADING TOWARDS [0 100]\nFORWARD DISTANCE POS [0 100]\nPRINT POS");
+}
+
 TEST(test_recursive_procedure_with_turtle_motion) {
     // A fractal-shaped script (real Logo usage, not a synthetic
     // grammar exercise): recursion, arithmetic, and turtle motion
@@ -790,6 +810,7 @@ int main(void) {
     RUN(test_local_scope_shadows_global);
     RUN(test_math_operators);
     RUN(test_trig_log_and_mod_operators);
+    RUN(test_turtle_state_queries);
     RUN(test_recursive_procedure_with_turtle_motion);
     RUN(test_nested_repeat_loops);
     RUN(test_nested_if_inside_while);

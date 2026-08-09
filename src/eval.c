@@ -452,6 +452,19 @@ static EvalValue eval_list_wrap_pair(LogoApp *app, EvalValue a, EvalValue b) {
     return list_val(node_a);
 }
 
+// Fills out[0..2] with a list's first two elements' numeric values and
+// returns 1 only if the list has *exactly* two elements -- DISTANCE/
+// TOWARDS's own [x y] point convention, the same one POS already
+// returns. Mirrors interpreter.c's own list_as_two_numbers exactly.
+static int eval_list_as_two_numbers(LogoApp *app, EvalValue v, double out[2]) {
+    if (v.type != VALUE_LIST) return 0;
+    int n = 0;
+    for (int idx = v.list_head; idx != -1; idx = app->list_pool[idx].next, n++) {
+        if (n < 2) out[n] = eval_to_number(node_to_value(&app->list_pool[idx]));
+    }
+    return n == 2;
+}
+
 // --- Property lists (SETPROP/GETPROP/REMOVEPROP/PROPLIST) -----------
 //
 // A separate namespace from ordinary variables, sharing
@@ -715,6 +728,65 @@ static void do_setxy(LogoApp *app, AstPool *pool, const int *arg_idx) {
 }
 static void do_setheading(LogoApp *app, AstPool *pool, const int *arg_idx) {
     current_turtle(app)->angle = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+}
+static void do_setx(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    move_turtle_to(app, eval_to_number(eval_expr(app, pool, arg_idx[0])), current_turtle(app)->y);
+}
+static void do_sety(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    move_turtle_to(app, current_turtle(app)->x, eval_to_number(eval_expr(app, pool, arg_idx[0])));
+}
+static EvalValue do_getx(LogoApp *app) {
+    return num_val(current_turtle(app)->x);
+}
+static EvalValue do_gety(LogoApp *app) {
+    return num_val(current_turtle(app)->y);
+}
+static EvalValue do_heading(LogoApp *app) {
+    // The raw stored angle, same convention SETHEADING/RT/LT already
+    // use -- not normalized to 0-360 (RT 720 just keeps adding).
+    return num_val(current_turtle(app)->angle);
+}
+static EvalValue do_pos(LogoApp *app) {
+    return eval_list_wrap_pair(app, num_val(current_turtle(app)->x), num_val(current_turtle(app)->y));
+}
+static EvalValue do_canvassize(LogoApp *app) {
+    return eval_list_wrap_pair(app, num_val(app->canvas_width), num_val(app->canvas_height));
+}
+// Plain distance between two arbitrary [x y] points, not tied to the
+// turtle's own position (unlike TOWARDS below) -- pass POS as one of
+// the two points for "distance from here". Mirrors interpreter.c's own
+// DISTANCE exactly.
+static EvalValue do_distance(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue a = eval_expr(app, pool, arg_idx[0]);
+    EvalValue b = eval_expr(app, pool, arg_idx[1]);
+    double av[2], bv[2];
+    if (!eval_list_as_two_numbers(app, a, av) || !eval_list_as_two_numbers(app, b, bv)) {
+        append_output(app, "DISTANCE: expected two 2-element lists\n");
+        return num_val(0);
+    }
+    double dx = bv[0] - av[0];
+    double dy = bv[1] - av[1];
+    return num_val(sqrt(dx * dx + dy * dy));
+}
+// The heading (same convention as HEADING/SETHEADING/RT/LT) to face
+// directly from the turtle's current position toward point -- derived
+// from the same dx/dy-vs-heading formula move_turtle_forward uses, so
+// SETHEADING TOWARDS point then FORWARD DISTANCE POS point actually
+// walks straight to point. Unlike HEADING (a live, unbounded
+// accumulator), this is a freshly computed compass bearing, normalized
+// to [0, 360). Mirrors interpreter.c's own TOWARDS exactly.
+static EvalValue do_towards(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue p = eval_expr(app, pool, arg_idx[0]);
+    double pv[2];
+    if (!eval_list_as_two_numbers(app, p, pv)) {
+        append_output(app, "TOWARDS: expected a 2-element list\n");
+        return num_val(0);
+    }
+    double dx = pv[0] - current_turtle(app)->x;
+    double dy = pv[1] - current_turtle(app)->y;
+    double heading = atan2(dx, -dy) * 180.0 / M_PI;
+    if (heading < 0) heading += 360.0;
+    return num_val(heading);
 }
 static void do_penup(LogoApp *app) {
     current_turtle(app)->pen_down = FALSE;
@@ -1349,6 +1421,31 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_setxy(app, pool, arg_idx);
     } else if (strcasecmp(name, "SETHEADING") == 0 || strcasecmp(name, "SETH") == 0) {
         do_setheading(app, pool, arg_idx);
+    } else if (strcasecmp(name, "SETX") == 0) {
+        do_setx(app, pool, arg_idx);
+    } else if (strcasecmp(name, "SETY") == 0) {
+        do_sety(app, pool, arg_idx);
+    } else if (strcasecmp(name, "GETX") == 0) {
+        if (result != NULL) *result = do_getx(app);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "GETY") == 0) {
+        if (result != NULL) *result = do_gety(app);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "HEADING") == 0) {
+        if (result != NULL) *result = do_heading(app);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "POS") == 0) {
+        if (result != NULL) *result = do_pos(app);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "CANVASSIZE") == 0) {
+        if (result != NULL) *result = do_canvassize(app);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "DISTANCE") == 0) {
+        if (result != NULL) *result = do_distance(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "TOWARDS") == 0) {
+        if (result != NULL) *result = do_towards(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "PENUP") == 0 || strcasecmp(name, "PU") == 0) {
         do_penup(app);
     } else if (strcasecmp(name, "PENDOWN") == 0 || strcasecmp(name, "PD") == 0) {

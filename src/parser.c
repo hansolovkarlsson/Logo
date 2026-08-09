@@ -55,6 +55,15 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SETXY", 2, { ARG_EXPR, ARG_EXPR } },
     { "SETHEADING", 1, { ARG_EXPR } },
     { "SETH", 1, { ARG_EXPR } },
+    { "SETX", 1, { ARG_EXPR } },
+    { "SETY", 1, { ARG_EXPR } },
+    { "GETX", 0, { 0 } },
+    { "GETY", 0, { 0 } },
+    { "HEADING", 0, { 0 } },
+    { "POS", 0, { 0 } },
+    { "CANVASSIZE", 0, { 0 } },
+    { "DISTANCE", 2, { ARG_EXPR, ARG_EXPR } },
+    { "TOWARDS", 1, { ARG_EXPR } },
     { "PENUP", 0, { 0 } },
     { "PU", 0, { 0 } },
     { "PENDOWN", 0, { 0 } },
@@ -440,6 +449,33 @@ static int parse_list_literal(Parser *p) {
             ast_append_child(p->pool, node, parse_list_literal(p));
         } else {
             int leaf = ast_alloc(p->pool, AST_WORD, tok->line, tok->col);
+            // A leading -/+ glued to the next token with no whitespace
+            // gap (e.g. -100 in [0 -100]) is a third instance of the
+            // same fidelity gap class as the " and : fixes above, just
+            // shaped differently: interpreter.c's own list-literal scan
+            // has no concept of tokens at all, just a run of
+            // non-whitespace/non-bracket characters, so [0 -100] is
+            // genuinely the 2-element list `0 -100`, not `0`, `-`,
+            // `100` (confirmed directly, not assumed -- COUNT [0 -100]
+            // is 2 in the real interpreter). This lexer's uniform
+            // tokenizing (needed for the rest of the grammar, where - is
+            // subtraction/negation) always splits a leading sign off as
+            // its own token; merge it back onto the very next token here
+            // to match -- checking adjacency via the token's own text
+            // pointers (no lexer whitespace-skip landed between them),
+            // not just token type, so `0 - 100` (real subtraction, a
+            // space on both sides) is correctly left as three elements.
+            const char *sign = "";
+            if (tok->type == LOGO_TOK_MINUS || tok->type == LOGO_TOK_PLUS) {
+                const LogoToken *next = &p->tokens[p->pos + 1];
+                if (next->type != LOGO_TOK_EOF && next->type != LOGO_TOK_ERROR &&
+                    next->type != LOGO_TOK_LBRACKET && next->type != LOGO_TOK_RBRACKET &&
+                    next->text == tok->text + tok->length) {
+                    sign = (tok->type == LOGO_TOK_MINUS) ? "-" : "+";
+                    advance_token(p); // consume the sign; tok becomes the merged-onto token below
+                    tok = next;
+                }
+            }
             if (tok->type == LOGO_TOK_QUOTED_WORD) {
                 // interpreter.c's own list-literal scan never treats "
                 // specially -- inside [...] it's just another
@@ -455,7 +491,7 @@ static int parse_list_literal(Parser *p) {
                 // FILTER/REDUCE's own template substitution needs to
                 // do at runtime (see eval.c's eval_value_to_source_text)
                 // to tell "b apart from a plain b when re-quoting it.
-                snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, "\"%.*s", tok->length, tok->text);
+                snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, "%s\"%.*s", sign, tok->length, tok->text);
             } else if (tok->type == LOGO_TOK_VARREF) {
                 // Same class of bug, same fix, for :name -- confirmed
                 // directly that PRINT [MAKE "sum :sum + ?] really does
@@ -466,7 +502,9 @@ static int parse_list_literal(Parser *p) {
                 // (`[MAKE "sum :sum + ?]`) silently lost the colon on
                 // every re-parse, so :sum read back as the unrelated
                 // bareword `sum` -- always 0, not a real accumulation.
-                snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, ":%.*s", tok->length, tok->text);
+                snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, "%s:%.*s", sign, tok->length, tok->text);
+            } else if (sign[0] != '\0') {
+                snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, "%s%.*s", sign, tok->length, tok->text);
             } else {
                 token_text_copy(tok, p->pool->nodes[leaf].text, AST_MAX_TEXT);
             }

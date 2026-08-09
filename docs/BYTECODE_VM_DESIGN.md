@@ -745,15 +745,55 @@ footprint.
   - 2 new `tests/test_eval.c` cases and 1 new shadow-diff script.
     Confirmed clean under AddressSanitizer on both `test_eval` and
     `test_shadow_diff`.
+- **Turtle state queries: done** (`GETX`/`GETY`/`HEADING`/`POS`/
+  `CANVASSIZE`/`SETX`/`SETY`/`DISTANCE`/`TOWARDS`, the second batch off
+  `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist). Direct ports: `GETX`/
+  `GETY`/`HEADING` read `current_turtle(app)` directly (already shared);
+  `POS`/`CANVASSIZE` reuse the existing `eval_list_wrap_pair` helper
+  `LIST` already built on; `SETX`/`SETY` reuse `move_turtle_to` (already
+  shared) holding the other axis fixed; `DISTANCE`/`TOWARDS` needed one
+  new pure helper, `eval_list_as_two_numbers` (mirrors interpreter.c's
+  own `list_as_two_numbers`), plus `TOWARDS`'s own `atan2`-based compass
+  bearing, ported verbatim including its `[0, 360)` normalization.
+  - **A third, differently-shaped instance of the `parse_list_literal`
+    fidelity gap, found while probing `TOWARDS`/`DISTANCE` against the
+    real interpreter** (not by a failing test — the same
+    probe-before-testing habit that caught the `:varref` case):
+    `[0 -100]` came back as a 3-element list (`0`, `-`, `100`) from this
+    engine instead of interpreter.c's genuine 2-element `0 -100`,
+    confirmed directly (`COUNT [0 -100]` is `2` in the real interpreter,
+    `3` here before the fix). Root cause is related to, but distinct
+    from, the earlier two bugs: those were about a lexer token *losing*
+    a marker character (`"`, `:`) before `parse_list_literal` ever saw
+    it; this one is about the lexer always splitting a *leading sign*
+    off as its own `LOGO_TOK_MINUS`/`LOGO_TOK_PLUS` token (needed
+    elsewhere, for subtraction/negation), where interpreter.c's own
+    list-literal scan has no token concept at all — just a run of
+    non-whitespace/non-bracket characters, so a glued sign is always
+    part of the following atom there. **Fixed** in `parse_list_literal`:
+    when an element token is `LOGO_TOK_MINUS`/`LOGO_TOK_PLUS` and the
+    very next token is textually adjacent (checked via the tokens' own
+    source pointers — `next->text == tok->text + tok->length` — not just
+    type, since there's no lexer-recorded "had whitespace before me"
+    flag), merge the sign onto that next token's own rendered element
+    text instead of emitting it as a separate element. Confirmed `[0 -
+    100]` (real subtraction, whitespace on both sides of the `-`) is
+    correctly left as three elements, and a glued `+` (`[0 +5]`) merges
+    the same way as `-`. This is the more consequential of the two
+    "worth a dedicated audit" bugs flagged after the `FOREACH` milestone
+    — negative coordinates in a list literal (`[x -y]`) are far more
+    common in real scripts than the quoted-word/varref cases that
+    surfaced the first two.
+  - 9 new `tests/test_eval.c` cases (including one exercising the
+    leading-sign fix directly against `COUNT`/`PRINT`/`FIRST BUTFIRST`,
+    plus the "real subtraction stays unmerged" and glued-`+` boundary
+    cases) and 1 new shadow-diff script (turtle motion plus queries in
+    one script, so the shadow-diff harness's own line-segment/final-
+    state comparison exercises the fix too, not just `PRINT` text).
+    Confirmed clean under AddressSanitizer on both `test_eval` and
+    `test_shadow_diff`.
 - **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist
-  — turtle state queries (`GETX`/`GETY`/`HEADING`/`POS`/`TOWARDS`/
-  `DISTANCE`/`SETX`/`SETY`/`CANVASSIZE`) are the next batch, followed by
-  the remaining word/list operators, introspection, control flow,
-  `TELL`, file I/O, and drawing primitives — see that file for the full
-  breakdown and what's deliberately out of scope. Worth a dedicated audit
-  at some point: the two `parse_list_literal` fidelity bugs found so far
-  (quoted words, then `:varref`s) both came from the same root cause —
-  the lexer strips a leading marker character that a list literal's
-  raw-text storage needs to keep — so any other token type whose lexer
-  form strips a marker (if one exists) is worth checking proactively
-  rather than waiting for a third template bug to surface it.
+  — the remaining word/list operators (`FLATTEN`/`SUBST`/`PARSE`/`PICK`/
+  `TEXT`/`DOT`/`CROSS`) are the next batch, followed by introspection,
+  control flow, `TELL`, file I/O, and drawing primitives — see that file
+  for the full breakdown and what's deliberately out of scope.
