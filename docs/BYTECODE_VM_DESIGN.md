@@ -586,8 +586,90 @@ footprint.
   evaluator regardless) were deliberately left out of this pass.
   Confirmed clean under AddressSanitizer on both `test_eval` and
   `test_shadow_diff`.
+- **Higher-order list operators: done** (`MEMBER?`/`MAP`/`FILTER`/
+  `REDUCE`). `MEMBER?` was a plain port (list membership via
+  `eval_values_equal`, word substring via `strstr`, everything else
+  falling back to whole-value equality — mirrors interpreter.c's own
+  `MEMBER?` exactly, including that fallback). `MAP`/`FILTER`/`REDUCE`
+  needed real new architecture: interpreter.c's own versions work by
+  substituting an element's text into a template string (`[? * 2]`,
+  `[?1 + ?2]`) and re-parsing the result, which is only possible there
+  because parsing and execution are the same pass. This evaluator has
+  no such single-pass parser to hook into mid-execution, so it goes
+  through the same lex -> parse -> eval pipeline any script does, just
+  on a short synthesized snippet each time — two new public entry
+  points, `logo_parse_expr`/`logo_parse_condition` in `parser.c`, parse
+  a standalone expression/condition instead of a whole program
+  (reusing the same `Parser` setup `logo_parse` already has, just
+  handing off to `parse_expr_value`/`parse_condition` directly instead
+  of `parse_statement` in a loop). `eval.c`'s own
+  `eval_apply_template_expr`/`eval_apply_template_condition` mirror
+  interpreter.c's `apply_template_expr`/`apply_template_condition`
+  (built on ported `eval_substitute_placeholder`/
+  `eval_value_to_source_text` helpers), reusing one caller-owned,
+  caller-reused `ParseResult` scratch buffer across a whole MAP/FILTER/
+  REDUCE call rather than one per list element (its `AstPool` is
+  ~6.7MB — the same heap-only rule as everywhere else `AstPool`/
+  `LogoApp` appears in this project). 21 new `tests/test_eval.c` cases
+  and 2 new shadow-diff scripts.
+  - **A real fidelity bug found and fixed along the way, in
+    `parse_list_literal` itself, not in the new MAP/FILTER/REDUCE
+    code**: confirmed directly against the running interpreter that
+    `PRINT [a "b c]` really does print `a "b c` — interpreter.c's own
+    list-literal scanning never treats `"` specially, so a quoted
+    word's leading `"` survives as literal data in the stored element
+    text (`APPLY "greet ["alice]` genuinely passes the 6-character
+    word `"alice`, confirmed directly too, not `alice`). This lexer's
+    own `"` handling had always stripped that mark before producing
+    the `QUOTED_WORD` token, and `parse_list_literal` copied the
+    token's already-stripped text straight into its `AST_WORD` leaf —
+    so a template like `FILTER [? = "b] [a b c b]` silently emptied out
+    instead of returning `b b`, because the substituted text lost the
+    one character (`"`) that told the runtime re-parse it was looking
+    at a quoted word rather than an unresolvable bareword. Fixed by
+    re-adding the `"` when a list literal's element token is a
+    `QUOTED_WORD`, making the new engine's list-literal storage
+    bit-for-bit match interpreter.c's for this case. This is a genuine
+    correctness fix, not a new capability — confirmed no existing test
+    exercised a quoted word as list-literal *data* before this (every
+    prior use was inside a block, e.g. `IF ... [PRINT "x]`, a
+    completely different grammar path unaffected by this change).
+  - **One existing test corrected, not the new fix reverted**: the
+    fix's necessary consequence is that `["alice]` used as a SEND
+    arglist is *also* now the literal 6-character word `"alice`
+    (confirmed the exact same quirk in interpreter.c's own `APPLY`,
+    the convention `SEND`'s own arglist mirrors) —
+    `test_send_passes_extra_message_arguments_after_self` had been
+    unknowingly relying on the *old*, incorrect quote-stripping
+    behavior. Corrected to use a bareword (`[alice]`), the actually
+    correct, idiomatic way to pass a clean word through a list-literal
+    argument, verified directly against `interpreter.c`'s own `APPLY`
+    before changing.
+  - **A known, deliberately avoided boundary case in the shadow-diff
+    corpus**: `FILTER`'s template is a condition, and this evaluator's
+    parenthesized-boolean-grouping capability (already documented as
+    new-engine-only) means a grouped template like
+    `[(? > 2) AND (? < 5)]` runs here but fails to parse at all in the
+    old engine — not a MAP/FILTER/REDUCE bug, the same pre-existing gap
+    already on record. The shadow-diff script uses the equivalent
+    ungrouped form (`[? > 2 AND ? < 5]`, supported by both) instead.
+  - Confirmed clean under AddressSanitizer on both `test_eval` and
+    `test_shadow_diff` — the new dynamic lex/parse/eval snippet path
+    (a form of recursion through the front end that didn't exist
+    before this) introduced no new stack-fragility regression.
+  - **An unrelated, pre-existing finding surfaced while ASan-testing
+    this**: running AddressSanitizer against `tests/test_interpreter.c`
+    directly (not part of this task, but done as an extra check) hit
+    the *already-documented* expression-position recursion fragility
+    in `eval_logo` itself (see [[eval_logo_recursion_margin]]) — some
+    existing test recurses close enough to that ~34-36-level margin to
+    overflow under instrumentation. Not caused by anything in this
+    milestone (`interpreter.c` is completely untouched by it — `git
+    diff` confirms zero changes), not investigated further here since
+    it's out of scope for higher-order list operators specifically, but
+    worth another pass at some point.
 - **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
-  fuller language coverage (more turtle commands, `MEMBER?`/`MAP`/
-  `FILTER`/`REDUCE`-style higher-order list operators), and growing
-  the shadow-diff corpus alongside it — the mechanism itself is
-  proven; the value from here on is coverage.
+  fuller language coverage (more turtle commands, `FOREACH`, file I/O,
+  `TELL`/multi-turtle), and growing the shadow-diff corpus alongside it
+  — the mechanism itself is proven; the value from here on is
+  coverage.

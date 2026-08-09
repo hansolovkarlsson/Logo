@@ -2,19 +2,26 @@
 //
 // See eval.h for scope/rationale. A note on what's deliberately NOT
 // here yet, matching parser.c's own "bounded slice, not full coverage"
-// framing: array values are never produced or consumed (SETITEM/ARRAY
-// aren't in BUILTIN_SIGNATURES yet, and a variable holding one reports
-// a clear message rather than silently misbehaving -- see eval_expr's
-// AST_VARREF case). List values ARE now supported (list_alloc_node/
-// list_node_copy/set_var_list, exposed in interpreter.h) -- list
-// literals, FIRST/BUTFIRST/LAST/BUTLAST/COUNT/EMPTY?/FPUT/LPUT/WORD/
-// SENTENCE/LIST all work, sharing the exact same app->list_pool
-// eval_logo's own list operators build into, so a list built by one
-// engine is indistinguishable from one built by the other. Ctrl+C
-// interrupt checking is still absent, since g_interrupt_requested is a
-// file-static flag in interpreter.c with no exposed getter. Both are
-// documented follow-up work in docs/BYTECODE_VM_DESIGN.md, not silent
-// gaps.
+// framing: Ctrl+C interrupt checking is absent, since
+// g_interrupt_requested is a file-static flag in interpreter.c with no
+// exposed getter -- documented follow-up work in
+// docs/BYTECODE_VM_DESIGN.md, not a silent gap. List and array values
+// ARE fully supported (list_alloc_node/list_node_copy/set_var_list/
+// set_var_array, exposed in interpreter.h), sharing the exact same
+// app->list_pool eval_logo's own list/array operators build into, so a
+// value built by one engine is indistinguishable from one built by the
+// other.
+//
+// MAP/FILTER/REDUCE's templates are the one place this file re-enters
+// the front end at runtime rather than just walking an already-built
+// AST: interpreter.c's own MAP/FILTER/REDUCE substitute an element's
+// text into a template string and re-parse it, only possible there
+// because parsing and execution are the same pass. This evaluator has
+// no such single-pass parser to hook into mid-execution, so it goes
+// through the same lex -> parse -> eval pipeline any script does, just
+// on a short synthesized snippet instead (see eval_apply_template_expr/
+// eval_apply_template_condition, and logo_parse_expr/
+// logo_parse_condition in parser.c).
 //
 // One deliberate, documented simplification worth knowing up front:
 // unlike the old interpreter (where FD/PRINT/MAKE/etc. are reachable
@@ -26,8 +33,12 @@
 // nobody writes real scripts this way, but real.
 
 #include "eval.h"
+#include "lexer.h"
+#include "parser.h"
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -200,6 +211,115 @@ static int eval_values_equal(LogoApp *app, EvalValue a, EvalValue b) {
     eval_value_to_text(app, a, a_text, sizeof(a_text));
     eval_value_to_text(app, b, b_text, sizeof(b_text));
     return strcasecmp(a_text, b_text) == 0;
+}
+
+static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx);
+
+// --- MAP/FILTER/REDUCE's template substitution ------------------------
+//
+// Each template (e.g. `[? * 2]`, `[?1 + ?2]`) is a list literal, so
+// eval_expr already hands back an ordinary VALUE_LIST whose elements
+// are the template's raw, untyped words -- exactly interpreter.c's own
+// template_val. Rendering that list back to flat text (via the
+// already-existing list_elements_to_text), substituting the current
+// element's text in for "?"/"?1"/"?2", then lexing+parsing+evaluating
+// the result is this evaluator's equivalent of interpreter.c's
+// apply_template_expr/apply_template_condition -- see the file comment
+// at the top of this file for why it has to go through the front end
+// again rather than something more direct.
+
+// Whether `word`'s entire text parses as a number (not just a leading
+// prefix) -- mirrors interpreter.c's own word_is_entirely_a_number,
+// used only to decide whether eval_value_to_source_text below is safe
+// to substitute a WORD bare vs. needing 'raw text' quoting.
+static int eval_word_is_entirely_a_number(const char *word) {
+    if (word[0] == '\0') return 0;
+    char *end;
+    strtod(word, &end);
+    return *end == '\0';
+}
+
+// Like eval_value_to_text, but always brackets a list and quotes a
+// non-numeric word with 'raw text' syntax -- for when the rendered
+// text is about to be *re-parsed* as Logo source (this file's template
+// substitution) rather than shown to a person. Mirrors interpreter.c's
+// own value_to_source_text exactly, including its reasoning: a
+// substituted list needs to look like literal [...] syntax so
+// parse_factor/parse_bareword_value's own `[` branch reconstructs it
+// as one value again, and a substituted non-numeric word needs 'raw
+// text' quoting so it lexes back as a single WORD token rather than
+// spilling into the surrounding template as its own bareword.
+static void eval_value_to_source_text(LogoApp *app, EvalValue v, char *out, size_t out_size) {
+    if (v.type == VALUE_LIST) {
+        char inner[512];
+        list_elements_to_text(app, v.list_head, inner, sizeof(inner));
+        snprintf(out, out_size, "[%s]", inner);
+    } else if (v.type == VALUE_WORD && !eval_word_is_entirely_a_number(v.word)) {
+        snprintf(out, out_size, "'%s'", v.word);
+    } else {
+        eval_value_to_text(app, v, out, out_size);
+    }
+}
+
+// Substitute every whitespace-delimited occurrence of `placeholder` in
+// `template_text` with `replacement` -- a token-for-token swap, not a
+// substring replacement (so "?2" is left alone when substituting "?").
+// Mirrors interpreter.c's own substitute_placeholder exactly.
+static void eval_substitute_placeholder(const char *template_text, const char *placeholder, const char *replacement, char *out, size_t out_size) {
+    out[0] = '\0';
+    const char *p = template_text;
+    int first = 1;
+    while (*p) {
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (!*p) break;
+        char token[512] = {0};
+        int n = 0;
+        if (sscanf(p, "%511s%n", token, &n) != 1 || n == 0) break;
+        if (!first) strncat(out, " ", out_size - strlen(out) - 1);
+        first = 0;
+        strncat(out, strcmp(token, placeholder) == 0 ? replacement : token, out_size - strlen(out) - 1);
+        p += n;
+    }
+}
+
+#define MAX_TEMPLATE_TOKENS 128
+
+// Substitute `element` for every "?" in `template_text`, then lex,
+// parse, and evaluate the result as an expression -- MAP/REDUCE's own
+// operator form. `scratch` is a caller-owned, caller-reused ParseResult
+// (its AstPool is ~6.7MB, too large to calloc fresh per list element --
+// same heap-only rule as everywhere else this project uses AstPool/
+// LogoApp). A malformed template (lex or parse failure) reads as 0,
+// same "quietly inert rather than crashing" fallback interpreter.c's
+// own parse_expr effectively gets by returning word_value("") on its
+// own internal errors.
+static EvalValue eval_apply_template_expr(LogoApp *app, const char *template_text, EvalValue element, ParseResult *scratch) {
+    char el_text[512], expr_text[512];
+    eval_value_to_source_text(app, element, el_text, sizeof(el_text));
+    eval_substitute_placeholder(template_text, "?", el_text, expr_text, sizeof(expr_text));
+    LogoToken tokens[MAX_TEMPLATE_TOKENS];
+    int n = logo_lex(expr_text, tokens, MAX_TEMPLATE_TOKENS);
+    if (n < 0) return num_val(0);
+    int node = logo_parse_expr(tokens, n, scratch);
+    if (node < 0) return num_val(0);
+    return eval_expr(app, &scratch->pool, node);
+}
+
+// Same substitution as eval_apply_template_expr, but parses the result
+// as a *condition* (comparisons, AND/OR/NOT) instead of a plain
+// expression -- FILTER's template is a predicate (e.g. `[? > 2]`), and
+// an expression-only parse doesn't understand `>` at all. Mirrors
+// interpreter.c's own apply_template_condition.
+static int eval_apply_template_condition(LogoApp *app, const char *template_text, EvalValue element, ParseResult *scratch) {
+    char el_text[512], expr_text[512];
+    eval_value_to_source_text(app, element, el_text, sizeof(el_text));
+    eval_substitute_placeholder(template_text, "?", el_text, expr_text, sizeof(expr_text));
+    LogoToken tokens[MAX_TEMPLATE_TOKENS];
+    int n = logo_lex(expr_text, tokens, MAX_TEMPLATE_TOKENS);
+    if (n < 0) return 0;
+    int node = logo_parse_condition(tokens, n, scratch);
+    if (node < 0) return 0;
+    return eval_is_truthy(eval_expr(app, &scratch->pool, node));
 }
 
 // --- List-construction operators (FPUT/LPUT/SENTENCE/LIST/BUTLAST) --
@@ -416,7 +536,6 @@ static EvalValue eval_proplist(LogoApp *app, EvalValue name_val) {
     return list_val(head);
 }
 
-static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx);
 static int eval_condition(LogoApp *app, AstPool *pool, int node_idx);
 static void exec_block(LogoApp *app, AstPool *pool, int block_node);
 static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved, int *produced, EvalValue *result);
@@ -789,6 +908,28 @@ static EvalValue do_sentence(LogoApp *app, AstPool *pool, const int *arg_idx) {
 static EvalValue do_list(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return eval_list_wrap_pair(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
+// MEMBER? thing container -- a list checks element membership
+// (eval_values_equal per element), a word checks substring containment
+// (its "elements" are characters), anything else (a number, or an
+// array -- interpreter.c has no special ARRAY case here either) falls
+// back to treating `container` as a single one-element value. Mirrors
+// interpreter.c's own MEMBER? exactly, including that fallback.
+static EvalValue do_memberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue thing = eval_expr(app, pool, arg_idx[0]);
+    EvalValue container = eval_expr(app, pool, arg_idx[1]);
+    if (container.type == VALUE_LIST) {
+        for (int idx = container.list_head; idx != -1; idx = app->list_pool[idx].next) {
+            if (eval_values_equal(app, thing, node_to_value(&app->list_pool[idx]))) return word_val("TRUE");
+        }
+        return word_val("FALSE");
+    }
+    if (container.type == VALUE_WORD) {
+        char thing_text[512];
+        eval_value_to_text(app, thing, thing_text, sizeof(thing_text));
+        return word_val(strstr(container.word, thing_text) != NULL ? "TRUE" : "FALSE");
+    }
+    return word_val(eval_values_equal(app, thing, container) ? "TRUE" : "FALSE");
+}
 // ARRAY size -- allocates `size` contiguous list_pool cells (direct
 // index math, not chain-walked -- see array_val's own comment), each
 // starting out an empty list. Mirrors interpreter.c's own ARRAY exactly.
@@ -889,6 +1030,97 @@ static void do_fillarray(LogoApp *app, AstPool *pool, const int *arg_idx) {
             eval_array_store_cell(&app->list_pool[array_val_.list_head + i], new_val);
         }
     }
+}
+// MAP template list -- applies `template` (see the file comment near
+// eval_apply_template_expr) to each element of `list`, collecting the
+// results into a new list. Mirrors interpreter.c's own MAP exactly,
+// including its handling of a non-list `list` argument (wrapped as a
+// one-element list via value_to_node first, same as
+// list_node_from_value there).
+static EvalValue do_map(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+    char template_text[512];
+    eval_value_to_text(app, template_val, template_text, sizeof(template_text));
+
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    ParseResult *scratch = calloc(1, sizeof(ParseResult));
+    int new_head = -1;
+    int *next_slot = &new_head;
+    for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+        EvalValue result = eval_apply_template_expr(app, template_text, node_to_value(&app->list_pool[idx]), scratch);
+        int node = value_to_node(app, result);
+        if (node < 0) {
+            free(scratch);
+            return list_pool_exhausted(app);
+        }
+        *next_slot = node;
+        next_slot = &app->list_pool[node].next;
+    }
+    free(scratch);
+    return list_val(new_head);
+}
+// FILTER template list -- keeps each element of `list` whose template
+// (evaluated as a *condition*, e.g. `[? > 2]`) is truthy, in a new
+// list; a kept element is copied as-is (list_node_copy), not replaced
+// by the template's own boolean result. Mirrors interpreter.c's own
+// FILTER exactly.
+static EvalValue do_filter(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+    char template_text[512];
+    eval_value_to_text(app, template_val, template_text, sizeof(template_text));
+
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    ParseResult *scratch = calloc(1, sizeof(ParseResult));
+    int new_head = -1;
+    int *next_slot = &new_head;
+    for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+        if (eval_apply_template_condition(app, template_text, node_to_value(&app->list_pool[idx]), scratch)) {
+            int node = list_node_copy(app, idx);
+            if (node < 0) {
+                free(scratch);
+                return list_pool_exhausted(app);
+            }
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+    }
+    free(scratch);
+    return list_val(new_head);
+}
+// REDUCE template list -- folds left-to-right, seeding the accumulator
+// with the list's own first element (no separate start-value
+// argument); the template uses ?1 for the accumulator so far and ?2
+// for the current element (REDUCE [?1 + ?2] [1 2 3 4] sums to 10).
+// Inlines its own two-placeholder substitution rather than reusing
+// eval_apply_template_expr (which only knows "?"), same as
+// interpreter.c's own REDUCE does relative to apply_template_expr.
+static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+    char template_text[512];
+    eval_value_to_text(app, template_val, template_text, sizeof(template_text));
+
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    if (iter_head == -1) return num_val(0); // nothing to reduce
+
+    ParseResult *scratch = calloc(1, sizeof(ParseResult));
+    EvalValue acc = node_to_value(&app->list_pool[iter_head]);
+    for (int idx = app->list_pool[iter_head].next; idx != -1; idx = app->list_pool[idx].next) {
+        char acc_text[512], el_text[512], after_1[512], expr_text[512];
+        EvalValue el = node_to_value(&app->list_pool[idx]);
+        eval_value_to_source_text(app, acc, acc_text, sizeof(acc_text));
+        eval_value_to_source_text(app, el, el_text, sizeof(el_text));
+        eval_substitute_placeholder(template_text, "?1", acc_text, after_1, sizeof(after_1));
+        eval_substitute_placeholder(after_1, "?2", el_text, expr_text, sizeof(expr_text));
+        LogoToken tokens[MAX_TEMPLATE_TOKENS];
+        int n = logo_lex(expr_text, tokens, MAX_TEMPLATE_TOKENS);
+        int node = (n < 0) ? -1 : logo_parse_expr(tokens, n, scratch);
+        if (node >= 0) acc = eval_expr(app, &scratch->pool, node);
+    }
+    free(scratch);
+    return acc;
 }
 static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
@@ -1116,6 +1348,18 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "LIST") == 0) {
         if (result != NULL) *result = do_list(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "MEMBER?") == 0) {
+        if (result != NULL) *result = do_memberp(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "MAP") == 0) {
+        if (result != NULL) *result = do_map(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "FILTER") == 0) {
+        if (result != NULL) *result = do_filter(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "REDUCE") == 0) {
+        if (result != NULL) *result = do_reduce(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "ARRAY") == 0) {
         if (result != NULL) *result = do_array(app, pool, arg_idx);

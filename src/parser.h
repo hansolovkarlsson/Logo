@@ -52,4 +52,21 @@ typedef struct {
 // the same script.
 void logo_parse(const LogoToken *tokens, int token_count, ParseResult *result);
 
+// Parses `tokens` as a single standalone expression (arithmetic only,
+// no comparisons/AND/OR/NOT) rather than a whole program -- used by
+// eval.c's MAP/REDUCE to re-parse a template snippet at runtime after
+// substituting an element's text in for `?`/`?1`/`?2`, mirroring
+// interpreter.c's own parse_expr(app, &ptr) entry point serving the
+// exact same purpose there. Returns the parsed expression's node
+// index (into result->pool, which -- like logo_parse's -- is reset by
+// this call), or -1 if result->error_count is nonzero afterward.
+int logo_parse_expr(const LogoToken *tokens, int token_count, ParseResult *result);
+
+// Same as logo_parse_expr, but for a condition (comparisons, NOT/AND/
+// OR) -- FILTER's template is a predicate (e.g. `[? > 2]`), and a bare
+// arithmetic expression parse doesn't understand `>` at all, mirroring
+// interpreter.c's own parse_condition(app, &ptr) used for the same
+// reason.
+int logo_parse_condition(const LogoToken *tokens, int token_count, ParseResult *result);
+
 #endif

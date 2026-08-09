@@ -111,6 +111,16 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SENTENCE", 2, { ARG_EXPR, ARG_EXPR } },
     { "SE", 2, { ARG_EXPR, ARG_EXPR } },
     { "LIST", 2, { ARG_EXPR, ARG_EXPR } },
+    { "MEMBER?", 2, { ARG_EXPR, ARG_EXPR } },
+    // MAP/FILTER/REDUCE's first argument is a template list literal
+    // (e.g. [? * 2]), parsed as ordinary ARG_EXPR data like any other
+    // list -- eval.c re-lexes/re-parses its rendered text at runtime
+    // for each element (see eval.c's own file comment), same as
+    // interpreter.c's own MAP/FILTER/REDUCE re-parse it via parse_expr/
+    // parse_condition mid-execution.
+    { "MAP", 2, { ARG_EXPR, ARG_EXPR } },
+    { "FILTER", 2, { ARG_EXPR, ARG_EXPR } },
+    { "REDUCE", 2, { ARG_EXPR, ARG_EXPR } },
 
     // Property lists (eval.c: a separate namespace from ordinary
     // variables, sharing app->plist_entries directly with eval_logo's
@@ -414,7 +424,25 @@ static int parse_list_literal(Parser *p) {
             ast_append_child(p->pool, node, parse_list_literal(p));
         } else {
             int leaf = ast_alloc(p->pool, AST_WORD, tok->line, tok->col);
-            token_text_copy(tok, p->pool->nodes[leaf].text, AST_MAX_TEXT);
+            if (tok->type == LOGO_TOK_QUOTED_WORD) {
+                // interpreter.c's own list-literal scan never treats "
+                // specially -- inside [...] it's just another
+                // character, so PRINT [a "b c] really does print `a "b
+                // c` with the quote mark included (confirmed directly
+                // against the running interpreter, not assumed): the
+                // stored element is the literal text `"b`, not `b`.
+                // This lexer's own " handling strips the mark before
+                // the token ever reaches here, so it's added back to
+                // match -- otherwise a quoted-word list element could
+                // never be told apart from a bareword one once it's
+                // re-serialized to text, which is exactly what MAP/
+                // FILTER/REDUCE's own template substitution needs to
+                // do at runtime (see eval.c's eval_value_to_source_text)
+                // to tell "b apart from a plain b when re-quoting it.
+                snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, "\"%.*s", tok->length, tok->text);
+            } else {
+                token_text_copy(tok, p->pool->nodes[leaf].text, AST_MAX_TEXT);
+            }
             advance_token(p);
             ast_append_child(p->pool, node, leaf);
         }
@@ -733,4 +761,33 @@ void logo_parse(const LogoToken *tokens, int token_count, ParseResult *result) {
         ast_append_child(p.pool, program, parse_statement(&p));
     }
     result->program = program;
+}
+
+// Shared setup for logo_parse_expr/logo_parse_condition: a fresh
+// Parser over `tokens`, its own (reset) pool, no hoisted procedures
+// (a template snippet never defines one) -- then hands off to
+// whichever grammar entry point the caller wants.
+static int parse_snippet(const LogoToken *tokens, int token_count, ParseResult *result, int (*entry)(Parser *)) {
+    result->pool.node_count = 0;
+    result->error_count = 0;
+
+    Parser p;
+    p.tokens = tokens;
+    p.token_count = token_count;
+    p.pos = 0;
+    p.pool = &result->pool;
+    p.result = result;
+    p.hoisted_count = 0;
+
+    int node = entry(&p);
+    result->program = node;
+    return result->error_count > 0 ? -1 : node;
+}
+
+int logo_parse_expr(const LogoToken *tokens, int token_count, ParseResult *result) {
+    return parse_snippet(tokens, token_count, result, parse_expr_value);
+}
+
+int logo_parse_condition(const LogoToken *tokens, int token_count, ParseResult *result) {
+    return parse_snippet(tokens, token_count, result, parse_condition);
 }

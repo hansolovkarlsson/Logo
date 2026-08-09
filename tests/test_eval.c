@@ -487,6 +487,93 @@ TEST(test_type_predicates_on_an_array) {
     CHECK_STREQ(captured_output, "FALSE\nFALSE\nFALSE\nTRUE\n");
 }
 
+TEST(test_memberp_on_list_and_number) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "PRINT MEMBER? \"b [a b c]\n"
+        "PRINT MEMBER? \"z [a b c]\n"
+        "PRINT MEMBER? 2 [1 2 3]\n"
+        "PRINT MEMBER? 5 5\n"
+        "PRINT MEMBER? 5 6");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\nTRUE\nTRUE\nFALSE\n");
+}
+
+TEST(test_memberp_on_word_is_substring) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT MEMBER? \"ell \"hello\nPRINT MEMBER? \"xyz \"hello");
+    CHECK_STREQ(captured_output, "TRUE\nFALSE\n");
+}
+
+TEST(test_map_transforms_each_element) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT MAP [? * 2] [1 2 3]");
+    CHECK_STREQ(captured_output, "2 4 6\n");
+}
+
+TEST(test_map_on_a_bare_number) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT MAP [? + 1] 5");
+    CHECK_STREQ(captured_output, "6\n");
+}
+
+TEST(test_map_preserves_nested_list_elements) {
+    // A list-typed element must round-trip through the template with
+    // its brackets intact, or its tokens would spill into the
+    // surrounding expression instead of staying one value.
+    LogoApp *app = new_app();
+    run_source(app, "PRINT MAP [COUNT ?] [[1 2] [3 4 5]]");
+    CHECK_STREQ(captured_output, "2 3\n");
+}
+
+TEST(test_map_with_word_elements) {
+    // Every bracket-list element is internally a VALUE_WORD regardless
+    // of whether it looks numeric -- this exercises a genuinely
+    // non-numeric word element, which must come back out of the
+    // template quoted ('raw text'), not as bare text that looks like
+    // an attempted command.
+    LogoApp *app = new_app();
+    run_source(app, "PRINT MAP [FIRST ?] [foo bar]");
+    CHECK_STREQ(captured_output, "f b\n");
+}
+
+TEST(test_filter_keeps_matching_elements) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT FILTER [? > 2] [1 2 3 4]");
+    CHECK_STREQ(captured_output, "3 4\n");
+}
+
+TEST(test_filter_with_word_elements) {
+    // Exercises parse_list_literal's quoted-word handling directly:
+    // "b inside the template list literal must keep its literal "
+    // (matching interpreter.c's own raw list-literal scan, which never
+    // treats " specially there) so that substituting an element's own
+    // text back in and re-parsing sees a real quoted-word comparison
+    // again, not a bareword "unknown word" parse failure.
+    LogoApp *app = new_app();
+    run_source(app, "PRINT FILTER [? = \"b] [a b c b]");
+    CHECK_STREQ(captured_output, "b b\n");
+}
+
+TEST(test_reduce_folds_left_to_right) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT REDUCE [?1 + ?2] [1 2 3 4]");
+    CHECK_STREQ(captured_output, "10\n");
+}
+
+TEST(test_reduce_of_single_element_list_is_that_element) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT REDUCE [?1 + ?2] [5]");
+    CHECK_STREQ(captured_output, "5\n");
+}
+
+TEST(test_reduce_concatenates_word_elements) {
+    // Exercises eval_value_to_source_text on the accumulator itself (a
+    // WORD, not just the current element) across repeated iterations.
+    LogoApp *app = new_app();
+    run_source(app, "PRINT REDUCE [WORD ?1 ?2] [a b c]");
+    CHECK_STREQ(captured_output, "abc\n");
+}
+
 TEST(test_setprop_getprop_round_trips_a_number_word_and_list) {
     LogoApp *app = new_app();
     run_source(app,
@@ -594,6 +681,11 @@ TEST(test_send_inherits_methods_but_not_data_fields) {
 }
 
 TEST(test_send_passes_extra_message_arguments_after_self) {
+    // A bareword inside the arglist, not "alice -- a quoted word inside
+    // a list literal keeps its literal " as part of the stored text
+    // (confirmed directly against interpreter.c's own list-literal
+    // scanning, which never treats " specially there), so "alice would
+    // arrive as the 6-character word `"alice`, not a clean `alice`.
     LogoApp *app = new_app();
     run_source(app,
         "TO animal_greet :self :name\n"
@@ -601,7 +693,7 @@ TEST(test_send_passes_extra_message_arguments_after_self) {
         "END\n"
         "NEW \"dog \"nothing\n"
         "SETPROP \"dog \"greet \"animal_greet\n"
-        "SEND \"dog \"greet [\"alice]");
+        "SEND \"dog \"greet [alice]");
     CHECK_STREQ(captured_output, "dog hi alice\n");
 }
 
@@ -728,6 +820,17 @@ int main(void) {
     RUN(test_type_predicates_on_a_number);
     RUN(test_type_predicates_on_a_list);
     RUN(test_type_predicates_on_an_array);
+    RUN(test_memberp_on_list_and_number);
+    RUN(test_memberp_on_word_is_substring);
+    RUN(test_map_transforms_each_element);
+    RUN(test_map_on_a_bare_number);
+    RUN(test_map_preserves_nested_list_elements);
+    RUN(test_map_with_word_elements);
+    RUN(test_filter_keeps_matching_elements);
+    RUN(test_filter_with_word_elements);
+    RUN(test_reduce_folds_left_to_right);
+    RUN(test_reduce_of_single_element_list_is_that_element);
+    RUN(test_reduce_concatenates_word_elements);
     RUN(test_setprop_getprop_round_trips_a_number_word_and_list);
     RUN(test_getprop_of_missing_property_is_the_empty_list);
     RUN(test_setprop_on_same_key_overwrites_not_duplicates);

@@ -591,7 +591,7 @@ TEST(test_send_passes_extra_message_arguments) {
         "END\n"
         "NEW \"dog \"nothing\n"
         "SETPROP \"dog \"greet \"animal_greet\n"
-        "SEND \"dog \"greet [\"alice]");
+        "SEND \"dog \"greet [alice]");
 }
 
 TEST(test_send_operator_form_captures_output) {
@@ -705,6 +705,41 @@ TEST(test_type_predicates_on_every_value_kind) {
         "PRINT WORD? :a\nPRINT LIST? :a\nPRINT NUMBER? :a\nPRINT ARRAY? :a");
 }
 
+TEST(test_memberp_on_list_word_and_number) {
+    shadow_diff(
+        "PRINT MEMBER? \"b [a b c]\n"
+        "PRINT MEMBER? \"z [a b c]\n"
+        "PRINT MEMBER? 2 [1 2 3]\n"
+        "PRINT MEMBER? 5 5\n"
+        "PRINT MEMBER? 5 6\n"
+        "PRINT MEMBER? \"ell \"hello\n"
+        "PRINT MEMBER? \"xyz \"hello");
+}
+
+TEST(test_map_filter_reduce_over_numbers_and_words) {
+    shadow_diff(
+        "PRINT MAP [? * 2] [1 2 3]\n"
+        "PRINT MAP [? + 1] 5\n"
+        "PRINT MAP [COUNT ?] [[1 2] [3 4 5]]\n"
+        "PRINT MAP [FIRST ?] [foo bar]\n"
+        "PRINT FILTER [? > 2] [1 2 3 4]\n"
+        // Not parenthesized -- FILTER's template goes through the same
+        // parse_condition grammar as IF/WHILE, and the old engine has
+        // no ( ... ) boolean grouping at all (see the resolved boolean-
+        // grouping decision in docs/BYTECODE_VM_DESIGN.md), so a
+        // grouped version here would diverge for a reason that has
+        // nothing to do with FILTER itself.
+        "PRINT FILTER [? > 2 AND ? < 5] [1 2 3 4 5 6]\n"
+        // Exercises parse_list_literal's quoted-word fidelity fix: "b
+        // inside this template must keep its literal " (see
+        // test_filter_with_word_elements in test_eval.c) for the
+        // element-substitution round-trip to compare correctly at all.
+        "PRINT FILTER [? = \"b] [a b c b]\n"
+        "PRINT REDUCE [?1 + ?2] [1 2 3 4]\n"
+        "PRINT REDUCE [?1 + ?2] [5]\n"
+        "PRINT REDUCE [WORD ?1 ?2] [a b c]");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -760,6 +795,8 @@ int main(void) {
     RUN(test_array_aliasing_through_make_and_procedure_arguments);
     RUN(test_array_errors_match_between_engines);
     RUN(test_type_predicates_on_every_value_kind);
+    RUN(test_memberp_on_list_word_and_number);
+    RUN(test_map_filter_reduce_over_numbers_and_words);
 
     if (failures == 0) {
         printf("All tests passed.\n");
