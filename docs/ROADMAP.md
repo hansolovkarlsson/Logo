@@ -49,6 +49,73 @@ or `call_procedure` at all.
   footprint, and growing Logo past "toy language" scope generally) —
   design discussion in progress there before any of it is implemented.
 
+### Phase 5, Stage 1 — new evaluator built-in coverage
+
+The real lexer/parser/AST/tree-walking evaluator itself (see
+`docs/BYTECODE_VM_DESIGN.md`) is done and proven — the mechanism works,
+confirmed by a shadow-diff harness that runs the same script through both
+engines and checks they agree. What's left is coverage: growing
+`BUILTIN_SIGNATURES`/`eval.c` toward the ~150 operators
+`interpreter.c` already has, one `do_*` function at a time (each gets its
+own function — see `eval.c`'s file comment — plus shadow-diff tests, and
+the ground-truth-against-the-real-interpreter verification habit this
+project has already caught two real fidelity bugs with). Grouped by natural
+work batches, each roughly a "commit and push" unit; check off a group as it
+lands and delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has
+the detail, per this file's usual convention.
+
+- [ ] Math operators: `SIN`/`COS`/`TAN`/`ASIN`/`ACOS`/`ARCTAN`/`LN`/`LOG`/
+  `EXP`/`MOD`. Straightforward, same shape as `ABS`/`SQRT`/`POWER` already
+  ported.
+- [ ] Turtle state queries: `GETX`/`GETY`/`HEADING`/`POS`/`TOWARDS`/
+  `DISTANCE`/`SETX`/`SETY`/`CANVASSIZE`. Read-only or simple-write
+  extensions of the turtle state `FD`/`SETXY`/etc. already share via
+  `current_turtle`.
+- [ ] Remaining word/list operators: `FLATTEN`/`SUBST`/`PARSE`/`PICK`/
+  `TEXT`/`DOT`/`CROSS` (see `docs/LANGUAGE.md`'s "FLATTEN, PARSE, SUBST"
+  and "DOT, CROSS" sections).
+- [ ] Variable/procedure introspection: `THING`/`NAMES`/`PROCEDURES`/
+  `LOCAL`.
+- [ ] Deferred execution and control flow: `RUN`/`APPLY`/`FOR`/`FOREVER`/
+  `CATCH`/`THROW`. `RUN`/`APPLY` need the same re-entrant lex/parse
+  machinery `FOREACH` just built (running a word/list as a fresh
+  program); `CATCH`/`THROW` need genuinely new state (an unwind target),
+  unlike anything ported so far.
+- [ ] `TELL`/multi-turtle: needs exposing `app->turtles[]`/`turtle_count`/
+  `MAX_TURTLES`/`init_turtle` from `interpreter.c` (only `current_turtle`
+  is shared today) — bigger surface-area change than the groups above.
+- [ ] File I/O: `OPENREAD`/`OPENWRITE`/`OPENAPPEND`/`CLOSE`/`READLINE`/
+  `FILEPRINT`/`EOF?`/`DELETEFILE`/`DIRECTORY`/`LOAD`/`SAVE` (see
+  `docs/LANGUAGE.md`'s "Files" section). Needs file-handle state not yet
+  shared with the new engine.
+- [ ] Drawing/canvas primitives: `ARC`/`LABEL`/`FILL`/`ERASE`/`ERASERECT`/
+  `WRAP`/`FENCE`/`CLEAN`/`HIDETURTLE`/`SHOWTURTLE`/`SETPENCOLOR`/
+  `SETPENWIDTH`/`SETBACKGROUND`/`SETCANVASSIZE`.
+
+Deliberately **not** planned for Stage 1, and not just "not done yet":
+- `WAITKEY`/`INPUT`/`PAUSE`/`WAIT`/`BUTTON?`/`JOYSTICK?`/`JOYSTICKAXIS`/
+  `JOYSTICKBUTTON?`/`MOUSEPOS`/`MOUSEX`/`MOUSEY` — every one of these is
+  either the busy-wait suspend/resume mechanism Phase 4 built for
+  `eval_logo`, or a live hardware/event query with no meaning for a
+  headless test-driven evaluator. The bytecode VM (the other Phase 5
+  bullet above) is the actual fix for the underlying suspend/resume
+  problem; porting a busy-wait shim into the new engine first would be
+  solving it twice, the second time throwaway. (`EOF?`/`BUTTON?`/
+  `JOYSTICK?`-family predicates were already flagged out of scope for
+  this same reason when type predicates landed — see
+  `docs/BYTECODE_VM_DESIGN.md`.)
+- `TONE`/`PLAYSOUND`/`STOPSOUND`, sprites/animation (`LOADSPRITE`/
+  `LOADSPRITESHEET`/`SETSPRITE`/`SETSPRITEFRAME`/`STAMPSPRITE`/
+  `ANIMATESPRITE`/`LOADPIC`/`SAVEPIC`), and `WINDOW` — real features, but
+  large, GTK/SDL-state-heavy surface area disproportionate to what a
+  research/learning evaluator needs; revisit only if Stage 1 coverage
+  becomes the thing actually driving the real app (`bin/logo` still runs
+  exclusively on `eval_logo` today — see `docs/BYTECODE_VM_DESIGN.md`).
+- `PAUSE`/`CONTINUE`/`BACKTRACE`/`EXECTIME` — the debugger commands are
+  intrinsically tied to `eval_logo`'s own live-pause mechanism (see
+  `docs/LANGUAGE.md`'s "Debugger" section); no equivalent concept exists
+  in a tree-walking evaluator with no suspend point yet.
+
 ## Robustness
 
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
