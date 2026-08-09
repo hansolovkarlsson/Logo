@@ -27,4 +27,14 @@
 // by logo_parse) against `app`.
 void ast_eval(LogoApp *app, AstPool *pool, int program_node);
 
+// Same as ast_eval, but starting from an arbitrary node in a sibling
+// chain (`start_node`, and everything reachable via its own
+// `next_sibling` links) rather than always a whole program's first
+// statement -- lets a caller that reruns a growing accumulated source
+// from scratch each time (see tools/logo_new_cli.c's REPL) skip
+// re-executing statements it already ran in an earlier pass, while
+// still parsing (and so still resolving find_proc_def against) the
+// full accumulated source. `-1` runs nothing, matching an empty block.
+void ast_eval_from(LogoApp *app, AstPool *pool, int start_node);
+
 #endif

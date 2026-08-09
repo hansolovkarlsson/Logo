@@ -2267,9 +2267,15 @@ static void exec_block(LogoApp *app, AstPool *pool, int block_node) {
 // (rather than one exec_block call) so that recovery can happen after
 // each one and let the *rest* of the top-level script keep running,
 // instead of a single uncaught THROW aborting everything that follows
-// it in the same script.
-void ast_eval(LogoApp *app, AstPool *pool, int program_node) {
-    for (int c = pool->nodes[program_node].first_child; c >= 0; c = pool->nodes[c].next_sibling) {
+// it in the same script. Takes a starting node index rather than
+// always `pool->nodes[program_node].first_child`, so a caller that
+// re-parses a growing accumulated source from scratch each time (e.g.
+// tools/logo_new_cli.c's REPL, re-running the whole session so far to
+// keep earlier TO definitions resolvable via find_proc_def) can run
+// only the newly added tail statements instead of re-executing
+// everything already run in an earlier turn.
+void ast_eval_from(LogoApp *app, AstPool *pool, int start_node) {
+    for (int c = start_node; c >= 0; c = pool->nodes[c].next_sibling) {
         exec_statement(app, pool, c);
         if (app->throw_requested) {
             append_output(app, "THROW: no CATCH found for \"");
@@ -2284,4 +2290,8 @@ void ast_eval(LogoApp *app, AstPool *pool, int program_node) {
     // and silently no-op every later top-level statement.
     if (app->stop_requested) app->stop_requested = FALSE;
     app->has_output_value = FALSE;
+}
+
+void ast_eval(LogoApp *app, AstPool *pool, int program_node) {
+    ast_eval_from(app, pool, pool->nodes[program_node].first_child);
 }
