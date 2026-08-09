@@ -121,6 +121,12 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "MAP", 2, { ARG_EXPR, ARG_EXPR } },
     { "FILTER", 2, { ARG_EXPR, ARG_EXPR } },
     { "REDUCE", 2, { ARG_EXPR, ARG_EXPR } },
+    // FOREACH's template is a statement, not an expression/condition
+    // (e.g. [PRINT ?]), but it's still just ARG_EXPR data here at parse
+    // time -- eval.c parses it as a whole program via logo_parse, not
+    // logo_parse_expr/logo_parse_condition, once it has an element's
+    // text to substitute in.
+    { "FOREACH", 2, { ARG_EXPR, ARG_EXPR } },
 
     // Property lists (eval.c: a separate namespace from ordinary
     // variables, sharing app->plist_entries directly with eval_logo's
@@ -440,6 +446,17 @@ static int parse_list_literal(Parser *p) {
                 // do at runtime (see eval.c's eval_value_to_source_text)
                 // to tell "b apart from a plain b when re-quoting it.
                 snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, "\"%.*s", tok->length, tok->text);
+            } else if (tok->type == LOGO_TOK_VARREF) {
+                // Same class of bug, same fix, for :name -- confirmed
+                // directly that PRINT [MAKE "sum :sum + ?] really does
+                // print `:sum` with the colon intact, and this lexer's
+                // own : handling strips it before the token reaches
+                // here (see the LOGO_TOK_QUOTED_WORD case just above).
+                // Surfaced by FOREACH: a template that reads a variable
+                // (`[MAKE "sum :sum + ?]`) silently lost the colon on
+                // every re-parse, so :sum read back as the unrelated
+                // bareword `sum` -- always 0, not a real accumulation.
+                snprintf(p->pool->nodes[leaf].text, AST_MAX_TEXT, ":%.*s", tok->length, tok->text);
             } else {
                 token_text_copy(tok, p->pool->nodes[leaf].text, AST_MAX_TEXT);
             }

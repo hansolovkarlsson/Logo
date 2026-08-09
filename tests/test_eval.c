@@ -574,6 +574,48 @@ TEST(test_reduce_concatenates_word_elements) {
     CHECK_STREQ(captured_output, "abc\n");
 }
 
+TEST(test_foreach_runs_template_for_each_element) {
+    LogoApp *app = new_app();
+    run_source(app, "FOREACH [PRINT WORD ? \"!] [a b c]");
+    CHECK_STREQ(captured_output, "a!\nb!\nc!\n");
+}
+
+TEST(test_foreach_on_a_bare_number) {
+    LogoApp *app = new_app();
+    run_source(app, "FOREACH [PRINT ?] 5");
+    CHECK_STREQ(captured_output, "5\n");
+}
+
+TEST(test_foreach_accumulates_via_make) {
+    // Exercises parse_list_literal's :varref handling directly: :sum
+    // inside the template list literal must keep its leading : (same
+    // bug class, same fix, as the earlier "b quoted-word case) so that
+    // re-parsing the substituted statement each iteration reads the
+    // running total rather than an unrelated bareword "sum" that
+    // always evaluates to 0.
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"sum 0\nFOREACH [MAKE \"sum :sum + ?] [1 2 3 4]\nPRINT :sum");
+    CHECK_STREQ(captured_output, "10\n");
+}
+
+TEST(test_foreach_with_quoted_word_template) {
+    LogoApp *app = new_app();
+    run_source(app, "FOREACH [IF ? = \"b [PRINT \"match]] [a b c]");
+    CHECK_STREQ(captured_output, "match\n");
+}
+
+TEST(test_foreach_stop_ends_loop_early) {
+    LogoApp *app = new_app();
+    run_source(app, "FOREACH [IF ? = 3 [STOP] PRINT ?] [1 2 3 4 5]");
+    CHECK_STREQ(captured_output, "1\n2\n");
+}
+
+TEST(test_foreach_preserves_nested_list_elements) {
+    LogoApp *app = new_app();
+    run_source(app, "FOREACH [PRINT FIRST ?] [[10 20] [30 40]]");
+    CHECK_STREQ(captured_output, "10\n30\n");
+}
+
 TEST(test_setprop_getprop_round_trips_a_number_word_and_list) {
     LogoApp *app = new_app();
     run_source(app,
@@ -831,6 +873,12 @@ int main(void) {
     RUN(test_reduce_folds_left_to_right);
     RUN(test_reduce_of_single_element_list_is_that_element);
     RUN(test_reduce_concatenates_word_elements);
+    RUN(test_foreach_runs_template_for_each_element);
+    RUN(test_foreach_on_a_bare_number);
+    RUN(test_foreach_accumulates_via_make);
+    RUN(test_foreach_with_quoted_word_template);
+    RUN(test_foreach_stop_ends_loop_early);
+    RUN(test_foreach_preserves_nested_list_elements);
     RUN(test_setprop_getprop_round_trips_a_number_word_and_list);
     RUN(test_getprop_of_missing_property_is_the_empty_list);
     RUN(test_setprop_on_same_key_overwrites_not_duplicates);

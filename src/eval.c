@@ -1122,6 +1122,43 @@ static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
     free(scratch);
     return acc;
 }
+// FOREACH template list -- runs `template` (with "?" substituted for
+// each element in turn) as a *statement*, not an expression, mirroring
+// interpreter.c's own FOREACH exactly (a plain eval_logo call per
+// element there). Unlike MAP/FILTER/REDUCE there's no
+// logo_parse_expr/logo_parse_condition equivalent to reuse -- a
+// statement can be an arbitrary sequence of commands (`[PRINT ? MAKE
+// "sum :sum + ?]`), so this goes through logo_parse itself (the same
+// whole-program entry point every real script uses) and runs the
+// result through exec_block. Same caller-reused scratch ParseResult as
+// the others. A malformed substituted statement is skipped rather than
+// executed, the same "quietly inert" fallback used elsewhere in this
+// file for a bad template. OUTPUT/STOP inside the template ends the
+// loop early via app->stop_requested, the same flag REPEAT/WHILE check
+// -- there's no THROW/interrupt equivalent in this engine yet to also
+// check, unlike interpreter.c's own three-way condition here.
+static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+    char template_text[512];
+    eval_value_to_text(app, template_val, template_text, sizeof(template_text));
+
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    ParseResult *scratch = calloc(1, sizeof(ParseResult));
+    for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+        char el_text[512], code_text[512];
+        eval_value_to_source_text(app, node_to_value(&app->list_pool[idx]), el_text, sizeof(el_text));
+        eval_substitute_placeholder(template_text, "?", el_text, code_text, sizeof(code_text));
+        LogoToken tokens[MAX_TEMPLATE_TOKENS];
+        int n = logo_lex(code_text, tokens, MAX_TEMPLATE_TOKENS);
+        if (n >= 0) {
+            logo_parse(tokens, n, scratch);
+            if (scratch->error_count == 0) exec_block(app, &scratch->pool, scratch->program);
+        }
+        if (app->stop_requested) break;
+    }
+    free(scratch);
+}
 static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
 }
@@ -1361,6 +1398,8 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     } else if (strcasecmp(name, "REDUCE") == 0) {
         if (result != NULL) *result = do_reduce(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "FOREACH") == 0) {
+        do_foreach(app, pool, arg_idx);
     } else if (strcasecmp(name, "ARRAY") == 0) {
         if (result != NULL) *result = do_array(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;

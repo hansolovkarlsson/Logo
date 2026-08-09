@@ -740,6 +740,23 @@ TEST(test_map_filter_reduce_over_numbers_and_words) {
         "PRINT REDUCE [WORD ?1 ?2] [a b c]");
 }
 
+TEST(test_foreach_runs_a_statement_template_per_element) {
+    shadow_diff(
+        "FOREACH [PRINT WORD ? \"!] [a b c]\n"
+        "FOREACH [PRINT ?] 5\n"
+        // Exercises parse_list_literal's :varref fidelity fix directly
+        // -- :sum inside the template must keep its leading : across
+        // each re-parse, or the running total reads back as an
+        // unrelated bareword that's always 0 (see
+        // test_foreach_accumulates_via_make in test_eval.c).
+        "MAKE \"sum 0\n"
+        "FOREACH [MAKE \"sum :sum + ?] [1 2 3 4]\n"
+        "PRINT :sum\n"
+        "FOREACH [IF ? = \"b [PRINT \"match]] [a b c]\n"
+        "FOREACH [IF ? = 3 [STOP] PRINT ?] [1 2 3 4 5]\n"
+        "FOREACH [PRINT FIRST ?] [[10 20] [30 40]]");
+}
+
 int main(void) {
     RUN(test_print_number_and_word);
     RUN(test_arithmetic_precedence);
@@ -797,6 +814,7 @@ int main(void) {
     RUN(test_type_predicates_on_every_value_kind);
     RUN(test_memberp_on_list_word_and_number);
     RUN(test_map_filter_reduce_over_numbers_and_words);
+    RUN(test_foreach_runs_a_statement_template_per_element);
 
     if (failures == 0) {
         printf("All tests passed.\n");

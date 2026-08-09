@@ -668,8 +668,65 @@ footprint.
     diff` confirms zero changes), not investigated further here since
     it's out of scope for higher-order list operators specifically, but
     worth another pass at some point.
-- **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward
-  fuller language coverage (more turtle commands, `FOREACH`, file I/O,
-  `TELL`/multi-turtle), and growing the shadow-diff corpus alongside it
-  — the mechanism itself is proven; the value from here on is
-  coverage.
+- **`FOREACH`: done.** Runs a statement template (`[PRINT ?]`, or
+  anything else, including multiple commands or a nested `IF`) once per
+  list element, mirroring interpreter.c's own `FOREACH` exactly (a
+  plain `eval_logo` call per element there). Unlike `MAP`/`FILTER`/
+  `REDUCE`, there's no expression/condition-only entry point to reuse
+  here — a `FOREACH` template can be an arbitrary sequence of commands,
+  so `do_foreach` goes through `logo_parse` itself (the same
+  whole-program entry point every real script uses, not
+  `logo_parse_expr`/`logo_parse_condition`) on the substituted text each
+  iteration, then runs the result through `exec_block` — the same
+  caller-reused scratch `ParseResult` pattern as the other three. A
+  malformed substituted statement is skipped rather than executed
+  (parse errors read as inert, same fallback used elsewhere for a bad
+  template). `OUTPUT`/`STOP` inside the template ends the loop early via
+  `app->stop_requested`, the same flag `REPEAT`/`WHILE` already check —
+  no `THROW`/interrupt equivalent exists in this engine yet to also
+  check, unlike interpreter.c's own three-way condition there.
+  - **A second, more consequential fidelity bug found by this milestone
+    specifically, in the exact same function as before
+    (`parse_list_literal`), not in `do_foreach`**: confirmed directly
+    against the running interpreter that `PRINT [MAKE "sum :sum + ?]`
+    really does print `MAKE "sum :sum + ?` with the `:` intact —
+    `interpreter.c`'s list-literal scan never treats `:` specially
+    either, same as `"`. This lexer's own `:varref` handling strips the
+    leading `:` before the token ever reaches `parse_list_literal` (see
+    `lexer.c`'s `:` case), and — until this fix — nothing re-added it
+    the way the earlier fix did for `LOGO_TOK_QUOTED_WORD`. A `FOREACH`
+    accumulator script (`MAKE "sum 0  FOREACH [MAKE "sum :sum + ?] [1 2
+    3 4]  PRINT :sum`) silently produced `0` instead of `10`: the
+    substituted-and-reparsed statement read back as `MAKE "sum sum + 1`
+    each time — an unrelated bareword `sum`, not the running total —
+    because the one character telling the runtime re-parse "this is a
+    variable read" had already been lost when the template was first
+    built. This is the first case that actually exercised a `:varref`
+    as list-literal *data* (`MAP`/`FILTER`/`REDUCE`'s own templates
+    never read a variable inside the template itself) — caught by
+    directly comparing a probe program's output against the real
+    interpreter before writing any test, not discovered via a failing
+    test. **Fixed** the same way as the quoted-word case: when a list
+    literal's element token is `LOGO_TOK_VARREF`, re-prepend the `:` via
+    `snprintf(..., ":%.*s", tok->length, tok->text)` instead of the
+    plain `token_text_copy`.
+  - 6 new `tests/test_eval.c` cases (basic per-element run, a bare
+    non-list argument, the accumulator case that caught the `:varref`
+    bug, a quoted-word template, early `STOP`, nested-list elements) and
+    1 new shadow-diff script covering the same ground. Confirmed clean
+    under AddressSanitizer on both `test_eval` and `test_shadow_diff` —
+    the new `logo_parse`-on-a-snippet path (heavier than `MAP`/
+    `FILTER`/`REDUCE`'s expression/condition-only snippets, since it
+    hoists procedures and builds a whole `AST_BLOCK` per iteration)
+    introduced no new stack-fragility regression either.
+- **Next**: growing `BUILTIN_SIGNATURES`/`eval.c` together toward fuller
+  language coverage (more turtle commands, file I/O, `TELL`/
+  multi-turtle), and growing the shadow-diff corpus alongside it — the
+  mechanism itself is proven; the value from here on is coverage. Worth
+  a dedicated audit at some point: the two `parse_list_literal` fidelity
+  bugs found so far (quoted words, then `:varref`s) both came from the
+  same root cause — the lexer strips a leading marker character that a
+  list literal's raw-text storage needs to keep — so any other
+  token type whose lexer form strips a marker (if one exists) is worth
+  checking proactively rather than waiting for a third template bug to
+  surface it.
