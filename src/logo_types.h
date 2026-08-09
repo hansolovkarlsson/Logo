@@ -22,6 +22,13 @@
 #define MIN_CANVAS_SIZE 50.0
 #define MAX_CANVAS_SIZE 4000.0
 
+// SETPENWIDTH/SETPW's own clamp bounds -- shared here (rather than
+// staying a private #define in interpreter.c) so eval.c's own
+// do_setpenwidth can use the exact same limits, not a hand-copied
+// duplicate that could drift.
+#define MIN_PEN_WIDTH 0.5
+#define MAX_PEN_WIDTH 20.0
+
 #define MAX_LINES 10000
 #define MAX_LABELS 1000
 #define MAX_RASTER_OPS 500

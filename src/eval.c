@@ -945,6 +945,164 @@ static void do_clear(LogoApp *app) {
         app->turtles[i].angle = 0;
     }
 }
+// Pure clamps mirroring interpreter.c's own clamp01/clamp_range
+// exactly -- stateless, no LogoApp involved, so kept as local mirrors
+// here rather than exposed through interpreter.h, same reasoning as
+// eval_mod_result below.
+static double eval_clamp01(double v) {
+    if (v < 0) return 0;
+    if (v > 1) return 1;
+    return v;
+}
+static double eval_clamp_range(double v, double lo, double hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+// ARC angle radius -- draws a circle/arc of `radius` centered ON the
+// turtle, starting at its current heading and sweeping through `angle`
+// degrees; the turtle itself doesn't move. Direct port, sharing the
+// now-exposed record_line directly (the same helper move_turtle_to
+// itself uses for every ordinary move) since ARC deliberately bypasses
+// move_turtle_to's own position-tracking.
+static void do_arc(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double angle_deg = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double radius = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+
+    double center_x = current_turtle(app)->x;
+    double center_y = current_turtle(app)->y;
+    double start_heading = current_turtle(app)->angle;
+
+    int segments = (int)eval_clamp_range(fabs(angle_deg) / 5.0, 8, 360);
+    double step = angle_deg / segments;
+
+    for (int i = 0; i < segments; i++) {
+        double rad0 = (start_heading + step * i - 90.0) * M_PI / 180.0;
+        double rad1 = (start_heading + step * (i + 1) - 90.0) * M_PI / 180.0;
+        record_line(app,
+                    center_x + radius * cos(rad0), center_y + radius * sin(rad0),
+                    center_x + radius * cos(rad1), center_y + radius * sin(rad1));
+    }
+}
+static void do_clean(LogoApp *app) {
+    app->line_count = 0;
+    app->label_count = 0;
+    app->raster_op_count = 0;
+}
+static void do_hideturtle(LogoApp *app) {
+    current_turtle(app)->visible = FALSE;
+}
+static void do_showturtle(LogoApp *app) {
+    current_turtle(app)->visible = TRUE;
+}
+// WRAP/FENCE/WINDOW -- what happens when a move would cross the canvas
+// edge. Trivial one-line app->edge_mode setters: the actual behavior
+// lives in move_turtle_to (already shared with interpreter.c since the
+// turtle-motion batch), so these ports need nothing more.
+static void do_wrap(LogoApp *app) {
+    app->edge_mode = EDGE_WRAP;
+}
+static void do_fence(LogoApp *app) {
+    app->edge_mode = EDGE_FENCE;
+}
+static void do_window(LogoApp *app) {
+    app->edge_mode = EDGE_WINDOW;
+}
+static void do_setpencolor(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double r = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double g = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+    double b = eval_to_number(eval_expr(app, pool, arg_idx[2]));
+    Turtle *t = current_turtle(app);
+    t->pen_r = eval_clamp01(r / 255.0);
+    t->pen_g = eval_clamp01(g / 255.0);
+    t->pen_b = eval_clamp01(b / 255.0);
+}
+static void do_setpenwidth(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double width = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    current_turtle(app)->pen_width = eval_clamp_range(width, MIN_PEN_WIDTH, MAX_PEN_WIDTH);
+}
+static void do_setbackground(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double r = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double g = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+    double b = eval_to_number(eval_expr(app, pool, arg_idx[2]));
+    app->bg_r = eval_clamp01(r / 255.0);
+    app->bg_g = eval_clamp01(g / 255.0);
+    app->bg_b = eval_clamp01(b / 255.0);
+}
+static void do_setcanvassize(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double width = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double height = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+    if (width < MIN_CANVAS_SIZE || width > MAX_CANVAS_SIZE ||
+        height < MIN_CANVAS_SIZE || height > MAX_CANVAS_SIZE) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "SETCANVASSIZE: width and height must be %d-%d\n",
+                 (int)MIN_CANVAS_SIZE, (int)MAX_CANVAS_SIZE);
+        append_output(app, msg);
+        return;
+    }
+    app->canvas_width = width;
+    app->canvas_height = height;
+    app->line_count = 0;
+    app->label_count = 0;
+    app->raster_op_count = 0;
+    for (int i = 0; i < app->turtle_count; i++) {
+        app->turtles[i].x = home_x(app);
+        app->turtles[i].y = home_y(app);
+        app->turtles[i].angle = 0;
+    }
+    if (app->resize_canvas != NULL) {
+        app->resize_canvas(app, width, height);
+    }
+}
+// LABEL text -- draws text at the turtle's current position, in its
+// current pen color. Pure data (position, color, text) recorded here,
+// same as interpreter.c's own version -- ui.c's draw_scene does the
+// actual Cairo text rendering, kept out of this file entirely.
+static void do_label(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue val = eval_expr(app, pool, arg_idx[0]);
+    if (app->label_count >= MAX_LABELS) return;
+    Turtle *t = current_turtle(app);
+    Label *label = &app->labels[app->label_count++];
+    label->x = t->x;
+    label->y = t->y;
+    label->r = t->pen_r;
+    label->g = t->pen_g;
+    label->b = t->pen_b;
+    eval_value_to_text(app, val, label->text, sizeof(label->text));
+}
+// FILL -- flood-fills the region containing the turtle, bounded by
+// whatever lines are drawn as of this exact moment, with the turtle's
+// current pen color. Same "record plain data, let ui.c do the actual
+// Cairo/rasterizing work" split as LABEL; line_count_at_call freezes
+// the boundary so a line drawn after this FILL can't retroactively
+// change what it filled.
+static void do_fill(LogoApp *app) {
+    if (app->raster_op_count >= MAX_RASTER_OPS) return;
+    Turtle *t = current_turtle(app);
+    RasterOp *op = &app->raster_ops[app->raster_op_count++];
+    op->kind = RASTER_OP_FILL;
+    op->x = t->x;
+    op->y = t->y;
+    op->r = t->pen_r;
+    op->g = t->pen_g;
+    op->b = t->pen_b;
+    op->line_count_at_call = app->line_count;
+}
+// ERASERECT w h -- paints a w-by-h rectangle centered on the turtle in
+// the background color, same call-time-frozen treatment as FILL.
+static void do_eraserect(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    double w = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    double h = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+    if (app->raster_op_count >= MAX_RASTER_OPS) return;
+    Turtle *t = current_turtle(app);
+    RasterOp *op = &app->raster_ops[app->raster_op_count++];
+    op->kind = RASTER_OP_ERASE_RECT;
+    op->x = t->x;
+    op->y = t->y;
+    op->w = w;
+    op->h = h;
+    op->line_count_at_call = app->line_count;
+}
 static void do_print(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue v = eval_expr(app, pool, arg_idx[0]);
     char text[2048];
@@ -1025,12 +1183,15 @@ static EvalValue do_names(LogoApp *app) {
 // table -- this engine's own TO definitions are AST_PROC_DEF nodes in
 // `pool`, never registered into that text-based table at all, so this
 // walks the pool directly instead (the same "search every node,
-// regardless of nesting" reach find_proc_def already uses).
+// regardless of nesting" reach find_proc_def already uses). Skips a
+// blank .text -- ERASE's own way of "deleting" a procedure here (see
+// do_erase below), since there's no app->procedures-style array to
+// physically shift entries out of the way in.
 static EvalValue do_procedures(LogoApp *app, AstPool *pool) {
     int head = -1;
     int *next_slot = &head;
     for (int i = 0; i < pool->node_count; i++) {
-        if (pool->nodes[i].type == AST_PROC_DEF) {
+        if (pool->nodes[i].type == AST_PROC_DEF && pool->nodes[i].text[0] != '\0') {
             int node = value_to_node(app, word_val(pool->nodes[i].text));
             if (node < 0) return list_pool_exhausted(app);
             *next_slot = node;
@@ -1038,6 +1199,27 @@ static EvalValue do_procedures(LogoApp *app, AstPool *pool) {
         }
     }
     return list_val(head);
+}
+// ERASE "name -- deletes a procedure. interpreter.c physically removes
+// it from app->procedures[] (shifting later entries down); this engine
+// has no such array to shift -- TO definitions are AST_PROC_DEF nodes
+// living in `pool`, found by name via find_proc_def's own linear scan
+// -- so "deleting" one just means making it permanently unmatchable:
+// blanking its own .text to the empty string, which can never equal a
+// real call's name (an AST_CALL node's own .text is always non-empty).
+// Both find_proc_def (so a later call correctly reports "I don't know
+// how to X") and do_procedures above (skipping blank-text entries) rely
+// on this.
+static void do_erase(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    const char *name = pool->nodes[arg_idx[0]].text;
+    int def_node = find_proc_def(pool, name);
+    if (def_node < 0) {
+        append_output(app, "ERASE: no such procedure \"");
+        append_output(app, name);
+        append_output(app, "\n");
+        return;
+    }
+    pool->nodes[def_node].text[0] = '\0';
 }
 static void do_output(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue val = eval_expr(app, pool, arg_idx[0]);
@@ -2086,6 +2268,36 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "CLEAR") == 0 || strcasecmp(name, "CS") == 0) {
         do_clear(app);
+    } else if (strcasecmp(name, "ARC") == 0) {
+        do_arc(app, pool, arg_idx);
+    } else if (strcasecmp(name, "CLEAN") == 0) {
+        do_clean(app);
+    } else if (strcasecmp(name, "HIDETURTLE") == 0 || strcasecmp(name, "HT") == 0) {
+        do_hideturtle(app);
+    } else if (strcasecmp(name, "SHOWTURTLE") == 0 || strcasecmp(name, "ST") == 0) {
+        do_showturtle(app);
+    } else if (strcasecmp(name, "WRAP") == 0) {
+        do_wrap(app);
+    } else if (strcasecmp(name, "FENCE") == 0) {
+        do_fence(app);
+    } else if (strcasecmp(name, "WINDOW") == 0) {
+        do_window(app);
+    } else if (strcasecmp(name, "SETPENCOLOR") == 0 || strcasecmp(name, "SETPC") == 0) {
+        do_setpencolor(app, pool, arg_idx);
+    } else if (strcasecmp(name, "SETPENWIDTH") == 0 || strcasecmp(name, "SETPW") == 0) {
+        do_setpenwidth(app, pool, arg_idx);
+    } else if (strcasecmp(name, "SETBACKGROUND") == 0 || strcasecmp(name, "SETBG") == 0) {
+        do_setbackground(app, pool, arg_idx);
+    } else if (strcasecmp(name, "SETCANVASSIZE") == 0) {
+        do_setcanvassize(app, pool, arg_idx);
+    } else if (strcasecmp(name, "LABEL") == 0) {
+        do_label(app, pool, arg_idx);
+    } else if (strcasecmp(name, "FILL") == 0) {
+        do_fill(app);
+    } else if (strcasecmp(name, "ERASERECT") == 0) {
+        do_eraserect(app, pool, arg_idx);
+    } else if (strcasecmp(name, "ERASE") == 0) {
+        do_erase(app, pool, arg_idx);
     } else if (strcasecmp(name, "PRINT") == 0) {
         do_print(app, pool, arg_idx);
     } else if (strcasecmp(name, "MAKE") == 0) {

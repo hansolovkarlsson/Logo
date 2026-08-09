@@ -81,6 +81,8 @@ typedef struct {
     int turtle_count;
     double x[MAX_TURTLES], y[MAX_TURTLES], angle[MAX_TURTLES];
     int pen_down[MAX_TURTLES];
+    double pen_r[MAX_TURTLES], pen_g[MAX_TURTLES], pen_b[MAX_TURTLES], pen_width[MAX_TURTLES];
+    int visible[MAX_TURTLES];
 } TurtleSnapshot;
 
 static TurtleSnapshot snapshot_turtle(LogoApp *app) {
@@ -91,25 +93,66 @@ static TurtleSnapshot snapshot_turtle(LogoApp *app) {
         s.y[i] = app->turtles[i].y;
         s.angle[i] = app->turtles[i].angle;
         s.pen_down[i] = app->turtles[i].pen_down;
+        s.pen_r[i] = app->turtles[i].pen_r;
+        s.pen_g[i] = app->turtles[i].pen_g;
+        s.pen_b[i] = app->turtles[i].pen_b;
+        s.pen_width[i] = app->turtles[i].pen_width;
+        s.visible[i] = app->turtles[i].visible;
     }
     return s;
 }
 
-// Compares every drawn line segment's endpoints, not just the
-// turtle's final resting position -- two engines could agree on where
-// the turtle ends up while disagreeing about the path it took to get
-// there (or how many separate segments PENUP/PENDOWN toggling should
-// have produced along the way), which final-position-only comparison
-// would miss entirely. Color/width aren't compared: nothing in the
-// current corpus varies the pen color/width, so they'd trivially
-// match either way -- worth revisiting once SETPENCOLOR/SETPENWIDTH
-// join BUILTIN_SIGNATURES.
+// Compares every drawn line segment's endpoints AND color/width, not
+// just the turtle's final resting position -- two engines could agree
+// on where the turtle ends up while disagreeing about the path it took
+// to get there (or how many separate segments PENUP/PENDOWN toggling
+// should have produced along the way), which final-position-only
+// comparison would miss entirely. Color/width are compared now that
+// SETPENCOLOR/SETPENWIDTH are real (see the drawing-primitives
+// milestone in docs/BYTECODE_VM_DESIGN.md) -- previously skipped since
+// nothing in the corpus varied them, so they'd have trivially matched
+// either way.
 static int lines_match(LogoApp *old_app, LogoApp *new_app_instance) {
     if (old_app->line_count != new_app_instance->line_count) return 0;
     for (int i = 0; i < old_app->line_count; i++) {
         LineSegment *a = &old_app->lines[i];
         LineSegment *b = &new_app_instance->lines[i];
-        if (a->x1 != b->x1 || a->y1 != b->y1 || a->x2 != b->x2 || a->y2 != b->y2) return 0;
+        if (a->x1 != b->x1 || a->y1 != b->y1 || a->x2 != b->x2 || a->y2 != b->y2 ||
+            a->r != b->r || a->g != b->g || a->b != b->b || a->width != b->width) return 0;
+    }
+    return 1;
+}
+
+// LABEL's own recorded data -- position, pen color, and text -- same
+// "diff the actual data, not just something derived from it" reasoning
+// as lines_match.
+static int labels_match(LogoApp *old_app, LogoApp *new_app_instance) {
+    if (old_app->label_count != new_app_instance->label_count) return 0;
+    for (int i = 0; i < old_app->label_count; i++) {
+        Label *a = &old_app->labels[i];
+        Label *b = &new_app_instance->labels[i];
+        if (a->x != b->x || a->y != b->y || a->r != b->r || a->g != b->g || a->b != b->b ||
+            strcmp(a->text, b->text) != 0) return 0;
+    }
+    return 1;
+}
+
+// FILL/ERASERECT's own recorded data. sprite_index/sprite_frame/angle
+// are STAMPSPRITE-only fields (see RasterOp in logo_types.h) -- always
+// their calloc'd zero/default in this corpus, since STAMPSPRITE isn't
+// implemented in either engine's BUILTIN_SIGNATURES here, but compared
+// anyway rather than assumed equal, matching lines_match/labels_match's
+// own "diff the real data" approach.
+static int raster_ops_match(LogoApp *old_app, LogoApp *new_app_instance) {
+    if (old_app->raster_op_count != new_app_instance->raster_op_count) return 0;
+    for (int i = 0; i < old_app->raster_op_count; i++) {
+        RasterOp *a = &old_app->raster_ops[i];
+        RasterOp *b = &new_app_instance->raster_ops[i];
+        if (a->kind != b->kind || a->x != b->x || a->y != b->y ||
+            a->r != b->r || a->g != b->g || a->b != b->b ||
+            a->w != b->w || a->h != b->h || a->angle != b->angle ||
+            a->sprite_index != b->sprite_index || a->sprite_frame != b->sprite_frame ||
+            a->line_count_at_call != b->line_count_at_call) return 0;
     }
     return 1;
 }
@@ -169,14 +212,19 @@ static void shadow_diff_pair(const char *old_source, const char *new_source) {
     } else {
         for (int i = 0; i < old_turtle.turtle_count; i++) {
             if (old_turtle.x[i] != new_turtle.x[i] || old_turtle.y[i] != new_turtle.y[i] ||
-                old_turtle.angle[i] != new_turtle.angle[i] || old_turtle.pen_down[i] != new_turtle.pen_down[i]) {
+                old_turtle.angle[i] != new_turtle.angle[i] || old_turtle.pen_down[i] != new_turtle.pen_down[i] ||
+                old_turtle.pen_r[i] != new_turtle.pen_r[i] || old_turtle.pen_g[i] != new_turtle.pen_g[i] ||
+                old_turtle.pen_b[i] != new_turtle.pen_b[i] || old_turtle.pen_width[i] != new_turtle.pen_width[i] ||
+                old_turtle.visible[i] != new_turtle.visible[i]) {
                 failures++;
                 printf("FAIL %s: turtle %d state differs\n"
-                       "  old: x=%g y=%g angle=%g pen=%d\n"
-                       "  new: x=%g y=%g angle=%g pen=%d\n",
+                       "  old: x=%g y=%g angle=%g pen=%d color=(%g,%g,%g) width=%g visible=%d\n"
+                       "  new: x=%g y=%g angle=%g pen=%d color=(%g,%g,%g) width=%g visible=%d\n",
                        current_test, i,
                        old_turtle.x[i], old_turtle.y[i], old_turtle.angle[i], old_turtle.pen_down[i],
-                       new_turtle.x[i], new_turtle.y[i], new_turtle.angle[i], new_turtle.pen_down[i]);
+                       old_turtle.pen_r[i], old_turtle.pen_g[i], old_turtle.pen_b[i], old_turtle.pen_width[i], old_turtle.visible[i],
+                       new_turtle.x[i], new_turtle.y[i], new_turtle.angle[i], new_turtle.pen_down[i],
+                       new_turtle.pen_r[i], new_turtle.pen_g[i], new_turtle.pen_b[i], new_turtle.pen_width[i], new_turtle.visible[i]);
             }
         }
     }
@@ -184,6 +232,35 @@ static void shadow_diff_pair(const char *old_source, const char *new_source) {
         failures++;
         printf("FAIL %s: drawn lines differ (old: %d segment(s), new: %d segment(s))\n",
                current_test, old_app->line_count, new_app_instance->line_count);
+    }
+    if (!labels_match(old_app, new_app_instance)) {
+        failures++;
+        printf("FAIL %s: LABEL data differs (old: %d label(s), new: %d label(s))\n",
+               current_test, old_app->label_count, new_app_instance->label_count);
+    }
+    if (!raster_ops_match(old_app, new_app_instance)) {
+        failures++;
+        printf("FAIL %s: FILL/ERASERECT data differs (old: %d op(s), new: %d op(s))\n",
+               current_test, old_app->raster_op_count, new_app_instance->raster_op_count);
+    }
+    if (old_app->bg_r != new_app_instance->bg_r || old_app->bg_g != new_app_instance->bg_g ||
+        old_app->bg_b != new_app_instance->bg_b) {
+        failures++;
+        printf("FAIL %s: background color differs\n  old: (%g,%g,%g)\n  new: (%g,%g,%g)\n",
+               current_test, old_app->bg_r, old_app->bg_g, old_app->bg_b,
+               new_app_instance->bg_r, new_app_instance->bg_g, new_app_instance->bg_b);
+    }
+    if (old_app->canvas_width != new_app_instance->canvas_width ||
+        old_app->canvas_height != new_app_instance->canvas_height) {
+        failures++;
+        printf("FAIL %s: canvas size differs (old: %gx%g, new: %gx%g)\n",
+               current_test, old_app->canvas_width, old_app->canvas_height,
+               new_app_instance->canvas_width, new_app_instance->canvas_height);
+    }
+    if (old_app->edge_mode != new_app_instance->edge_mode) {
+        failures++;
+        printf("FAIL %s: edge_mode differs (old: %d, new: %d)\n",
+               current_test, (int)old_app->edge_mode, (int)new_app_instance->edge_mode);
     }
 }
 
@@ -306,6 +383,63 @@ TEST(test_load_runs_a_files_own_statements) {
         "PRINT 1 + 1", -1, NULL);
     shadow_diff("PRINT \"before\nLOAD \"build/test_shadow_diff_load.logo\nPRINT \"after");
     remove(path);
+}
+
+TEST(test_drawing_and_canvas_primitives) {
+    shadow_diff(
+        "ARC 360 80\n"
+        "RT 45\n"
+        "ARC 90 40\n"
+        "SETPENCOLOR 10 20 30\n"
+        "LABEL \"hi\n"
+        "LABEL 42\n"
+        "REPEAT 4 [FD 50 RT 90]\n"
+        "SETPENCOLOR 200 50 10\n"
+        "FILL\n"
+        "ERASERECT 30 40\n"
+        "WRAP\n"
+        "SETXY 490 490\n"
+        "SETHEADING 180\n"
+        "FD 30\n"
+        "FENCE\n"
+        "SETXY 490 490\n"
+        "SETHEADING 180\n"
+        "FD 30\n"
+        "WINDOW\n"
+        "SETXY 490 490\n"
+        "SETHEADING 180\n"
+        "FD 30\n"
+        "CLEAN\n"
+        "HIDETURTLE\n"
+        "PRINT 1\n"
+        "SHOWTURTLE\n"
+        "PRINT 2\n"
+        // A parenthesized negative literal here, not a bare one --
+        // the pre-existing "greedy subtraction" ambiguity (already
+        // documented for SETXY/SETHEADING/MOD) applies to any
+        // multi-argument call, including this one: SETPENCOLOR 300
+        // -10 128 would parse "300 - 10" as arg 1's own expression in
+        // this engine, leaving too few tokens for arg 3.
+        "SETPENCOLOR 300 (-10) 128\n"
+        "SETPENWIDTH 0.1\n"
+        "SETPENWIDTH 100\n"
+        "SETBACKGROUND 10 20 30\n"
+        "SETCANVASSIZE 800 600\n"
+        "FD 10\n"
+        "SETCANVASSIZE 10 10");
+}
+
+TEST(test_erase_deletes_a_procedure) {
+    shadow_diff(
+        "TO foo\n"
+        "  PRINT 1\n"
+        "END\n"
+        "TO bar\n"
+        "END\n"
+        "ERASE \"foo\n"
+        "foo\n"
+        "ERASE \"nosuch\n"
+        "PRINT PROCEDURES");
 }
 
 TEST(test_repeat_with_turtle_motion) { shadow_diff("REPEAT 4 [FD 50 RT 90]"); }
@@ -983,6 +1117,8 @@ int main(void) {
     RUN(test_tell_and_who_multiple_turtles);
     RUN(test_file_io_write_read_append_and_delete);
     RUN(test_load_runs_a_files_own_statements);
+    RUN(test_drawing_and_canvas_primitives);
+    RUN(test_erase_deletes_a_procedure);
     RUN(test_repeat_with_turtle_motion);
     RUN(test_procedure_with_output);
     RUN(test_procedure_forward_reference);

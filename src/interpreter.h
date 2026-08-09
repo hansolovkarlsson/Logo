@@ -62,6 +62,12 @@ Turtle *current_turtle(LogoApp *app);
 // (WRAP/FENCE/WINDOW).
 void move_turtle_to(LogoApp *app, double new_x, double new_y);
 
+// Record a line segment in the current turtle's pen color/width, if its
+// pen is down -- without moving the turtle. Used directly by ARC,
+// which draws around the turtle rather than moving it (move_turtle_to
+// itself uses this internally for every ordinary move).
+void record_line(LogoApp *app, double x1, double y1, double x2, double y2);
+
 // Move the current turtle by `distance` along its current heading.
 void move_turtle_forward(LogoApp *app, double distance);
 

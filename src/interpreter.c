@@ -189,9 +189,6 @@ double random_below(double n) {
     return rand() % limit;
 }
 
-#define MIN_PEN_WIDTH 0.5
-#define MAX_PEN_WIDTH 20.0
-
 // Where CLEAR and HOME send the turtle back to -- the canvas's current
 // center, not a fixed point, now that SETCANVASSIZE can change
 // canvas_width/height at runtime.
@@ -216,7 +213,7 @@ void init_turtle(LogoApp *app, Turtle *t) {
 // Record a line segment in the current turtle's pen color/width, if its
 // pen is down. Doesn't touch any turtle's position — used directly by
 // ARC, which draws around the turtle without moving it.
-static void record_line(LogoApp *app, double x1, double y1, double x2, double y2) {
+void record_line(LogoApp *app, double x1, double y1, double x2, double y2) {
     Turtle *t = current_turtle(app);
     if (t->pen_down && app->line_count < MAX_LINES) {
         app->lines[app->line_count++] = (LineSegment){

@@ -1059,9 +1059,73 @@ footprint.
     agreeing case only (a loaded file's own statements, not a cross-
     boundary procedure call). Confirmed clean under AddressSanitizer on
     both `test_eval` and `test_shadow_diff`.
-- **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1
-  checklist — drawing/canvas primitives are next and, once that lands,
-  the only Stage 1 checklist items left open are the shared-root-cause
-  `TEXT`/`SAVE` pair and the newly-documented `LOAD`-cross-boundary-call
-  gap — see that file for the full breakdown and what's deliberately
-  out of scope.
+- **Drawing/canvas primitives: done** (eighth batch off
+  `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist, and — alongside a
+  fixed miscategorization, see below — the last "new coverage" batch on
+  that checklist): `ARC`/`LABEL`/`FILL`/`ERASERECT`/`WRAP`/`FENCE`/
+  `WINDOW`/`CLEAN`/`HIDETURTLE`/`SHOWTURTLE`/`SETPENCOLOR`/
+  `SETPENWIDTH`/`SETBACKGROUND`/`SETCANVASSIZE`, plus `ERASE` (bundled
+  into this batch per `docs/ROADMAP.md`'s own listing, though it's
+  actually procedure deletion, not a drawing primitive — see below).
+  - **Smaller than it looked at a glance**: `WRAP`/`FENCE`/`WINDOW` are
+    one-line `app->edge_mode` setters — the real behavior lives in
+    `move_turtle_to`, already shared with interpreter.c since the very
+    first turtle-motion batch. `ARC` needed one new exposure
+    (`record_line`, the helper `move_turtle_to` itself already uses
+    internally, now public since `ARC` deliberately bypasses
+    `move_turtle_to`'s own position-tracking to draw around the turtle
+    without moving it). `LABEL`/`FILL`/`ERASERECT` are direct ports
+    writing into `app->labels[]`/`raster_ops[]` — already plain, public
+    `LogoApp` fields, same as `lines[]` before them. `SETPENCOLOR`/
+    `SETPENWIDTH`/`SETBACKGROUND`/`SETCANVASSIZE` needed one new shared
+    header constant pair (`MIN_PEN_WIDTH`/`MAX_PEN_WIDTH`, moved from a
+    private `interpreter.c` `#define` into `logo_types.h` so both
+    engines clamp to the identical bounds, not a hand-copied duplicate
+    that could drift) plus two small pure local mirrors of
+    interpreter.c's own `clamp01`/`clamp_range` (stateless, so kept
+    local rather than exposed, same reasoning as `eval_mod_result`).
+  - **`ERASE` is procedure deletion, not a drawing primitive — a real
+    miscategorization in `docs/ROADMAP.md`'s own original batch listing,
+    now fixed there rather than perpetuated**: interpreter.c's `ERASE`
+    physically removes an entry from `app->procedures[]`, shifting
+    later entries down. This engine has no such array — `TO`
+    definitions are `AST_PROC_DEF` nodes in `pool`, found by name via
+    `find_proc_def`'s own linear scan — so "deleting" one means making
+    it permanently unmatchable instead: `do_erase` blanks the found
+    node's own `.text` to the empty string, which can never equal a
+    real call's name (an `AST_CALL` node's own `.text` is always
+    non-empty). `find_proc_def` then naturally reports "I don't know
+    how to X" for a later call, with no changes needed there; `PROCEDURES`
+    needed one small update (skip a blank-text entry) so an erased
+    procedure stops appearing in its own output too, matching
+    interpreter.c exactly.
+  - **A real gap found and closed in the shadow-diff harness itself**,
+    the same pattern as the `TELL`/multi-turtle milestone: the harness
+    had never compared pen color/width/visibility (nothing in the
+    corpus varied them before this batch), nor `LABEL`/`FILL`/
+    `ERASERECT`'s own recorded data, nor background color/canvas size/
+    edge mode at all — every one of those could have silently diverged
+    between engines with no test ever catching it. Extended
+    `TurtleSnapshot` with pen color/width/visibility fields, added
+    `labels_match`/`raster_ops_match` alongside the existing
+    `lines_match`, and added direct `bg_r/g/b`/`canvas_width/height`/
+    `edge_mode` comparisons to `shadow_diff_pair` itself.
+  - Ground-truth verified via a standalone dual-engine probe comparing
+    every relevant `LogoApp` field directly (not just `PRINT`-visible
+    output) before writing any permanent test — byte-for-byte identical
+    across every operator, including `SETCANVASSIZE`'s error path and
+    `FENCE`'s edge-clamping. The one divergence found was already-known,
+    not new: `SETPENCOLOR 300 -10 128` (no parens) hits the same
+    pre-existing "greedy subtraction" call-argument ambiguity already
+    documented for `SETXY`/`SETHEADING`/`MOD` — worked around with
+    `SETPENCOLOR 300 (-10) 128`, matching those tests' own convention.
+  - 26 new `tests/test_eval.c` cases and 2 new shadow-diff scripts (one
+    for the drawing/canvas primitives, one for `ERASE`). Confirmed clean
+    under AddressSanitizer on both `test_eval` and `test_shadow_diff`.
+- **Next**: with drawing/canvas primitives done, the only Stage 1
+  checklist items left open in `docs/ROADMAP.md` are the shared-root-
+  cause `TEXT`/`SAVE` pair (both need a procedure's original source
+  text, which this engine doesn't retain) and the documented `LOAD`
+  cross-boundary-call gap (calling a `LOAD`'d procedure from the loading
+  script) — neither is a straightforward port, both are genuinely open
+  design questions rather than queued work.

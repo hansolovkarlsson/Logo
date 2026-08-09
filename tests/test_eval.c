@@ -232,6 +232,142 @@ TEST(test_a_script_with_no_tell_behaves_as_a_single_turtle) {
     CHECK(app->turtle_count == 1);
 }
 
+// --- Drawing/canvas primitives (ARC/LABEL/FILL/ERASERECT/WRAP/FENCE/
+// WINDOW/CLEAN/HIDETURTLE/SHOWTURTLE/SETPENCOLOR/SETPENWIDTH/
+// SETBACKGROUND/SETCANVASSIZE) and ERASE (procedure deletion) ---
+
+TEST(test_arc_draws_segments_without_moving_the_turtle) {
+    LogoApp *app = new_app();
+    run_source(app, "ARC 360 80");
+    CHECK(app->line_count == 72); // 360/5 = 72 segments, matching interpreter.c's own segment count
+    CHECK_NEAR(app->turtles[0].x, app->canvas_width / 2.0);
+    CHECK_NEAR(app->turtles[0].y, app->canvas_height / 2.0);
+}
+
+TEST(test_label_records_position_color_and_text) {
+    LogoApp *app = new_app();
+    run_source(app, "SETPENCOLOR 10 20 30\nLABEL \"hi");
+    CHECK(app->label_count == 1);
+    CHECK_STREQ(app->labels[0].text, "hi");
+    CHECK_NEAR(app->labels[0].r, 10.0 / 255.0);
+    CHECK_NEAR(app->labels[0].g, 20.0 / 255.0);
+    CHECK_NEAR(app->labels[0].b, 30.0 / 255.0);
+}
+
+TEST(test_fill_records_a_raster_op_with_the_current_pen_color) {
+    LogoApp *app = new_app();
+    run_source(app, "REPEAT 4 [FD 50 RT 90]\nSETPENCOLOR 200 50 10\nFILL");
+    CHECK(app->raster_op_count == 1);
+    CHECK(app->raster_ops[0].kind == RASTER_OP_FILL);
+    CHECK(app->raster_ops[0].line_count_at_call == 4);
+}
+
+TEST(test_eraserect_records_a_raster_op_centered_on_the_turtle) {
+    LogoApp *app = new_app();
+    run_source(app, "ERASERECT 30 40");
+    CHECK(app->raster_op_count == 1);
+    CHECK(app->raster_ops[0].kind == RASTER_OP_ERASE_RECT);
+    CHECK_NEAR(app->raster_ops[0].w, 30);
+    CHECK_NEAR(app->raster_ops[0].h, 40);
+}
+
+TEST(test_wrap_mode_wraps_at_the_canvas_edge) {
+    LogoApp *app = new_app();
+    run_source(app, "WRAP\nSETXY 490 490\nSETHEADING 180\nFD 30");
+    CHECK(app->line_count == 1); // the SETXY jump only; wrapping itself draws no line
+    CHECK_NEAR(app->turtles[0].x, 490.0);
+    CHECK_NEAR(app->turtles[0].y, 20.0);
+}
+
+TEST(test_fence_mode_stops_at_the_canvas_edge_and_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "FENCE\nSETXY 490 490\nSETHEADING 180\nFD 30");
+    CHECK_CONTAINS(captured_output, "FENCE: turtle stopped at the canvas edge");
+    CHECK_NEAR(app->turtles[0].y, app->canvas_height); // clamped at the edge, not past it
+}
+
+TEST(test_window_mode_is_the_default_and_ignores_the_edge) {
+    LogoApp *app = new_app();
+    run_source(app, "WINDOW\nSETXY 490 490\nSETHEADING 180\nFD 30");
+    CHECK_NEAR(app->turtles[0].y, 520.0); // past the canvas edge, freely -- no clamp, no wrap
+    CHECK_STREQ(captured_output, "");
+}
+
+TEST(test_clean_erases_drawing_but_leaves_turtle_position_alone) {
+    LogoApp *app = new_app();
+    run_source(app, "FD 50\nRT 90\nCLEAN\nPRINT POS\nPRINT HEADING");
+    CHECK(app->line_count == 0);
+    CHECK_STREQ(captured_output, "250 200\n90\n");
+}
+
+TEST(test_hideturtle_sets_visible_false_and_showturtle_restores_it) {
+    LogoApp *app = new_app();
+    run_source(app, "HIDETURTLE");
+    CHECK(app->turtles[0].visible == 0);
+    run_source(app, "SHOWTURTLE");
+    CHECK(app->turtles[0].visible != 0);
+}
+
+TEST(test_setpencolor_sets_and_clamps_the_pen_color) {
+    LogoApp *app = new_app();
+    run_source(app, "SETPENCOLOR 300 (-10) 128");
+    CHECK_NEAR(app->turtles[0].pen_r, 1.0); // 300 clamped to 255 -> 1.0
+    CHECK_NEAR(app->turtles[0].pen_g, 0.0); // -10 clamped to 0
+    CHECK_NEAR(app->turtles[0].pen_b, 128.0 / 255.0);
+}
+
+TEST(test_setpenwidth_clamps_to_the_valid_range) {
+    LogoApp *app = new_app();
+    run_source(app, "SETPENWIDTH 0.1");
+    CHECK_NEAR(app->turtles[0].pen_width, MIN_PEN_WIDTH);
+    run_source(app, "SETPENWIDTH 100");
+    CHECK_NEAR(app->turtles[0].pen_width, MAX_PEN_WIDTH);
+}
+
+TEST(test_setbackground_sets_the_canvas_background_color) {
+    LogoApp *app = new_app();
+    run_source(app, "SETBACKGROUND 10 20 30");
+    CHECK_NEAR(app->bg_r, 10.0 / 255.0);
+    CHECK_NEAR(app->bg_g, 20.0 / 255.0);
+    CHECK_NEAR(app->bg_b, 30.0 / 255.0);
+}
+
+TEST(test_setcanvassize_resizes_and_resets_turtle_and_drawing) {
+    LogoApp *app = new_app();
+    run_source(app, "FD 10\nSETCANVASSIZE 800 600");
+    CHECK_NEAR(app->canvas_width, 800);
+    CHECK_NEAR(app->canvas_height, 600);
+    CHECK(app->line_count == 0);
+    CHECK_NEAR(app->turtles[0].x, 400);
+    CHECK_NEAR(app->turtles[0].y, 300);
+}
+
+TEST(test_setcanvassize_out_of_range_reports_error_and_leaves_canvas_unchanged) {
+    LogoApp *app = new_app();
+    run_source(app, "SETCANVASSIZE 10 10");
+    CHECK_CONTAINS(captured_output, "SETCANVASSIZE: width and height must be");
+    CHECK_NEAR(app->canvas_width, DEFAULT_CANVAS_WIDTH);
+    CHECK_NEAR(app->canvas_height, DEFAULT_CANVAS_HEIGHT);
+}
+
+TEST(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called) {
+    LogoApp *app = new_app();
+    run_source(app, "TO foo\nPRINT 1\nEND\nERASE \"foo\nfoo");
+    CHECK_CONTAINS(captured_output, "I don't know how to foo");
+}
+
+TEST(test_erase_of_unknown_procedure_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "ERASE \"nosuch");
+    CHECK_CONTAINS(captured_output, "ERASE: no such procedure \"nosuch");
+}
+
+TEST(test_erase_removes_the_procedure_from_procedures_output) {
+    LogoApp *app = new_app();
+    run_source(app, "TO a\nEND\nTO b\nEND\nERASE \"a\nPRINT PROCEDURES");
+    CHECK_STREQ(captured_output, "b\n");
+}
+
 TEST(test_procedure_with_output) {
     LogoApp *app = new_app();
     run_source(app,
@@ -1353,6 +1489,24 @@ int main(void) {
     RUN(test_tell_leaves_the_other_turtles_state_untouched);
     RUN(test_tell_out_of_range_reports_error_and_leaves_current_turtle);
     RUN(test_a_script_with_no_tell_behaves_as_a_single_turtle);
+
+    RUN(test_arc_draws_segments_without_moving_the_turtle);
+    RUN(test_label_records_position_color_and_text);
+    RUN(test_fill_records_a_raster_op_with_the_current_pen_color);
+    RUN(test_eraserect_records_a_raster_op_centered_on_the_turtle);
+    RUN(test_wrap_mode_wraps_at_the_canvas_edge);
+    RUN(test_fence_mode_stops_at_the_canvas_edge_and_reports_error);
+    RUN(test_window_mode_is_the_default_and_ignores_the_edge);
+    RUN(test_clean_erases_drawing_but_leaves_turtle_position_alone);
+    RUN(test_hideturtle_sets_visible_false_and_showturtle_restores_it);
+    RUN(test_setpencolor_sets_and_clamps_the_pen_color);
+    RUN(test_setpenwidth_clamps_to_the_valid_range);
+    RUN(test_setbackground_sets_the_canvas_background_color);
+    RUN(test_setcanvassize_resizes_and_resets_turtle_and_drawing);
+    RUN(test_setcanvassize_out_of_range_reports_error_and_leaves_canvas_unchanged);
+    RUN(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called);
+    RUN(test_erase_of_unknown_procedure_reports_error);
+    RUN(test_erase_removes_the_procedure_from_procedures_output);
     RUN(test_procedure_with_output);
     RUN(test_procedure_forward_reference);
     RUN(test_recursive_procedure);

@@ -130,6 +130,40 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "DELETEFILE", 1, { ARG_QUOTED_WORD } },
     { "LOAD", 1, { ARG_QUOTED_WORD } },
 
+    // ERASE "name -- procedure deletion, not a drawing primitive
+    // despite being grouped with the rest of this batch in
+    // docs/ROADMAP.md (a miscategorization worth fixing there, not
+    // repeating here) -- ARG_QUOTED_WORD like MAKE/LOCAL/DELETEFILE/
+    // LOAD, matching interpreter.c's own raw sscanf("%s") convention.
+    { "ERASE", 1, { ARG_QUOTED_WORD } },
+
+    // Drawing/canvas primitives (eval.c: ARC shares the now-exposed
+    // record_line directly; LABEL/FILL/ERASERECT share
+    // app->labels[]/label_count and app->raster_ops[]/raster_op_count,
+    // both plain LogoApp fields already public via logo_types.h, same
+    // as lines[]/line_count already were). WRAP/FENCE/WINDOW are
+    // one-line app->edge_mode setters -- the actual edge behavior lives
+    // in move_turtle_to, already shared since the turtle-motion batch.
+    { "ARC", 2, { ARG_EXPR, ARG_EXPR } },
+    { "LABEL", 1, { ARG_EXPR } },
+    { "FILL", 0, { 0 } },
+    { "ERASERECT", 2, { ARG_EXPR, ARG_EXPR } },
+    { "WRAP", 0, { 0 } },
+    { "FENCE", 0, { 0 } },
+    { "WINDOW", 0, { 0 } },
+    { "CLEAN", 0, { 0 } },
+    { "HIDETURTLE", 0, { 0 } },
+    { "HT", 0, { 0 } },
+    { "SHOWTURTLE", 0, { 0 } },
+    { "ST", 0, { 0 } },
+    { "SETPENCOLOR", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "SETPC", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "SETPENWIDTH", 1, { ARG_EXPR } },
+    { "SETPW", 1, { ARG_EXPR } },
+    { "SETBACKGROUND", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "SETBG", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "SETCANVASSIZE", 2, { ARG_EXPR, ARG_EXPR } },
+
     // A representative set of prefix math operators (expression
     // position only -- SUM/DIFFERENCE-shaped, not the infix +/-
     // grammar) demonstrating that the exact same AST_CALL mechanism

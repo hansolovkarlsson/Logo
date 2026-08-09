@@ -72,9 +72,13 @@ the detail, per this file's usual convention.
   interpreter.c's own `app->procedures[]` table, which this engine's
   `TO` definitions never populate — genuinely open design questions,
   not straightforward ports — see `docs/BYTECODE_VM_DESIGN.md`.
-- [ ] Drawing/canvas primitives: `ARC`/`LABEL`/`FILL`/`ERASE`/`ERASERECT`/
-  `WRAP`/`FENCE`/`CLEAN`/`HIDETURTLE`/`SHOWTURTLE`/`SETPENCOLOR`/
-  `SETPENWIDTH`/`SETBACKGROUND`/`SETCANVASSIZE`.
+
+Also worth knowing about, though not a checklist item: `LOAD` itself
+shipped, but calling a procedure it defines from the *loading* script
+doesn't work — a real, documented architectural gap (this engine parses
+its whole top-level script once, up front, unlike `eval_logo`'s one-
+statement-at-a-time model), not scoped to fix here — see
+`docs/BYTECODE_VM_DESIGN.md`'s File I/O milestone.
 
 Deliberately **not** planned for Stage 1, and not just "not done yet":
 - `WAITKEY`/`INPUT`/`PAUSE`/`WAIT`/`BUTTON?`/`JOYSTICK?`/`JOYSTICKAXIS`/
@@ -88,13 +92,17 @@ Deliberately **not** planned for Stage 1, and not just "not done yet":
   `JOYSTICK?`-family predicates were already flagged out of scope for
   this same reason when type predicates landed — see
   `docs/BYTECODE_VM_DESIGN.md`.)
-- `TONE`/`PLAYSOUND`/`STOPSOUND`, sprites/animation (`LOADSPRITE`/
+- `TONE`/`PLAYSOUND`/`STOPSOUND` and sprites/animation (`LOADSPRITE`/
   `LOADSPRITESHEET`/`SETSPRITE`/`SETSPRITEFRAME`/`STAMPSPRITE`/
-  `ANIMATESPRITE`/`LOADPIC`/`SAVEPIC`), and `WINDOW` — real features, but
-  large, GTK/SDL-state-heavy surface area disproportionate to what a
+  `ANIMATESPRITE`/`LOADPIC`/`SAVEPIC`) — real features, but large,
+  GTK/SDL-state-heavy surface area disproportionate to what a
   research/learning evaluator needs; revisit only if Stage 1 coverage
   becomes the thing actually driving the real app (`bin/logo` still runs
   exclusively on `eval_logo` today — see `docs/BYTECODE_VM_DESIGN.md`).
+  (`WINDOW`, the Logo language command that turns off the canvas edge
+  boundary, used to be miscategorized here too — it's not GTK/SDL-heavy
+  at all, just a one-line `edge_mode` setter alongside `WRAP`/`FENCE`,
+  and shipped with the rest of the drawing/canvas primitives batch.)
 - `PAUSE`/`CONTINUE`/`BACKTRACE`/`EXECTIME` — the debugger commands are
   intrinsically tied to `eval_logo`'s own live-pause mechanism (see
   `docs/LANGUAGE.md`'s "Debugger" section); no equivalent concept exists
