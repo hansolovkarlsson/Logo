@@ -64,17 +64,14 @@ work batches, each roughly a "commit and push" unit; check off a group as it
 lands and delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has
 the detail, per this file's usual convention.
 
-- [ ] `TEXT` (see `docs/LANGUAGE.md`'s "FLATTEN, PARSE, SUBST" section) —
-  the rest of that batch (`FLATTEN`/`SUBST`/`PARSE`/`PICK`/`DOT`/`CROSS`)
-  is done. `TEXT` needs either storing each procedure's original source
-  text alongside its `AST_PROC_DEF` (not currently retained anywhere —
-  only the parsed tree survives) or re-serializing the AST back to
-  text; a genuinely open design question, not a straightforward port
-  like the rest of this batch — see `docs/BYTECODE_VM_DESIGN.md`.
-- [ ] File I/O: `OPENREAD`/`OPENWRITE`/`OPENAPPEND`/`CLOSE`/`READLINE`/
-  `FILEPRINT`/`EOF?`/`DELETEFILE`/`DIRECTORY`/`LOAD`/`SAVE` (see
-  `docs/LANGUAGE.md`'s "Files" section). Needs file-handle state not yet
-  shared with the new engine.
+- [ ] `TEXT`/`SAVE` (see `docs/LANGUAGE.md`'s "FLATTEN, PARSE, SUBST"
+  and "Files" sections) — both need the same thing this engine doesn't
+  have: a procedure's original source text (or a faithful
+  re-serialization of its `AST_PROC_DEF` back to text). `SAVE`
+  specifically needs this because `serialize_procedures` walks
+  interpreter.c's own `app->procedures[]` table, which this engine's
+  `TO` definitions never populate — genuinely open design questions,
+  not straightforward ports — see `docs/BYTECODE_VM_DESIGN.md`.
 - [ ] Drawing/canvas primitives: `ARC`/`LABEL`/`FILL`/`ERASE`/`ERASERECT`/
   `WRAP`/`FENCE`/`CLEAN`/`HIDETURTLE`/`SHOWTURTLE`/`SETPENCOLOR`/
   `SETPENWIDTH`/`SETBACKGROUND`/`SETCANVASSIZE`.

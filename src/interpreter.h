@@ -110,4 +110,9 @@ int list_node_copy(LogoApp *app, int src_idx);
 // re-deriving, same reasoning as find_var above.
 int find_plist_entry(LogoApp *app, const char *plist_name, const char *key);
 
+// The index of an unused slot in app->file_channels (see FileChannel
+// in logo_types.h), or -1 if all MAX_OPEN_FILES are already open. Used
+// by OPENREAD/OPENWRITE/OPENAPPEND.
+int find_free_file_channel(LogoApp *app);
+
 #endif // INTERPRETER_H

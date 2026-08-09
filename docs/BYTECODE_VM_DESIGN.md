@@ -990,8 +990,78 @@ footprint.
     script exercising `TELL`/`WHO`, out-of-range `TELL`, and `HOME`
     only resetting whichever turtle is current. Confirmed clean under
     AddressSanitizer on both `test_eval` and `test_shadow_diff`.
+- **File I/O: mostly done** (seventh batch off `docs/ROADMAP.md`'s
+  Phase 5 Stage 1 checklist): `OPENREAD`/`OPENWRITE`/`OPENAPPEND`/
+  `READLINE`/`EOF?`/`DIRECTORY`/`CLOSE`/`FILEPRINT`/`DELETEFILE`/`LOAD`.
+  Direct ports sharing `app->file_channels[]` directly (a plain
+  `LogoApp` field) plus the newly-exposed `find_free_file_channel` (the
+  one bit of channel-slot logic worth sharing rather than re-deriving,
+  same reasoning as `find_var`/`find_plist_entry`). `DELETEFILE`/`LOAD`'s
+  path argument is `ARG_QUOTED_WORD`, not `ARG_EXPR` — matching
+  interpreter.c's own raw `sscanf("%s")`-plus-leading-quote-check
+  convention for these two, the same restriction `MAKE`'s varname
+  already has. `SAVE` is NOT part of this batch (see below).
+  - **A real, severe architectural limitation discovered while testing
+    `LOAD`, not a narrow fidelity bug**: interpreter.c's `LOAD` works
+    like Terrapin's own — the *main* documented use case
+    (`docs/LANGUAGE.md`: "write/edit a script externally, LOAD it, test,
+    repeat") is loading a file of `TO` definitions and then calling them
+    from the script that did the loading. This works in interpreter.c
+    because `eval_logo` parses and executes one statement at a time —
+    by the time a `LOAD`'d file's own nested `eval_logo` call registers
+    a procedure into `app->procedures[]`, a later call to it in the
+    *same* top-level script (parsed and run afterward, in sequence)
+    finds it immediately. This engine parses its entire top-level script
+    **once, up front**, before executing anything (hoisting procedure
+    arities via a pre-pass over the whole token stream, see parser.c) —
+    so a call to a `LOAD`'d procedure fails to resolve at *parse time*,
+    long before `do_load` would ever run, regardless of what `LOAD`
+    itself does at runtime. The result isn't a runtime "I don't know how
+    to X" — it's a parse error, and per this engine's own
+    error-collection design (`ParseResult.error_count`), that means the
+    **entire script fails to run at all**, not just the one call.
+    Confirmed directly: the same script (define a procedure via `LOAD`,
+    then call it) runs correctly end-to-end in interpreter.c, and fails
+    to parse at all here — verified with a standalone probe before
+    writing anything permanent, not assumed.
+    `LOAD` still works correctly for everything that doesn't cross that
+    boundary: a loaded file's own statements execute (`PRINT`, `MAKE`,
+    turtle motion), including defining and calling its own procedure
+    *from within itself* (confirmed byte-for-byte identical against
+    interpreter.c) — `do_load` reuses `RUN`/`FOREACH`'s own re-entrant
+    lex/parse-into-a-scratch-`ParseResult` machinery, exec_block'd as a
+    nested call (not a fresh top-level recovery point, exactly mirroring
+    interpreter.c's own `LOAD` being a plain nested `eval_logo` call). A
+    dedicated `test_eval.c` case
+    (`test_load_defined_procedure_is_not_callable_from_the_loading_script`)
+    pins the current (parse-error) behavior down as a documented,
+    intentional gap rather than leaving it silently unverified — this is
+    a genuinely bigger, harder problem than `TEXT`/`SAVE`'s "no source
+    text retained" gap: fixing it for real would mean teaching the
+    parser to eagerly follow `LOAD` calls with a literal path argument
+    during its own hoisting pre-pass, recursively reading and hoisting
+    the target file's procedures before the main script's own calls are
+    resolved — a real, `#include`-shaped feature, out of scope for this
+    batch.
+  - **`SAVE` deferred alongside `TEXT`, not attempted**: `serialize_procedures`
+    walks interpreter.c's own `app->procedures[]` table (each entry's
+    already-known body text) — the exact same table `PROCEDURES`/`TEXT`
+    already couldn't use, since this engine's `TO` definitions are
+    `AST_PROC_DEF` nodes that never touch it. Same open design question,
+    not a new one.
+  - 14 new `tests/test_eval.c` cases (mirroring `tests/test_interpreter.c`'s
+    own file I/O test shapes closely, real file I/O against `build/`'s
+    already-gitignored scratch space) and 2 new shadow-diff scripts — one
+    exercising the general file I/O operators fully self-contained
+    (write/read/append/delete all in one script, safe to run through
+    both engines in sequence since each engine's own `OPENWRITE`
+    truncates fresh), one exercising `LOAD` restricted to the confirmed-
+    agreeing case only (a loaded file's own statements, not a cross-
+    boundary procedure call). Confirmed clean under AddressSanitizer on
+    both `test_eval` and `test_shadow_diff`.
 - **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1
-  checklist — file I/O is next, followed by drawing primitives — see
-  that file for the full breakdown and what's deliberately out of
-  scope. `TEXT` (deferred a few milestones ago) stays on the checklist,
-  still an open design question.
+  checklist — drawing/canvas primitives are next and, once that lands,
+  the only Stage 1 checklist items left open are the shared-root-cause
+  `TEXT`/`SAVE` pair and the newly-documented `LOAD`-cross-boundary-call
+  gap — see that file for the full breakdown and what's deliberately
+  out of scope.

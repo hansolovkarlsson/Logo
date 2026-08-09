@@ -458,7 +458,7 @@ static Procedure *resolve_method(LogoApp *app, const char *objname, const char *
 
 // Find an unused slot in app->file_channels (OPENREAD/OPENWRITE/
 // OPENAPPEND), or -1 if all MAX_OPEN_FILES are currently open.
-static int find_free_file_channel(LogoApp *app) {
+int find_free_file_channel(LogoApp *app) {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (app->file_channels[i].mode == FILE_CHANNEL_CLOSED) return i;
     }

@@ -252,6 +252,62 @@ TEST(test_tell_and_who_multiple_turtles) {
         "PRINT POS");
 }
 
+// General file I/O -- against build/, same gitignored-scratch-space
+// convention as test_interpreter.c/test_eval.c's own file I/O tests.
+// Fully self-contained (create, write, read, delete all within one
+// script) so running the identical text through both engines in
+// sequence is safe: each engine's own OPENWRITE truncates the file
+// fresh, and DELETEFILE cleans up at the end either way.
+TEST(test_file_io_write_read_append_and_delete) {
+    shadow_diff(
+        "MAKE \"ch OPENWRITE \"build/test_shadow_diff_fileio.txt\n"
+        "FILEPRINT :ch SENTENCE \"first \"line\n"
+        "FILEPRINT :ch \"second\n"
+        "CLOSE :ch\n"
+        "MAKE \"rd OPENREAD \"build/test_shadow_diff_fileio.txt\n"
+        "PRINT READLINE :rd\n"
+        "PRINT EOF? :rd\n"
+        "PRINT READLINE :rd\n"
+        "PRINT EOF? :rd\n"
+        "CLOSE :rd\n"
+        "MAKE \"ap OPENAPPEND \"build/test_shadow_diff_fileio.txt\n"
+        "FILEPRINT :ap \"third\n"
+        "CLOSE :ap\n"
+        "MAKE \"rd2 OPENREAD \"build/test_shadow_diff_fileio.txt\n"
+        "PRINT READLINE :rd2\n"
+        "PRINT READLINE :rd2\n"
+        "PRINT READLINE :rd2\n"
+        "CLOSE :rd2\n"
+        "CLOSE 99\n"
+        "PRINT READLINE 5\n"
+        "PRINT EOF? 5\n"
+        "FILEPRINT 5 \"nope\n"
+        "PRINT MEMBER? \"Makefile DIRECTORY\n"
+        "DELETEFILE \"build/test_shadow_diff_fileio.txt\n"
+        "DELETEFILE \"build/test_shadow_diff_does_not_exist.txt");
+}
+
+// LOAD is only shadow-diffed for the case confirmed to actually agree
+// between the two engines: a loaded file's own statements running,
+// including defining and calling ITS OWN procedure from within itself.
+// Calling a LOAD'd procedure from the *loading* script is a genuine,
+// documented architectural gap this engine doesn't share with
+// interpreter.c yet (see test_eval.c's
+// test_load_defined_procedure_is_not_callable_from_the_loading_script
+// and docs/BYTECODE_VM_DESIGN.md) -- deliberately not exercised here,
+// since it's known NOT to agree, not an oversight.
+TEST(test_load_runs_a_files_own_statements) {
+    const char *path = "build/test_shadow_diff_load.logo";
+    g_file_set_contents(path,
+        "TO greet :name\n"
+        "  PRINT WORD \"hello- :name\n"
+        "END\n"
+        "greet \"world\n"
+        "PRINT 1 + 1", -1, NULL);
+    shadow_diff("PRINT \"before\nLOAD \"build/test_shadow_diff_load.logo\nPRINT \"after");
+    remove(path);
+}
+
 TEST(test_repeat_with_turtle_motion) { shadow_diff("REPEAT 4 [FD 50 RT 90]"); }
 
 TEST(test_procedure_with_output) {
@@ -925,6 +981,8 @@ int main(void) {
     RUN(test_penup_pendown);
     RUN(test_home_and_clear);
     RUN(test_tell_and_who_multiple_turtles);
+    RUN(test_file_io_write_read_append_and_delete);
+    RUN(test_load_runs_a_files_own_statements);
     RUN(test_repeat_with_turtle_motion);
     RUN(test_procedure_with_output);
     RUN(test_procedure_forward_reference);

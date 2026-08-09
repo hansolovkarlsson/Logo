@@ -111,6 +111,25 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "RUN", 1, { ARG_EXPR } },
     { "APPLY", 2, { ARG_EXPR, ARG_EXPR } },
 
+    // General file I/O (eval.c: shares app->file_channels[] directly
+    // with interpreter.c's own OPENREAD/OPENWRITE/etc). OPENREAD/
+    // OPENWRITE/OPENAPPEND/READLINE/CLOSE/FILEPRINT's own arguments are
+    // ordinary expressions in interpreter.c (parse_factor/parse_expr,
+    // not a raw sscanf %s) -- DELETEFILE/LOAD are the two exceptions,
+    // ARG_QUOTED_WORD like MAKE's varname (see eval.c's own note on
+    // do_deletefile/do_load). SAVE isn't here -- deferred alongside
+    // TEXT, see docs/ROADMAP.md.
+    { "OPENREAD", 1, { ARG_EXPR } },
+    { "OPENWRITE", 1, { ARG_EXPR } },
+    { "OPENAPPEND", 1, { ARG_EXPR } },
+    { "READLINE", 1, { ARG_EXPR } },
+    { "EOF?", 1, { ARG_EXPR } },
+    { "DIRECTORY", 0, { 0 } },
+    { "CLOSE", 1, { ARG_EXPR } },
+    { "FILEPRINT", 2, { ARG_EXPR, ARG_EXPR } },
+    { "DELETEFILE", 1, { ARG_QUOTED_WORD } },
+    { "LOAD", 1, { ARG_QUOTED_WORD } },
+
     // A representative set of prefix math operators (expression
     // position only -- SUM/DIFFERENCE-shaped, not the infix +/-
     // grammar) demonstrating that the exact same AST_CALL mechanism

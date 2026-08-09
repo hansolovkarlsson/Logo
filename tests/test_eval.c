@@ -1135,6 +1135,203 @@ TEST(test_uncaught_throw_at_top_level_reports_and_later_statements_still_run) {
     CHECK_STREQ(captured_output, "THROW: no CATCH found for \"nope\n1\n");
 }
 
+// --- General file I/O (OPENREAD/OPENWRITE/OPENAPPEND/CLOSE/FILEPRINT/
+// READLINE/EOF?/DELETEFILE/DIRECTORY/LOAD) ---
+// Real file I/O against build/, same convention as
+// tests/test_interpreter.c's own equivalents (already gitignored
+// scratch space, no dependency on /tmp being writable). Each test
+// cleans up the file it wrote. Distinct filenames from
+// test_interpreter.c's own (test_eval_* rather than test_*) even
+// though the two binaries never run concurrently, just to make each
+// suite's own scratch files unambiguous at a glance.
+
+TEST(test_openwrite_fileprint_close_writes_the_file) {
+    const char *path = "build/test_eval_openwrite.txt";
+    remove(path);
+
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"ch OPENWRITE \"build/test_eval_openwrite.txt\n"
+        "FILEPRINT :ch \"hello\n"
+        "FILEPRINT :ch \"world\n"
+        "CLOSE :ch");
+
+    char *contents = NULL;
+    CHECK(g_file_get_contents(path, &contents, NULL, NULL));
+    if (contents != NULL) {
+        CHECK(strcmp(contents, "hello\nworld\n") == 0);
+        g_free(contents);
+    }
+    remove(path);
+}
+
+TEST(test_openread_readline_reads_lines_then_eof) {
+    const char *path = "build/test_eval_openread.txt";
+    remove(path);
+    g_file_set_contents(path, "line one\nline two\n", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"ch OPENREAD \"build/test_eval_openread.txt\n"
+        "PRINT READLINE :ch\n"
+        "PRINT READLINE :ch\n"
+        "PRINT EOF? :ch\n"
+        "CLOSE :ch");
+    CHECK_STREQ(captured_output, "line one\nline two\nTRUE\n");
+    remove(path);
+}
+
+TEST(test_openappend_appends_to_existing_content) {
+    const char *path = "build/test_eval_openappend.txt";
+    remove(path);
+    g_file_set_contents(path, "first\n", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"ch OPENAPPEND \"build/test_eval_openappend.txt\n"
+        "FILEPRINT :ch \"second\n"
+        "CLOSE :ch");
+
+    char *contents = NULL;
+    CHECK(g_file_get_contents(path, &contents, NULL, NULL));
+    if (contents != NULL) {
+        CHECK(strcmp(contents, "first\nsecond\n") == 0);
+        g_free(contents);
+    }
+    remove(path);
+}
+
+TEST(test_openread_of_missing_file_returns_negative_one) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT OPENREAD \"build/test_eval_does_not_exist.txt");
+    CHECK_STREQ(captured_output, "-1\n");
+}
+
+TEST(test_close_of_invalid_channel_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "CLOSE 3");
+    CHECK_CONTAINS(captured_output, "CLOSE: no such open channel");
+}
+
+TEST(test_fileprint_on_a_read_channel_reports_error) {
+    const char *path = "build/test_eval_fileprint_wrong_mode.txt";
+    remove(path);
+    g_file_set_contents(path, "data\n", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"ch OPENREAD \"build/test_eval_fileprint_wrong_mode.txt\n"
+        "FILEPRINT :ch \"oops");
+    CHECK_CONTAINS(captured_output, "FILEPRINT: channel not open for writing");
+    remove(path);
+}
+
+TEST(test_readline_and_eof_on_a_closed_channel_are_safe_sentinels) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT READLINE 5\nPRINT EOF? 5");
+    CHECK_STREQ(captured_output, "\nTRUE\n");
+}
+
+TEST(test_deletefile_removes_a_file) {
+    const char *path = "build/test_eval_deletefile.txt";
+    g_file_set_contents(path, "x", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app, "DELETEFILE \"build/test_eval_deletefile.txt");
+    CHECK_STREQ(captured_output, "");
+    CHECK(!g_file_test(path, G_FILE_TEST_EXISTS));
+}
+
+TEST(test_deletefile_of_missing_file_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "DELETEFILE \"build/test_eval_does_not_exist_either.txt");
+    CHECK_CONTAINS(captured_output, "DELETEFILE: could not delete");
+}
+
+TEST(test_deletefile_without_a_quoted_word_is_a_parse_error_not_runtime) {
+    // Unlike interpreter.c's own DELETEFILE (a raw sscanf("%s") check
+    // that fails at *runtime*, printing "DELETEFILE: expected a
+    // \"path"), this engine's ARG_QUOTED_WORD requires a literal
+    // LOGO_TOK_QUOTED_WORD token at *parse* time (see parser.c) -- the
+    // same mechanism MAKE/LOCAL's own varname argument already uses,
+    // not something new to this batch. A bareword argument here is a
+    // parse error, so the script never runs at all (run_source itself
+    // reports the parse failure rather than executing DELETEFILE's own
+    // runtime error path).
+    LogoApp *app = new_app();
+    LogoToken tokens[MAX_TEST_TOKENS];
+    int n = logo_lex("DELETEFILE path", tokens, MAX_TEST_TOKENS);
+    CHECK(n >= 0);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    CHECK(result->error_count > 0);
+    free(result);
+    (void)app;
+}
+
+TEST(test_directory_lists_the_current_working_directory) {
+    // Tests run from the repo root (see Makefile's test rule), so
+    // Makefile itself is a stable, always-present entry -- no need to
+    // create a marker file just to test DIRECTORY.
+    LogoApp *app = new_app();
+    run_source(app, "PRINT MEMBER? \"Makefile DIRECTORY");
+    CHECK_STREQ(captured_output, "TRUE\n");
+}
+
+TEST(test_load_runs_a_files_contents_as_logo_source) {
+    const char *path = "build/test_eval_load.logo";
+    remove(path);
+    g_file_set_contents(path,
+        "TO greet :name\n"
+        "  PRINT WORD \"hello- :name\n"
+        "END\n"
+        "greet \"world\n"
+        "PRINT 1 + 1", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app, "PRINT \"before\nLOAD \"build/test_eval_load.logo\nPRINT \"after");
+    CHECK_STREQ(captured_output, "before\nhello-world\n2\nafter\n");
+    remove(path);
+}
+
+TEST(test_load_of_missing_file_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "LOAD \"build/test_eval_does_not_exist_at_all.logo");
+    CHECK_CONTAINS(captured_output, "LOAD: could not read file");
+}
+
+TEST(test_load_defined_procedure_is_not_callable_from_the_loading_script) {
+    // A genuine, documented architectural limitation, not a bug to fix
+    // in this batch -- see docs/BYTECODE_VM_DESIGN.md's LOAD/SAVE
+    // milestone. interpreter.c parses and executes one statement at a
+    // time (eval_logo's own cursor), so by the time LOAD's own eval_logo
+    // call registers `greet` into app->procedures[], a later `greet
+    // "world` in the SAME top-level script finds it immediately. This
+    // engine parses the WHOLE top-level script once, up front, before
+    // running anything -- so `greet` isn't a known hoisted procedure
+    // yet when *this* script's own parse reaches its call, regardless
+    // of what LOAD will later do at runtime. The result is a parse
+    // error (not a runtime "I don't know how to greet"), and per this
+    // engine's own error-collection design, the whole script simply
+    // doesn't run at all -- confirmed directly against interpreter.c,
+    // which runs this exact script successfully, before writing this
+    // test the other way around.
+    const char *path = "build/test_eval_load_uncallable.logo";
+    remove(path);
+    g_file_set_contents(path, "TO greet :name\n  PRINT WORD \"hello- :name\nEND", -1, NULL);
+
+    LogoApp *app = new_app();
+    LogoToken tokens[MAX_TEST_TOKENS];
+    int n = logo_lex("LOAD \"build/test_eval_load_uncallable.logo\nPRINT greet \"world", tokens, MAX_TEST_TOKENS);
+    CHECK(n >= 0);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    CHECK(result->error_count > 0);
+    free(result);
+    (void)app;
+    remove(path);
+}
+
 int main(void) {
     RUN(test_print_a_number_and_a_word);
     RUN(test_arithmetic_with_precedence);
@@ -1261,6 +1458,21 @@ int main(void) {
     RUN(test_catch_recovers_when_the_thrown_tag_matches);
     RUN(test_throw_with_no_matching_catch_reports_and_recovers_at_top_level);
     RUN(test_uncaught_throw_at_top_level_reports_and_later_statements_still_run);
+
+    RUN(test_openwrite_fileprint_close_writes_the_file);
+    RUN(test_openread_readline_reads_lines_then_eof);
+    RUN(test_openappend_appends_to_existing_content);
+    RUN(test_openread_of_missing_file_returns_negative_one);
+    RUN(test_close_of_invalid_channel_reports_error);
+    RUN(test_fileprint_on_a_read_channel_reports_error);
+    RUN(test_readline_and_eof_on_a_closed_channel_are_safe_sentinels);
+    RUN(test_deletefile_removes_a_file);
+    RUN(test_deletefile_of_missing_file_reports_error);
+    RUN(test_deletefile_without_a_quoted_word_is_a_parse_error_not_runtime);
+    RUN(test_directory_lists_the_current_working_directory);
+    RUN(test_load_runs_a_files_contents_as_logo_source);
+    RUN(test_load_of_missing_file_reports_error);
+    RUN(test_load_defined_procedure_is_not_callable_from_the_loading_script);
 
     if (failures == 0) {
         printf("All tests passed.\n");

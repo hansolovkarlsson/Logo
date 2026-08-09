@@ -36,6 +36,7 @@
 #include "lexer.h"
 #include "parser.h"
 #include <ctype.h>
+#include <glib/gstdio.h> // g_remove (DELETEFILE)
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1719,6 +1720,190 @@ static void do_catch(LogoApp *app, AstPool *pool, const int *arg_idx) {
         app->throw_requested = FALSE;
     }
 }
+// General file I/O -- OPENREAD/OPENWRITE/OPENAPPEND/READLINE/EOF?/
+// DIRECTORY (operators) and CLOSE/FILEPRINT/DELETEFILE/LOAD
+// (statements). Direct ports of interpreter.c's own versions, sharing
+// app->file_channels[] directly (a plain LogoApp field, like
+// turtles[]/turtle_count) plus the now-exposed find_free_file_channel
+// -- the one bit of file-channel logic worth sharing rather than
+// re-deriving, same reasoning as find_var/find_plist_entry. Whole-file,
+// not real streaming I/O, matching FileChannel's own design (see
+// logo_types.h): a read channel loads everything up front and serves
+// READLINE out of read_buffer/read_pos; a write channel only actually
+// touches disk when CLOSE flushes its write_buffer.
+static EvalValue do_openread(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue path_val = eval_expr(app, pool, arg_idx[0]);
+    char path_text[512];
+    eval_value_to_text(app, path_val, path_text, sizeof(path_text));
+    int idx = find_free_file_channel(app);
+    if (idx < 0) return num_val(-1);
+    char *contents = NULL;
+    GError *error = NULL;
+    if (!g_file_get_contents(path_text, &contents, NULL, &error)) {
+        g_error_free(error);
+        return num_val(-1);
+    }
+    FileChannel *fc = &app->file_channels[idx];
+    fc->mode = FILE_CHANNEL_READ;
+    fc->read_buffer = contents;
+    fc->read_pos = 0;
+    return num_val(idx);
+}
+static EvalValue do_openwrite(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue path_val = eval_expr(app, pool, arg_idx[0]);
+    char path_text[512];
+    eval_value_to_text(app, path_val, path_text, sizeof(path_text));
+    int idx = find_free_file_channel(app);
+    if (idx < 0) return num_val(-1);
+    FileChannel *fc = &app->file_channels[idx];
+    fc->mode = FILE_CHANNEL_WRITE;
+    fc->write_buffer = g_string_new(NULL);
+    snprintf(fc->path, sizeof(fc->path), "%s", path_text);
+    return num_val(idx);
+}
+static EvalValue do_openappend(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue path_val = eval_expr(app, pool, arg_idx[0]);
+    char path_text[512];
+    eval_value_to_text(app, path_val, path_text, sizeof(path_text));
+    int idx = find_free_file_channel(app);
+    if (idx < 0) return num_val(-1);
+    FileChannel *fc = &app->file_channels[idx];
+    fc->mode = FILE_CHANNEL_WRITE;
+    char *existing = NULL;
+    if (g_file_get_contents(path_text, &existing, NULL, NULL)) {
+        fc->write_buffer = g_string_new(existing);
+        g_free(existing);
+    } else {
+        fc->write_buffer = g_string_new(NULL);
+    }
+    snprintf(fc->path, sizeof(fc->path), "%s", path_text);
+    return num_val(idx);
+}
+static EvalValue do_readline(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
+        return word_val("");
+    }
+    FileChannel *fc = &app->file_channels[idx];
+    size_t len = strlen(fc->read_buffer);
+    if (fc->read_pos >= len) return word_val("");
+    size_t start = fc->read_pos;
+    const char *newline = strchr(fc->read_buffer + start, '\n');
+    size_t end = newline != NULL ? (size_t)(newline - fc->read_buffer) : len;
+    char line[512];
+    size_t line_len = end - start;
+    if (line_len >= sizeof(line)) line_len = sizeof(line) - 1;
+    memcpy(line, fc->read_buffer + start, line_len);
+    line[line_len] = '\0';
+    if (line_len > 0 && line[line_len - 1] == '\r') line[line_len - 1] = '\0'; // CRLF files
+    fc->read_pos = newline != NULL ? end + 1 : len;
+    return word_val(line);
+}
+static EvalValue do_eofp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
+        return word_val("TRUE");
+    }
+    FileChannel *fc = &app->file_channels[idx];
+    return word_val(fc->read_pos >= strlen(fc->read_buffer) ? "TRUE" : "FALSE");
+}
+static EvalValue do_directory(LogoApp *app) {
+    int head = -1;
+    int *next_slot = &head;
+    GDir *dir = g_dir_open(".", 0, NULL);
+    if (dir != NULL) {
+        const char *name;
+        while ((name = g_dir_read_name(dir)) != NULL) {
+            int node = value_to_node(app, word_val(name));
+            if (node < 0) { g_dir_close(dir); return list_pool_exhausted(app); }
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+        g_dir_close(dir);
+    }
+    return list_val(head);
+}
+static void do_close(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode == FILE_CHANNEL_CLOSED) {
+        append_output(app, "CLOSE: no such open channel\n");
+        return;
+    }
+    FileChannel *fc = &app->file_channels[idx];
+    if (fc->mode == FILE_CHANNEL_WRITE) {
+        GError *error = NULL;
+        if (!g_file_set_contents(fc->path, fc->write_buffer->str, (gssize)fc->write_buffer->len, &error)) {
+            append_output(app, "CLOSE: could not write file\n");
+            g_error_free(error);
+        }
+        g_string_free(fc->write_buffer, TRUE);
+        fc->write_buffer = NULL;
+    } else {
+        g_free(fc->read_buffer);
+        fc->read_buffer = NULL;
+    }
+    fc->mode = FILE_CHANNEL_CLOSED;
+}
+static void do_fileprint(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    EvalValue val = eval_expr(app, pool, arg_idx[1]);
+    if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_WRITE) {
+        append_output(app, "FILEPRINT: channel not open for writing\n");
+        return;
+    }
+    char line[512];
+    eval_value_to_text(app, val, line, sizeof(line));
+    g_string_append(app->file_channels[idx].write_buffer, line);
+    g_string_append_c(app->file_channels[idx].write_buffer, '\n');
+}
+// DELETEFILE/LOAD's own path argument is ARG_QUOTED_WORD, not ARG_EXPR
+// -- matching interpreter.c's own raw sscanf("%s")-plus-leading-quote-
+// check convention for these two (and SAVE, deferred below), the exact
+// same restriction MAKE's varname/LOCAL's varname already have (see
+// parser.c's own file comment on ARG_QUOTED_WORD): DELETEFILE WORD "a
+// ".txt isn't a computed expression here, it's a syntax error, same as
+// in interpreter.c.
+static void do_deletefile(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    const char *path = pool->nodes[arg_idx[0]].text;
+    if (g_remove(path) != 0) {
+        append_output(app, "DELETEFILE: could not delete \"");
+        append_output(app, path);
+        append_output(app, "\n");
+    }
+}
+// LOAD "path -- reads a file and runs it as Logo source, the same
+// re-entrant lex/parse-into-a-scratch-ParseResult machinery RUN/
+// FOREACH already use. A bigger token budget than MAX_TEMPLATE_TOKENS
+// (128, sized for a single small template/RUN'd value): a LOAD'd file
+// is a whole external script, potentially many statements, not a short
+// in-memory snippet. Like RUN, this runs through exec_block (a nested
+// execution sharing the caller's scope, not a fresh top-level
+// recovery point) -- an uncaught THROW inside a LOAD'd file propagates
+// up to whatever called LOAD, exactly mirroring interpreter.c's own
+// LOAD (a plain nested eval_logo call, no special top-level recovery
+// of its own). No recursion-depth guard, also matching interpreter.c
+// exactly -- unlike RUN, LOAD has never had one.
+#define MAX_LOAD_TOKENS 8192
+static void do_load(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    const char *path = pool->nodes[arg_idx[0]].text;
+    char *contents = NULL;
+    GError *error = NULL;
+    if (!g_file_get_contents(path, &contents, NULL, &error)) {
+        append_output(app, "LOAD: could not read file\n");
+        g_error_free(error);
+        return;
+    }
+    LogoToken *tokens = malloc(sizeof(LogoToken) * MAX_LOAD_TOKENS);
+    int n = logo_lex(contents, tokens, MAX_LOAD_TOKENS);
+    if (n >= 0) {
+        ParseResult *scratch = calloc(1, sizeof(ParseResult));
+        logo_parse(tokens, n, scratch);
+        if (scratch->error_count == 0) exec_block(app, &scratch->pool, scratch->program);
+        free(scratch);
+    }
+    free(tokens);
+    g_free(contents);
+}
 static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
 }
@@ -1934,6 +2119,32 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_run(app, pool, arg_idx);
     } else if (strcasecmp(name, "APPLY") == 0) {
         do_apply(app, pool, arg_idx);
+    } else if (strcasecmp(name, "OPENREAD") == 0) {
+        if (result != NULL) *result = do_openread(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "OPENWRITE") == 0) {
+        if (result != NULL) *result = do_openwrite(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "OPENAPPEND") == 0) {
+        if (result != NULL) *result = do_openappend(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "READLINE") == 0) {
+        if (result != NULL) *result = do_readline(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "EOF?") == 0) {
+        if (result != NULL) *result = do_eofp(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "DIRECTORY") == 0) {
+        if (result != NULL) *result = do_directory(app);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "CLOSE") == 0) {
+        do_close(app, pool, arg_idx);
+    } else if (strcasecmp(name, "FILEPRINT") == 0) {
+        do_fileprint(app, pool, arg_idx);
+    } else if (strcasecmp(name, "DELETEFILE") == 0) {
+        do_deletefile(app, pool, arg_idx);
+    } else if (strcasecmp(name, "LOAD") == 0) {
+        do_load(app, pool, arg_idx);
     } else if (strcasecmp(name, "ABS") == 0) {
         if (result != NULL) *result = do_abs(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;
