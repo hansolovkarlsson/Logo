@@ -479,8 +479,11 @@ static int eval_list_as_three_numbers(LogoApp *app, EvalValue v, double out[3]) 
     return n == 3;
 }
 
-// Tokenizes `text` by whitespace into a list of words -- the shared
-// core of PARSE (any value's printed text). Pure text split, not
+// Tokenizes `text` (exactly `text_len` bytes, not necessarily
+// NUL-terminated -- TEXT's own caller hands this a span straight out
+// of the original source buffer, see do_text below) by whitespace into
+// a list of words -- the shared core of PARSE (any value's printed
+// text) and TEXT (a procedure's raw body text). Pure text split, not
 // bracket- or quote-aware, mirroring interpreter.c's own
 // list_tokenize_words exactly: a quoted word or a [bracketed block] in
 // the source keeps its punctuation as literal characters glued onto
@@ -489,15 +492,16 @@ static int eval_list_as_three_numbers(LogoApp *app, EvalValue v, double out[3]) 
 // -1 return, because -1 (empty list) is itself a legitimate successful
 // result here (empty/all-whitespace text), not distinguishable from
 // failure if the head were the only thing returned.
-static int eval_list_tokenize_words(LogoApp *app, const char *text, int *out_head) {
+static int eval_list_tokenize_words(LogoApp *app, const char *text, size_t text_len, int *out_head) {
     int head = -1;
     int *next_slot = &head;
     const char *p = text;
-    while (*p) {
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (*p == '\0') break;
+    const char *end = text + text_len;
+    while (p < end) {
+        while (p < end && isspace((unsigned char)*p)) p++;
+        if (p >= end) break;
         const char *start = p;
-        while (*p && !isspace((unsigned char)*p)) p++;
+        while (p < end && !isspace((unsigned char)*p)) p++;
         int node = list_alloc_node(app);
         if (node < 0) return 0;
         size_t len = (size_t)(p - start);
@@ -1221,6 +1225,29 @@ static void do_erase(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     pool->nodes[def_node].text[0] = '\0';
 }
+// TEXT "name -- the read-as-data complement to SHOW: instead of
+// printing a procedure's own TO...END definition, outputs its raw
+// body text tokenized into a flat list of words. Reuses
+// eval_list_tokenize_words directly against the AST_PROC_DEF's own
+// body_text/body_len (see ast.h and parse_proc_def in parser.c) --
+// this engine's TO definitions never had their original source text
+// retained anywhere before this, which is exactly what blocked TEXT
+// (and SAVE, see do_save below) until now.
+static EvalValue do_text(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    const char *name = pool->nodes[arg_idx[0]].text;
+    int def_node = find_proc_def(pool, name);
+    if (def_node < 0) {
+        append_output(app, "TEXT: no such procedure \"");
+        append_output(app, name);
+        append_output(app, "\n");
+        return list_val(-1);
+    }
+    AstNode *def = &pool->nodes[def_node];
+    int head;
+    const char *body = def->body_text != NULL ? def->body_text : "";
+    if (!eval_list_tokenize_words(app, body, (size_t)def->body_len, &head)) return list_pool_exhausted(app);
+    return list_val(head);
+}
 static void do_output(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue val = eval_expr(app, pool, arg_idx[0]);
     app->output_type = val.type;
@@ -1492,7 +1519,7 @@ static EvalValue do_parse(LogoApp *app, AstPool *pool, const int *arg_idx) {
     char text[512];
     eval_value_to_text(app, arg, text, sizeof(text));
     int head;
-    if (!eval_list_tokenize_words(app, text, &head)) return list_pool_exhausted(app);
+    if (!eval_list_tokenize_words(app, text, strlen(text), &head)) return list_pool_exhausted(app);
     return list_val(head);
 }
 // SUBST old new thing -- a non-list thing just compares directly
@@ -2086,6 +2113,82 @@ static void do_load(LogoApp *app, AstPool *pool, const int *arg_idx) {
     free(tokens);
     g_free(contents);
 }
+// Renders one procedure's "TO name :params\n<body>\nEND\n" text into
+// `out` -- the exact rendering interpreter.c's own append_procedure_text
+// builds, shared by SAVE (every procedure, plus its own extra
+// trailing '\n' per entry -- see do_save below) and SHOW (just the one
+// asked for, no extra trailing '\n'). Each header is rebuilt from the
+// node's already-known .text/.param_names (note the ':' has to be
+// added back explicitly: this engine's own param_names never include
+// it, unlike interpreter.c's own Procedure.param_names -- see ast.h's
+// own note on this), and the body comes straight from
+// .body_text/.body_len (see do_text above), the same literal-
+// source-text capture that unblocked TEXT.
+static void eval_append_procedure_text(GString *out, AstNode *n) {
+    g_string_append(out, "TO ");
+    g_string_append(out, n->text);
+    for (int p = 0; p < n->param_count; p++) {
+        g_string_append_c(out, ' ');
+        g_string_append_c(out, ':');
+        g_string_append(out, n->param_names[p]);
+    }
+    g_string_append_c(out, '\n');
+    if (n->body_text != NULL && n->body_len > 0) {
+        g_string_append_len(out, n->body_text, n->body_len);
+    }
+    g_string_append(out, "\nEND\n");
+}
+// SAVE "path -- writes every currently-defined procedure out as
+// TO...END Logo source, readable back in by LOAD. Direct port of
+// interpreter.c's own serialize_procedures, walking pool for
+// AST_PROC_DEF nodes (the same reach do_procedures already uses,
+// including its own skip-a-blank-.text-entry rule for an ERASE'd
+// procedure) instead of interpreter.c's own app->procedures[] table.
+static void do_save(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    const char *path = pool->nodes[arg_idx[0]].text;
+    GString *out = g_string_new(NULL);
+    for (int i = 0; i < pool->node_count; i++) {
+        AstNode *n = &pool->nodes[i];
+        if (n->type != AST_PROC_DEF || n->text[0] == '\0') continue;
+        eval_append_procedure_text(out, n);
+        // serialize_procedures appends one more '\n' per procedure on
+        // top of append_procedure_text's own trailing "END\n" (a
+        // separate step in interpreter.c, easy to miss) -- confirmed
+        // directly (not assumed) via a byte-for-byte SAVE output diff
+        // before this line was added: without it, procedures ran
+        // together with no blank line between them, and the real
+        // output has one after the very last procedure too.
+        g_string_append_c(out, '\n');
+    }
+    GError *error = NULL;
+    if (g_file_set_contents(path, out->str, (gssize)out->len, &error)) {
+        append_output(app, "Saved ");
+        append_output(app, path);
+        append_output(app, "\n");
+    } else {
+        append_output(app, "SAVE: could not write file\n");
+        g_error_free(error);
+    }
+    g_string_free(out, TRUE);
+}
+// SHOW "name -- prints one procedure's own TO...END definition back to
+// the history pane, reusing eval_append_procedure_text directly (the
+// same rendering SAVE writes to a file for every procedure, just this
+// one and without SAVE's own extra per-procedure trailing blank line).
+static void do_show(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    const char *name = pool->nodes[arg_idx[0]].text;
+    int def_node = find_proc_def(pool, name);
+    if (def_node < 0) {
+        append_output(app, "SHOW: no such procedure \"");
+        append_output(app, name);
+        append_output(app, "\n");
+        return;
+    }
+    GString *out = g_string_new(NULL);
+    eval_append_procedure_text(out, &pool->nodes[def_node]);
+    append_output(app, out->str);
+    g_string_free(out, TRUE);
+}
 static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
 }
@@ -2313,6 +2416,11 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     } else if (strcasecmp(name, "PROCEDURES") == 0) {
         if (result != NULL) *result = do_procedures(app, pool);
         if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "TEXT") == 0) {
+        if (result != NULL) *result = do_text(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "SHOW") == 0) {
+        do_show(app, pool, arg_idx);
     } else if (strcasecmp(name, "OUTPUT") == 0) {
         do_output(app, pool, arg_idx);
     } else if (strcasecmp(name, "STOP") == 0) {
@@ -2357,6 +2465,8 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_deletefile(app, pool, arg_idx);
     } else if (strcasecmp(name, "LOAD") == 0) {
         do_load(app, pool, arg_idx);
+    } else if (strcasecmp(name, "SAVE") == 0) {
+        do_save(app, pool, arg_idx);
     } else if (strcasecmp(name, "ABS") == 0) {
         if (result != NULL) *result = do_abs(app, pool, arg_idx);
         if (produced != NULL) *produced = 1;

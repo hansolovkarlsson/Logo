@@ -81,6 +81,11 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "LOCAL", 1, { ARG_QUOTED_WORD } },
     { "NAMES", 0, { 0 } },
     { "PROCEDURES", 0, { 0 } },
+    // TEXT/SHOW "name -- ARG_QUOTED_WORD like ERASE/DELETEFILE/LOAD,
+    // matching interpreter.c's own raw sscanf("%s") convention for this
+    // argument.
+    { "TEXT", 1, { ARG_QUOTED_WORD } },
+    { "SHOW", 1, { ARG_QUOTED_WORD } },
     { "OUTPUT", 1, { ARG_EXPR } },
     { "STOP", 0, { 0 } },
 
@@ -115,10 +120,9 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     // with interpreter.c's own OPENREAD/OPENWRITE/etc). OPENREAD/
     // OPENWRITE/OPENAPPEND/READLINE/CLOSE/FILEPRINT's own arguments are
     // ordinary expressions in interpreter.c (parse_factor/parse_expr,
-    // not a raw sscanf %s) -- DELETEFILE/LOAD are the two exceptions,
+    // not a raw sscanf %s) -- DELETEFILE/LOAD/SAVE are the exceptions,
     // ARG_QUOTED_WORD like MAKE's varname (see eval.c's own note on
-    // do_deletefile/do_load). SAVE isn't here -- deferred alongside
-    // TEXT, see docs/ROADMAP.md.
+    // do_deletefile/do_load/do_save).
     { "OPENREAD", 1, { ARG_EXPR } },
     { "OPENWRITE", 1, { ARG_EXPR } },
     { "OPENAPPEND", 1, { ARG_EXPR } },
@@ -129,6 +133,7 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "FILEPRINT", 2, { ARG_EXPR, ARG_EXPR } },
     { "DELETEFILE", 1, { ARG_QUOTED_WORD } },
     { "LOAD", 1, { ARG_QUOTED_WORD } },
+    { "SAVE", 1, { ARG_QUOTED_WORD } },
 
     // ERASE "name -- procedure deletion, not a drawing primitive
     // despite being grouped with the rest of this batch in
@@ -909,6 +914,13 @@ static int parse_proc_def(Parser *p) {
     }
 
     int body = ast_alloc(p->pool, AST_BLOCK, peek(p)->line, peek(p)->col);
+    // peek(p)->text right here (before the body's own statements are
+    // parsed) is the body's own start -- already past every :param
+    // (each advance_token above lands on the next token with no
+    // whitespace-skipping step of its own to add, since the lexer
+    // already skips whitespace between tokens), mirroring
+    // interpreter.c's own ptr position after its params-parsing loop.
+    const char *body_start = peek(p)->text;
     while (!token_is_bareword_ci(peek(p), "END")) {
         if (peek(p)->type == LOGO_TOK_EOF || peek(p)->type == LOGO_TOK_ERROR) {
             char name[32];
@@ -919,6 +931,12 @@ static int parse_proc_def(Parser *p) {
         }
         ast_append_child(p->pool, body, parse_statement(p));
     }
+    // peek(p) is now the END token itself -- its own .text is exactly
+    // where interpreter.c's own strcasestr(ptr, "END") would land, so
+    // this span matches Procedure.body's own bounds exactly (see
+    // ast.h's comment on body_text/body_len).
+    p->pool->nodes[node].body_text = body_start;
+    p->pool->nodes[node].body_len = (int)(peek(p)->text - body_start);
     advance_token(p); // END
     ast_append_child(p->pool, node, body);
     return node;

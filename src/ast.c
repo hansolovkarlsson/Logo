@@ -5,6 +5,7 @@
 // the parser (parser.c) is what actually decides what tree to build.
 
 #include "ast.h"
+#include <stddef.h> // NULL
 
 int ast_alloc(AstPool *pool, AstNodeType type, int line, int col) {
     if (pool->node_count >= MAX_AST_NODES) return -1;
@@ -16,6 +17,8 @@ int ast_alloc(AstPool *pool, AstNodeType type, int line, int col) {
     node->number = 0;
     node->text[0] = '\0';
     node->param_count = 0;
+    node->body_text = NULL;
+    node->body_len = 0;
     node->first_child = -1;
     node->next_sibling = -1;
     return idx;

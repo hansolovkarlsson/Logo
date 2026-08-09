@@ -368,6 +368,173 @@ TEST(test_erase_removes_the_procedure_from_procedures_output) {
     CHECK_STREQ(captured_output, "b\n");
 }
 
+TEST(test_text_returns_a_procedures_body_as_a_flat_word_list) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "TO square :size\nREPEAT 4 [FD :size RT 90]\nEND\n"
+        "PRINT TEXT \"square\n"
+        "PRINT COUNT TEXT \"square");
+    // Printed text round-trips exactly, but it's 6 separate word
+    // tokens, not one real nested sublist for [FD :size RT 90].
+    CHECK_STREQ(captured_output, "REPEAT 4 [FD :size RT 90]\n6\n");
+}
+
+TEST(test_text_tokens_keep_quote_and_bracket_punctuation_literal) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "TO demo\nPRINT \"hi\nEND\n"
+        "PRINT ITEM 1 TEXT \"demo\n"
+        "PRINT ITEM 2 TEXT \"demo");
+    // TEXT is a plain whitespace tokenize of the raw source, not a
+    // real parse: the "hi token keeps its literal quote character
+    // rather than being reinterpreted as the quoted word hi.
+    CHECK_STREQ(captured_output, "PRINT\n\"hi\n");
+}
+
+TEST(test_text_of_an_empty_body_procedure_returns_an_empty_list) {
+    LogoApp *app = new_app();
+    run_source(app, "TO empty\nEND\nPRINT COUNT TEXT \"empty");
+    CHECK_STREQ(captured_output, "0\n");
+}
+
+TEST(test_text_undefined_procedure_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT TEXT \"nope");
+    CHECK_CONTAINS(captured_output, "TEXT: no such procedure \"nope");
+}
+
+TEST(test_text_of_an_erased_procedure_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "TO foo\nEND\nERASE \"foo\nPRINT TEXT \"foo");
+    CHECK_CONTAINS(captured_output, "TEXT: no such procedure \"foo");
+}
+
+TEST(test_text_without_a_quoted_word_is_a_parse_error_not_runtime) {
+    // Same reasoning as test_deletefile_without_a_quoted_word_is_a_
+    // parse_error_not_runtime: ARG_QUOTED_WORD requires a literal
+    // token at parse time, unlike interpreter.c's own runtime sscanf
+    // check ("TEXT: expected a \"name").
+    LogoToken tokens[MAX_TEST_TOKENS];
+    int n = logo_lex("PRINT TEXT 5", tokens, MAX_TEST_TOKENS);
+    CHECK(n >= 0);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    CHECK(result->error_count > 0);
+    free(result);
+}
+
+TEST(test_show_prints_a_procedures_definition) {
+    // A trailing blank line before END is expected here: body_text
+    // captures everything up to END, including its own trailing
+    // newline, and eval_append_procedure_text (shared with SAVE)
+    // always adds one more before "END" -- pre-existing SAVE-format
+    // behavior, not something SHOW introduces.
+    LogoApp *app = new_app();
+    run_source(app, "TO square :size\nREPEAT 4 [FD :size RT 90]\nEND\nSHOW \"square");
+    CHECK_STREQ(captured_output, "TO square :size\nREPEAT 4 [FD :size RT 90]\n\nEND\n");
+}
+
+TEST(test_show_undefined_procedure_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "SHOW \"nope");
+    CHECK_CONTAINS(captured_output, "SHOW: no such procedure \"nope");
+}
+
+TEST(test_show_of_an_erased_procedure_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "TO foo\nEND\nERASE \"foo\nSHOW \"foo");
+    CHECK_CONTAINS(captured_output, "SHOW: no such procedure \"foo");
+}
+
+TEST(test_show_without_a_quoted_word_is_a_parse_error_not_runtime) {
+    LogoToken tokens[MAX_TEST_TOKENS];
+    int n = logo_lex("SHOW 5", tokens, MAX_TEST_TOKENS);
+    CHECK(n >= 0);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    CHECK(result->error_count > 0);
+    free(result);
+}
+
+TEST(test_save_and_load_round_trip_within_a_load_files_own_scope) {
+    // A full outer-script round trip (SAVE, then LOAD the same file
+    // back and call what it defines) hits the same documented
+    // LOAD-cross-boundary-call gap as
+    // test_load_defined_procedure_is_not_callable_from_the_loading_script
+    // -- confirmed directly, not assumed, before writing this test the
+    // other way. What DOES work: SAVE produces genuinely valid, later-
+    // LOAD-able Logo source (the LOAD statement itself succeeds with no
+    // parse error), and calling a procedure from within its own LOAD'd
+    // file still works (already covered by
+    // test_load_runs_a_files_contents_as_logo_source).
+    const char *path = "build/test_eval_save_roundtrip.logo";
+    remove(path);
+
+    LogoApp *saver = new_app();
+    run_source(saver, "TO square :size\nREPEAT 4 [FD :size RT 90]\nEND\nSAVE \"build/test_eval_save_roundtrip.logo");
+    CHECK_CONTAINS(captured_output, "Saved build/test_eval_save_roundtrip.logo");
+
+    captured_output[0] = '\0'; // run_source shares one buffer across calls; this test checks each run separately
+    LogoApp *loader = new_app();
+    run_source(loader, "LOAD \"build/test_eval_save_roundtrip.logo\nPRINT \"loaded-ok");
+    CHECK_STREQ(captured_output, "loaded-ok\n");
+
+    remove(path);
+}
+
+TEST(test_save_with_no_procedures_writes_an_empty_file) {
+    const char *path = "build/test_eval_save_empty.logo";
+    remove(path);
+
+    LogoApp *app = new_app();
+    run_source(app, "SAVE \"build/test_eval_save_empty.logo");
+
+    char *contents = NULL;
+    gsize len = 0;
+    CHECK(g_file_get_contents(path, &contents, &len, NULL));
+    if (contents != NULL) {
+        CHECK(len == 0);
+        g_free(contents);
+    }
+    remove(path);
+}
+
+TEST(test_save_renders_params_with_a_leading_colon_added_back) {
+    // This engine's own param_names never store the leading ':'
+    // (unlike interpreter.c's own Procedure.param_names, which does --
+    // see ast.h's own note) -- do_save has to add it back explicitly
+    // to render valid, re-LOAD-able "TO name :params" source.
+    const char *path = "build/test_eval_save_params.logo";
+    remove(path);
+
+    LogoApp *app = new_app();
+    run_source(app, "TO add :a :b\nOUTPUT :a + :b\nEND\nSAVE \"build/test_eval_save_params.logo");
+
+    char *contents = NULL;
+    CHECK(g_file_get_contents(path, &contents, NULL, NULL));
+    if (contents != NULL) {
+        CHECK_CONTAINS(contents, "TO add :a :b\n");
+        g_free(contents);
+    }
+    remove(path);
+}
+
+TEST(test_save_to_unwritable_path_reports_error) {
+    LogoApp *app = new_app();
+    run_source(app, "SAVE \"build/no_such_subdir/whatever.logo");
+    CHECK_CONTAINS(captured_output, "SAVE: could not write file");
+}
+
+TEST(test_save_without_a_quoted_word_is_a_parse_error_not_runtime) {
+    LogoToken tokens[MAX_TEST_TOKENS];
+    int n = logo_lex("SAVE path", tokens, MAX_TEST_TOKENS);
+    CHECK(n >= 0);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    CHECK(result->error_count > 0);
+    free(result);
+}
+
 TEST(test_procedure_with_output) {
     LogoApp *app = new_app();
     run_source(app,
@@ -1507,6 +1674,22 @@ int main(void) {
     RUN(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called);
     RUN(test_erase_of_unknown_procedure_reports_error);
     RUN(test_erase_removes_the_procedure_from_procedures_output);
+
+    RUN(test_text_returns_a_procedures_body_as_a_flat_word_list);
+    RUN(test_text_tokens_keep_quote_and_bracket_punctuation_literal);
+    RUN(test_text_of_an_empty_body_procedure_returns_an_empty_list);
+    RUN(test_text_undefined_procedure_reports_error);
+    RUN(test_text_of_an_erased_procedure_reports_error);
+    RUN(test_text_without_a_quoted_word_is_a_parse_error_not_runtime);
+    RUN(test_show_prints_a_procedures_definition);
+    RUN(test_show_undefined_procedure_reports_error);
+    RUN(test_show_of_an_erased_procedure_reports_error);
+    RUN(test_show_without_a_quoted_word_is_a_parse_error_not_runtime);
+    RUN(test_save_and_load_round_trip_within_a_load_files_own_scope);
+    RUN(test_save_with_no_procedures_writes_an_empty_file);
+    RUN(test_save_renders_params_with_a_leading_colon_added_back);
+    RUN(test_save_to_unwritable_path_reports_error);
+    RUN(test_save_without_a_quoted_word_is_a_parse_error_not_runtime);
     RUN(test_procedure_with_output);
     RUN(test_procedure_forward_reference);
     RUN(test_recursive_procedure);

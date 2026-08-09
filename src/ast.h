@@ -32,7 +32,7 @@ typedef enum {
     AST_CALL,          // .text holds the command/procedure name; children (via first_child/next_sibling) are its arguments, each an expression subtree, an AST_BLOCK (for REPEAT/WHILE's own block argument), or (IF/IFELSE only) omitted entirely for a missing else-block
     AST_IF,            // first_child = condition, next sibling = true-AST_BLOCK, optional next sibling = false-AST_BLOCK (mirrors today's IF/IFELSE sharing one code path -- IF can take an optional second block too, ELSE keyword or not)
     AST_BLOCK,         // children (via first_child/next_sibling) are a sequence of statements
-    AST_PROC_DEF,      // TO name :p1 :p2 ... END -- .text holds the name, .param_count/.param_names hold parameters, first_child = the body AST_BLOCK
+    AST_PROC_DEF,      // TO name :p1 :p2 ... END -- .text holds the name, .param_count/.param_names hold parameters, first_child = the body AST_BLOCK. .body_text/.body_len hold the body's own original source span (see the struct's own comment below) -- TEXT/SHOW/SAVE all need the literal text as typed, not a re-derived rendering of the parsed tree.
     AST_FOR,           // FOR [var start limit step] [block] -- .text holds the loop variable name (no leading ':'); first_child = start expr, next sibling = limit expr, optional next sibling = step expr, last sibling = the body AST_BLOCK. Irregular like AST_IF (a variable-length header, not a fixed ArgKind shape), so it isn't an AST_CALL.
 } AstNodeType;
 
@@ -55,7 +55,23 @@ typedef struct {
     AstCompareOp cmpop;                  // AST_COMPARE
 
     int param_count;                       // AST_PROC_DEF
-    char param_names[AST_MAX_PARAMS][32];   // AST_PROC_DEF, without the leading ':' (matching Procedure.param_names' own convention)
+    char param_names[AST_MAX_PARAMS][32];   // AST_PROC_DEF, without the leading ':' -- NOT the same convention interpreter.c's own Procedure.param_names uses (its sscanf-based capture keeps the ':', confirmed directly in interpreter.c's own TO-parsing and append_procedure_text). This engine's own LOGO_TOK_VARREF already strips it at the lexer level (same as an ordinary :varref), and call_ast_procedure binds scope variable names from these directly with no colon involved anywhere -- self-consistent within this engine, just a real difference from interpreter.c worth knowing about the one place it actually matters (do_save/eval.c, reconstructing "TO name :params" text, has to add the ':' back explicitly).
+
+    // AST_PROC_DEF only: the body's literal source text, from right
+    // after the last parameter (or the name, if there are none) up to
+    // (not including) the closing END -- a pointer *into the original
+    // source buffer* passed to logo_lex, same convention LogoToken.text
+    // itself already uses ("the source text outlives the parse"), not
+    // a copy. Deliberately NOT embedded as a fixed char[] the way
+    // .text/.param_names are: interpreter.c's own Procedure.body is
+    // char[8192], and inlining a buffer that size into every AstNode
+    // (most of which are nowhere near AST_PROC_DEF) would balloon
+    // AstPool's already-multi-MB fixed array by roughly MAX_AST_NODES *
+    // 8KB for no benefit. NULL/0 for every other node type, and for an
+    // AST_PROC_DEF whose own END was never found (a parse error either
+    // way, so nothing needs to read it).
+    const char *body_text;
+    int body_len;
 
     int first_child;   // -1 if none
     int next_sibling;   // -1 if this is its parent's last child

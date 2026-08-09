@@ -442,6 +442,87 @@ TEST(test_erase_deletes_a_procedure) {
         "PRINT PROCEDURES");
 }
 
+TEST(test_text_returns_a_procedures_body_as_a_flat_word_list) {
+    shadow_diff(
+        "TO square :size\n"
+        "  REPEAT 4 [FD :size RT 90]\n"
+        "END\n"
+        "TO demo\n"
+        "  PRINT \"hi\n"
+        "END\n"
+        "TO empty\n"
+        "END\n"
+        "PRINT TEXT \"square\n"
+        "PRINT COUNT TEXT \"square\n"
+        "PRINT ITEM 1 TEXT \"demo\n"
+        "PRINT ITEM 2 TEXT \"demo\n"
+        "PRINT COUNT TEXT \"empty\n"
+        "PRINT TEXT \"nosuch");
+}
+
+TEST(test_show_prints_a_procedures_definition) {
+    shadow_diff(
+        "TO square :size\n"
+        "  REPEAT 4 [FD :size RT 90]\n"
+        "END\n"
+        "TO empty\n"
+        "END\n"
+        "SHOW \"square\n"
+        "SHOW \"empty\n"
+        "SHOW \"nosuch");
+}
+
+// shadow_diff itself only compares captured PRINT output/turtle state/
+// drawn data -- not arbitrary file content -- so SAVE's own file needs
+// a dedicated direct comparison instead of the usual shared shadow_diff
+// helper (see the general file I/O tests above for the same reasoning
+// applied to OPENWRITE/FILEPRINT).
+TEST(test_save_writes_byte_identical_output_to_interpreterc) {
+    const char *old_path = "build/test_shadow_diff_save_old.logo";
+    const char *new_path = "build/test_shadow_diff_save_new.logo";
+    remove(old_path);
+    remove(new_path);
+
+    const char *body =
+        "TO square :size\n"
+        "  REPEAT 4 [FD :size RT 90]\n"
+        "END\n"
+        "TO greet :name\n"
+        "  PRINT WORD \"hello- :name\n"
+        "END\n"
+        "TO empty\n"
+        "END\n"
+        "SAVE \"";
+
+    char script_old[512], script_new[512];
+    snprintf(script_old, sizeof(script_old), "%s%s", body, old_path);
+    snprintf(script_new, sizeof(script_new), "%s%s", body, new_path);
+
+    LogoApp *old_app = new_app();
+    eval_logo(old_app, script_old);
+
+    LogoApp *new_app_instance = new_app();
+    LogoToken tokens[MAX_DIFF_TOKENS];
+    int n = logo_lex(script_new, tokens, MAX_DIFF_TOKENS);
+    CHECK(n >= 0);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    CHECK(result->error_count == 0);
+    ast_eval(new_app_instance, &result->pool, result->program);
+    free(result);
+
+    char *old_contents = NULL, *new_contents = NULL;
+    CHECK(g_file_get_contents(old_path, &old_contents, NULL, NULL));
+    CHECK(g_file_get_contents(new_path, &new_contents, NULL, NULL));
+    if (old_contents != NULL && new_contents != NULL) {
+        CHECK(strcmp(old_contents, new_contents) == 0);
+    }
+    g_free(old_contents);
+    g_free(new_contents);
+    remove(old_path);
+    remove(new_path);
+}
+
 TEST(test_repeat_with_turtle_motion) { shadow_diff("REPEAT 4 [FD 50 RT 90]"); }
 
 TEST(test_procedure_with_output) {
@@ -1119,6 +1200,9 @@ int main(void) {
     RUN(test_load_runs_a_files_own_statements);
     RUN(test_drawing_and_canvas_primitives);
     RUN(test_erase_deletes_a_procedure);
+    RUN(test_text_returns_a_procedures_body_as_a_flat_word_list);
+    RUN(test_show_prints_a_procedures_definition);
+    RUN(test_save_writes_byte_identical_output_to_interpreterc);
     RUN(test_repeat_with_turtle_motion);
     RUN(test_procedure_with_output);
     RUN(test_procedure_forward_reference);

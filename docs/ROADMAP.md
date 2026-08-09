@@ -64,14 +64,9 @@ work batches, each roughly a "commit and push" unit; check off a group as it
 lands and delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has
 the detail, per this file's usual convention.
 
-- [ ] `TEXT`/`SAVE` (see `docs/LANGUAGE.md`'s "FLATTEN, PARSE, SUBST"
-  and "Files" sections) — both need the same thing this engine doesn't
-  have: a procedure's original source text (or a faithful
-  re-serialization of its `AST_PROC_DEF` back to text). `SAVE`
-  specifically needs this because `serialize_procedures` walks
-  interpreter.c's own `app->procedures[]` table, which this engine's
-  `TO` definitions never populate — genuinely open design questions,
-  not straightforward ports — see `docs/BYTECODE_VM_DESIGN.md`.
+Every batch on this checklist has now landed (see
+`docs/BYTECODE_VM_DESIGN.md`'s Progress log for the full history) —
+what remains isn't queued work, just the one documented gap below.
 
 Also worth knowing about, though not a checklist item: `LOAD` itself
 shipped, but calling a procedure it defines from the *loading* script

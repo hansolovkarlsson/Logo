@@ -1122,10 +1122,102 @@ footprint.
   - 26 new `tests/test_eval.c` cases and 2 new shadow-diff scripts (one
     for the drawing/canvas primitives, one for `ERASE`). Confirmed clean
     under AddressSanitizer on both `test_eval` and `test_shadow_diff`.
-- **Next**: with drawing/canvas primitives done, the only Stage 1
-  checklist items left open in `docs/ROADMAP.md` are the shared-root-
-  cause `TEXT`/`SAVE` pair (both need a procedure's original source
-  text, which this engine doesn't retain) and the documented `LOAD`
-  cross-boundary-call gap (calling a `LOAD`'d procedure from the loading
-  script) — neither is a straightforward port, both are genuinely open
-  design questions rather than queued work.
+- **`TEXT`/`SAVE`: done** (ninth batch, and — with this — every batch on
+  `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist has now landed). The
+  open design question was real, not a formality: both need a
+  procedure's *original* source text, and re-serializing the AST back
+  into text risked exactly the fidelity mismatch `TEXT` can't afford —
+  `docs/LANGUAGE.md` is explicit that a body's literal punctuation
+  survives untouched (`PRINT "hi` tokenizes to a word whose text is
+  literally `"hi`, quote mark included), which a "pretty-printer"
+  reconstruction wouldn't reliably reproduce.
+  - **The actual fix: capture the raw source span at parse time, not a
+    re-derived rendering.** `AstNode` gained two new fields,
+    `body_text`/`body_len` (`AST_PROC_DEF` only) — a pointer *into the
+    original source buffer* plus a byte length, the same "the source
+    text outlives the parse" convention `LogoToken.text` itself already
+    uses, deliberately NOT an embedded `char[]` the way `.text`/
+    `.param_names` are (interpreter.c's own `Procedure.body` is
+    `char[8192]`; inlining that into every `AstNode` — most of which
+    are nowhere near `AST_PROC_DEF` — would have bloated `AstPool`'s
+    already-multi-MB fixed array by roughly `MAX_AST_NODES * 8KB` for no
+    benefit). `parse_proc_def` captures it for free: `body_text` is
+    just the position of the first body token (already exactly where
+    interpreter.c's own `ptr` sits after its params-parsing loop, since
+    the lexer already skips whitespace between tokens the same way
+    `skip_whitespace` does), and `body_len` is the byte distance to the
+    closing `END` token's own position (exactly where interpreter.c's
+    `strcasestr(ptr, "END")` would land). No copying, no fixed cap on
+    procedure body length.
+  - **`TEXT` reuses `eval_list_tokenize_words` directly against that
+    span** — the same whitespace-tokenizing core `PARSE` already used,
+    generalized from a NUL-terminated-string signature to an explicit
+    `(text, text_len)` one so it works on a non-NUL-terminated span
+    straight out of the source buffer, with `do_parse`'s own call site
+    updated to pass `strlen(text)`.
+  - **`SAVE` needed one more real fix, caught by direct comparison, not
+    guessed**: a first-draft `do_save` matched `append_procedure_text`'s
+    own rendering (`"TO name :params\n" + body + "\nEND\n"`) but missed
+    that `serialize_procedures` appends *one more* `'\n'` per procedure
+    on top of that, in its own separate loop step — invisible unless
+    you diff actual SAVE output byte-for-byte, which a probe comparing
+    a real multi-procedure `SAVE` against interpreter.c's own did before
+    this shipped (missing without it: no blank line between procedures,
+    and none after the last one). Fixed by adding the matching extra
+    `'\n'` in `do_save`'s own loop.
+  - **A real, pre-existing doc-comment error found and fixed along the
+    way, unrelated to the bug above**: `ast.h`'s own comment on
+    `param_names` claimed it matched interpreter.c's `Procedure.param_names`
+    convention — but interpreter.c's own raw `sscanf`-based capture
+    keeps the leading `:` (confirmed directly in its own TO-parsing and
+    `append_procedure_text`), while this engine's `LOGO_TOK_VARREF`
+    already strips it at the lexer level, same as an ordinary
+    `:varref`. Harmless until `SAVE` needed to reconstruct
+    `"TO name :params"` text — the one place the difference actually
+    matters — so `do_save` adds the `:` back explicitly, and the stale
+    comment is corrected rather than left to mislead the next reader.
+  - **The `LOAD`-cross-boundary gap (see the File I/O milestone above)
+    is orthogonal, confirmed rather than assumed**: `SAVE` produces
+    genuinely valid, later-`LOAD`-able Logo source (a fresh `LOAD` of a
+    `SAVE`'d file succeeds with no parse error, and a procedure defined
+    within a `LOAD`'d file can still call itself), but a *round trip
+    within one script* (`SAVE`, then `LOAD` the same file back and call
+    what it defines) still hits the exact same parse-time limitation
+    already documented for `LOAD` generally — checked directly before
+    writing the test, not assumed, and captured as its own test case
+    rather than silently skipped.
+  - **`SHOW` added too, once `TEXT`/`SAVE` made it trivial**: a genuine
+    gap in `docs/ROADMAP.md`'s own original coverage diff (never listed
+    anywhere, not even as deferred — the same class of miss as the
+    `ERASE`/`WINDOW` mistakes already caught and fixed in earlier
+    batches). Confirmed real by actually running `examples/text.logo`
+    through `bin/logi`, which uses `SHOW` alongside `TEXT` and failed
+    immediately with "unknown word: SHOW". `SHOW "name` prints one
+    procedure's own `TO...END` definition, the exact same rendering
+    `SAVE` already builds for every procedure — so implementing it was
+    a small, mechanical extraction: the per-procedure rendering logic
+    moved out of `do_save`'s own loop into a shared
+    `eval_append_procedure_text` helper, and `do_show` just calls it for
+    the one procedure `find_proc_def` resolves (reporting `SHOW: no
+    such procedure "name` otherwise, including for an `ERASE`'d one,
+    for free — same blank-`.text`-is-unmatchable mechanism as
+    everywhere else). Ground-truth verified byte-for-byte against
+    interpreter.c before writing anything permanent, including the
+    "expected a \"word" parse-time-vs-runtime-message difference every
+    other `ARG_QUOTED_WORD` builtin already has. `examples/text.logo`
+    now runs end-to-end through `bin/logi` with no divergence at all.
+  - 19 new `tests/test_eval.c` cases total (mirroring
+    `tests/test_interpreter.c`'s own `TEXT`/`SHOW`/`SAVE`/`LOAD` test
+    shapes closely) and 3 new shadow-diff scripts — one for `TEXT`
+    (fully `PRINT`-observable, so an ordinary `shadow_diff`), one for
+    `SHOW` (likewise), one for `SAVE` (a dedicated direct file-content
+    comparison, since `shadow_diff` itself only ever compared captured
+    output/turtle state/drawn data, never arbitrary file content).
+    Confirmed clean under AddressSanitizer on both `test_eval` and
+    `test_shadow_diff`.
+- **Next**: every batch on `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist
+  has now landed. What's left there isn't queued work — just the one
+  documented `LOAD` cross-boundary-call gap (see the File I/O milestone
+  above), a real architectural limitation rather than a missing port.
+  Ask the user what to tackle next rather than assuming there's a
+  further mechanical batch to grind through.
