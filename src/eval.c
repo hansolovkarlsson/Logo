@@ -905,6 +905,35 @@ static void do_home(LogoApp *app) {
     move_turtle_to(app, home_x(app), home_y(app));
     current_turtle(app)->angle = 0;
 }
+// TELL n -- switches which turtle FD/RT/SETXY/etc. control, creating
+// it (at the default state) the first time it's addressed. A direct
+// port: app->turtles[]/turtle_count/current_turtle are already plain
+// LogoApp fields (not behind any static helper), and init_turtle is
+// already exposed in interpreter.h, so every existing turtle do_*
+// function (do_fd, do_setxy, do_home, do_clear, ...) already operates
+// on whichever turtle is current -- this is the one missing piece that
+// actually lets more than turtle 0 ever become current.
+static void do_tell(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    int index = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    if (index < 0 || index >= MAX_TURTLES) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "TELL: turtle index must be 0-%d\n", MAX_TURTLES - 1);
+        append_output(app, msg);
+        return;
+    }
+    if (index >= app->turtle_count) {
+        for (int i = app->turtle_count; i <= index; i++) {
+            init_turtle(app, &app->turtles[i]);
+        }
+        app->turtle_count = index + 1;
+    }
+    app->current_turtle = index;
+}
+// WHO -- the current turtle's index, the one thing TELL sets but has
+// no way to read back on its own. Direct port.
+static EvalValue do_who(LogoApp *app) {
+    return num_val(app->current_turtle);
+}
 static void do_clear(LogoApp *app) {
     app->line_count = 0;
     app->label_count = 0;
@@ -1865,6 +1894,11 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_pendown(app);
     } else if (strcasecmp(name, "HOME") == 0) {
         do_home(app);
+    } else if (strcasecmp(name, "TELL") == 0) {
+        do_tell(app, pool, arg_idx);
+    } else if (strcasecmp(name, "WHO") == 0) {
+        if (result != NULL) *result = do_who(app);
+        if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "CLEAR") == 0 || strcasecmp(name, "CS") == 0) {
         do_clear(app);
     } else if (strcasecmp(name, "PRINT") == 0) {

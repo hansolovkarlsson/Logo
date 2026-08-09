@@ -72,18 +72,26 @@ static LogoApp *new_app(void) {
 } while (0)
 
 // The turtle state a text-output diff alone can't see (FD/RT/SETXY/
-// etc. never print anything).
+// etc. never print anything). Covers every turtle 0..turtle_count-1,
+// not just turtle 0 -- TELL/multi-turtle means turtle_count itself, and
+// any non-current turtle's state, are now real dimensions a script can
+// diverge on that a turtle-0-only snapshot would silently miss
+// entirely (see the TELL/WHO milestone in docs/BYTECODE_VM_DESIGN.md).
 typedef struct {
-    double x, y, angle;
-    int pen_down;
+    int turtle_count;
+    double x[MAX_TURTLES], y[MAX_TURTLES], angle[MAX_TURTLES];
+    int pen_down[MAX_TURTLES];
 } TurtleSnapshot;
 
 static TurtleSnapshot snapshot_turtle(LogoApp *app) {
     TurtleSnapshot s;
-    s.x = app->turtles[0].x;
-    s.y = app->turtles[0].y;
-    s.angle = app->turtles[0].angle;
-    s.pen_down = app->turtles[0].pen_down;
+    s.turtle_count = app->turtle_count;
+    for (int i = 0; i < app->turtle_count; i++) {
+        s.x[i] = app->turtles[i].x;
+        s.y[i] = app->turtles[i].y;
+        s.angle[i] = app->turtles[i].angle;
+        s.pen_down[i] = app->turtles[i].pen_down;
+    }
     return s;
 }
 
@@ -154,15 +162,23 @@ static void shadow_diff_pair(const char *old_source, const char *new_source) {
         printf("FAIL %s: output text differs\n  old: \"%s\"\n  new: \"%s\"\n",
                current_test, old_output, new_output);
     }
-    if (old_turtle.x != new_turtle.x || old_turtle.y != new_turtle.y ||
-        old_turtle.angle != new_turtle.angle || old_turtle.pen_down != new_turtle.pen_down) {
+    if (old_turtle.turtle_count != new_turtle.turtle_count) {
         failures++;
-        printf("FAIL %s: turtle state differs\n"
-               "  old: x=%g y=%g angle=%g pen=%d\n"
-               "  new: x=%g y=%g angle=%g pen=%d\n",
-               current_test,
-               old_turtle.x, old_turtle.y, old_turtle.angle, old_turtle.pen_down,
-               new_turtle.x, new_turtle.y, new_turtle.angle, new_turtle.pen_down);
+        printf("FAIL %s: turtle count differs (old: %d, new: %d)\n",
+               current_test, old_turtle.turtle_count, new_turtle.turtle_count);
+    } else {
+        for (int i = 0; i < old_turtle.turtle_count; i++) {
+            if (old_turtle.x[i] != new_turtle.x[i] || old_turtle.y[i] != new_turtle.y[i] ||
+                old_turtle.angle[i] != new_turtle.angle[i] || old_turtle.pen_down[i] != new_turtle.pen_down[i]) {
+                failures++;
+                printf("FAIL %s: turtle %d state differs\n"
+                       "  old: x=%g y=%g angle=%g pen=%d\n"
+                       "  new: x=%g y=%g angle=%g pen=%d\n",
+                       current_test, i,
+                       old_turtle.x[i], old_turtle.y[i], old_turtle.angle[i], old_turtle.pen_down[i],
+                       new_turtle.x[i], new_turtle.y[i], new_turtle.angle[i], new_turtle.pen_down[i]);
+            }
+        }
     }
     if (!lines_match(old_app, new_app_instance)) {
         failures++;
@@ -211,6 +227,30 @@ TEST(test_turtle_motion) { shadow_diff("FD 100\nRT 90\nFD 50\nLT 45\nBK 20"); }
 TEST(test_setxy_setheading) { shadow_diff("SETXY 30 40\nSETHEADING 180"); }
 TEST(test_penup_pendown) { shadow_diff("PENUP\nPENDOWN\nPENUP"); }
 TEST(test_home_and_clear) { shadow_diff("SETXY 10 10\nSETHEADING 45\nHOME\nCLEAR"); }
+
+TEST(test_tell_and_who_multiple_turtles) {
+    shadow_diff(
+        "PRINT WHO\n"
+        "FD 60\n"
+        "TELL 1\n"
+        "PRINT WHO\n"
+        "SETXY 350 350\n"
+        "RT 90\n"
+        "TELL 0\n"
+        "PRINT WHO\n"
+        "PRINT POS\n"
+        // Out-of-range TELL reports an error and leaves the current
+        // turtle (and every existing turtle's own state) unchanged.
+        "TELL 10\n"
+        "TELL -1\n"
+        "PRINT WHO\n"
+        // HOME only resets whichever turtle is current -- switching
+        // back to turtle 1 and HOME-ing it here must leave turtle 0's
+        // own state (checked via its own TurtleSnapshot slot) alone.
+        "TELL 1\n"
+        "HOME\n"
+        "PRINT POS");
+}
 
 TEST(test_repeat_with_turtle_motion) { shadow_diff("REPEAT 4 [FD 50 RT 90]"); }
 
@@ -884,6 +924,7 @@ int main(void) {
     RUN(test_setxy_setheading);
     RUN(test_penup_pendown);
     RUN(test_home_and_clear);
+    RUN(test_tell_and_who_multiple_turtles);
     RUN(test_repeat_with_turtle_motion);
     RUN(test_procedure_with_output);
     RUN(test_procedure_forward_reference);

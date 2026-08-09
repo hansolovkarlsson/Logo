@@ -956,8 +956,42 @@ footprint.
   - 15 new `tests/test_eval.c` cases and 3 new shadow-diff scripts.
     Confirmed clean under AddressSanitizer on both `test_eval` and
     `test_shadow_diff`.
+- **`TELL`/multi-turtle: done** (sixth batch off `docs/ROADMAP.md`'s
+  Phase 5 Stage 1 checklist). Turned out to need far less new state
+  exposure than that checklist entry originally guessed: `ROADMAP.md`
+  had flagged `app->turtles[]`/`turtle_count`/`MAX_TURTLES`/
+  `init_turtle` as needing fresh exposure from `interpreter.c`, but all
+  four were already public — `turtles[]`/`turtle_count` are plain
+  `LogoApp` struct fields (no `static` involved, nothing to remove),
+  `MAX_TURTLES` is already a `#define` in `logo_types.h`, and
+  `init_turtle` was already exposed in `interpreter.h` (used directly
+  by every test file's own `new_app()`). `do_clear` was already reading
+  `app->turtle_count` directly, confirming this in passing before
+  `TELL` itself was even written. So this batch is just two new direct
+  ports, `do_tell`/`do_who`, and — because every existing turtle
+  command (`do_fd`, `do_setxy`, `do_home`, `do_clear`, ...) already goes
+  through `current_turtle(app)`/`app->turtle_count` — those needed zero
+  changes to already work correctly with more than one turtle the
+  moment `TELL` could actually make a second one current.
+  - **Found and fixed a real gap in the shadow-diff harness itself, not
+    in the evaluator**: `TurtleSnapshot`/`snapshot_turtle` only ever
+    captured `turtles[0]`, so a `TELL`-based script's divergence on
+    `turtle_count` or any non-current turtle's own state would have
+    passed silently — exactly the kind of blind spot `lines_match` was
+    already built to close for drawn paths, just not yet done for
+    multi-turtle state. Extended `TurtleSnapshot` to arrays sized
+    `MAX_TURTLES` and the comparison to walk every turtle up to
+    `turtle_count`, confirmed still passing on every pre-existing
+    single-turtle script (`turtle_count` is always `1` there, so the
+    loop degenerates to the old single-turtle check exactly).
+  - 5 new `tests/test_eval.c` cases (including confirming a script that
+    never calls `TELL` still has `turtle_count == 1`, matching
+    `docs/LANGUAGE.md`'s own stated guarantee) and 1 new shadow-diff
+    script exercising `TELL`/`WHO`, out-of-range `TELL`, and `HOME`
+    only resetting whichever turtle is current. Confirmed clean under
+    AddressSanitizer on both `test_eval` and `test_shadow_diff`.
 - **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1
-  checklist — `TELL`/multi-turtle is next, followed by file I/O and
-  drawing primitives — see that file for the full breakdown and what's
-  deliberately out of scope. `TEXT` (deferred a few milestones ago)
-  stays on the checklist, still an open design question.
+  checklist — file I/O is next, followed by drawing primitives — see
+  that file for the full breakdown and what's deliberately out of
+  scope. `TEXT` (deferred a few milestones ago) stays on the checklist,
+  still an open design question.

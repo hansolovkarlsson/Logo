@@ -198,6 +198,40 @@ TEST(test_home_and_clear) {
     CHECK_NEAR(app->turtles[0].angle, 0);
 }
 
+TEST(test_who_reports_the_current_turtle_starting_at_zero) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT WHO");
+    CHECK_STREQ(captured_output, "0\n");
+}
+
+TEST(test_tell_switches_the_current_turtle_and_creates_it) {
+    LogoApp *app = new_app();
+    run_source(app, "TELL 1\nPRINT WHO\nSETXY 350 350\nPRINT POS");
+    CHECK_STREQ(captured_output, "1\n350 350\n");
+    CHECK(app->turtle_count == 2);
+    CHECK_NEAR(app->turtles[1].x, 350);
+    CHECK_NEAR(app->turtles[1].y, 350);
+}
+
+TEST(test_tell_leaves_the_other_turtles_state_untouched) {
+    LogoApp *app = new_app();
+    run_source(app, "SETXY 10 20\nTELL 1\nSETXY 350 350\nTELL 0\nPRINT POS");
+    CHECK_STREQ(captured_output, "10 20\n");
+}
+
+TEST(test_tell_out_of_range_reports_error_and_leaves_current_turtle) {
+    LogoApp *app = new_app();
+    run_source(app, "TELL 10\nTELL -1\nPRINT WHO");
+    CHECK_CONTAINS(captured_output, "TELL: turtle index must be 0-9");
+    CHECK_CONTAINS(captured_output, "0\n");
+}
+
+TEST(test_a_script_with_no_tell_behaves_as_a_single_turtle) {
+    LogoApp *app = new_app();
+    run_source(app, "PRINT WHO");
+    CHECK(app->turtle_count == 1);
+}
+
 TEST(test_procedure_with_output) {
     LogoApp *app = new_app();
     run_source(app,
@@ -1117,6 +1151,11 @@ int main(void) {
     RUN(test_setxy_and_setheading);
     RUN(test_penup_pendown);
     RUN(test_home_and_clear);
+    RUN(test_who_reports_the_current_turtle_starting_at_zero);
+    RUN(test_tell_switches_the_current_turtle_and_creates_it);
+    RUN(test_tell_leaves_the_other_turtles_state_untouched);
+    RUN(test_tell_out_of_range_reports_error_and_leaves_current_turtle);
+    RUN(test_a_script_with_no_tell_behaves_as_a_single_turtle);
     RUN(test_procedure_with_output);
     RUN(test_procedure_forward_reference);
     RUN(test_recursive_procedure);

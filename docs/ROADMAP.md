@@ -71,9 +71,6 @@ the detail, per this file's usual convention.
   only the parsed tree survives) or re-serializing the AST back to
   text; a genuinely open design question, not a straightforward port
   like the rest of this batch — see `docs/BYTECODE_VM_DESIGN.md`.
-- [ ] `TELL`/multi-turtle: needs exposing `app->turtles[]`/`turtle_count`/
-  `MAX_TURTLES`/`init_turtle` from `interpreter.c` (only `current_turtle`
-  is shared today) — bigger surface-area change than the groups above.
 - [ ] File I/O: `OPENREAD`/`OPENWRITE`/`OPENAPPEND`/`CLOSE`/`READLINE`/
   `FILEPRINT`/`EOF?`/`DELETEFILE`/`DIRECTORY`/`LOAD`/`SAVE` (see
   `docs/LANGUAGE.md`'s "Files" section). Needs file-handle state not yet
