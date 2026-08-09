@@ -71,7 +71,22 @@ TEST_SHADOW_DIFF_SRC = tests/test_shadow_diff.c src/eval.c src/parser.c src/ast.
 TEST_SHADOW_DIFF_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
-.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff
+# tools/logo_new_cli.c -- a standalone command-line driver for Stage 1's
+# new evaluator (see docs/BYTECODE_VM_DESIGN.md), letting a script be
+# run against it directly instead of only through the test binaries
+# above. Lives outside src/ (its own main() would collide with
+# main.c's if it were wildcarded into $(TARGET) like every other
+# src/*.c file), so it needs its own explicit source list, same shape
+# as TEST_EVAL_TARGET/TEST_SHADOW_DIFF_TARGET above (eval.c's own
+# dependency on interpreter.h means GTK_LIBS and interpreter.c are
+# needed here too). Not part of `all`/`test` -- opt-in via `make
+# logo-new`, matching test-eval/test-shadow-diff's own opt-in targets.
+LOGO_NEW_CLI_TARGET = bin/logo_new
+LOGO_NEW_CLI_SRC = tools/logo_new_cli.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
+LOGO_NEW_CLI_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+LOGO_NEW_CLI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+
+.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff logo-new
 
 all: $(TARGET)
 
@@ -131,6 +146,12 @@ test-shadow-diff: $(TEST_SHADOW_DIFF_TARGET)
 $(TEST_SHADOW_DIFF_TARGET): $(TEST_SHADOW_DIFF_SRC) $(HEADERS)
 	@mkdir -p build
 	$(CC) $(TEST_SHADOW_DIFF_CFLAGS) $(TEST_SHADOW_DIFF_SRC) -o $(TEST_SHADOW_DIFF_TARGET) $(TEST_SHADOW_DIFF_LDFLAGS)
+
+logo-new: $(LOGO_NEW_CLI_TARGET)
+
+$(LOGO_NEW_CLI_TARGET): $(LOGO_NEW_CLI_SRC) $(HEADERS)
+	@mkdir -p bin
+	$(CC) $(LOGO_NEW_CLI_CFLAGS) $(LOGO_NEW_CLI_SRC) -o $(LOGO_NEW_CLI_TARGET) $(LOGO_NEW_CLI_LDFLAGS)
 
 clean:
 	rm -rf build bin
