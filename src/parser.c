@@ -75,6 +75,10 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     // Output/variables.
     { "PRINT", 1, { ARG_EXPR } },
     { "MAKE", 2, { ARG_QUOTED_WORD, ARG_EXPR } },
+    { "THING", 1, { ARG_EXPR } },
+    { "LOCAL", 1, { ARG_QUOTED_WORD } },
+    { "NAMES", 0, { 0 } },
+    { "PROCEDURES", 0, { 0 } },
     { "OUTPUT", 1, { ARG_EXPR } },
     { "STOP", 0, { 0 } },
 

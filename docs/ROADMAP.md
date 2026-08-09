@@ -71,8 +71,6 @@ the detail, per this file's usual convention.
   only the parsed tree survives) or re-serializing the AST back to
   text; a genuinely open design question, not a straightforward port
   like the rest of this batch — see `docs/BYTECODE_VM_DESIGN.md`.
-- [ ] Variable/procedure introspection: `THING`/`NAMES`/`PROCEDURES`/
-  `LOCAL`.
 - [ ] Deferred execution and control flow: `RUN`/`APPLY`/`FOR`/`FOREVER`/
   `CATCH`/`THROW`. `RUN`/`APPLY` need the same re-entrant lex/parse
   machinery `FOREACH` just built (running a word/list as a fresh

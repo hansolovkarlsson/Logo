@@ -315,6 +315,19 @@ TEST(test_remaining_word_and_list_operators) {
         "PRINT PICK 42");
 }
 
+TEST(test_variable_and_procedure_introspection) {
+    shadow_diff(
+        "MAKE \"x 5\nMAKE \"greeting \"hi\nMAKE \"nums [1 2 3]\n"
+        "PRINT THING \"x\nPRINT THING WORD \"gree \"ting\nPRINT THING \"nums\nPRINT THING \"nosuch\n"
+        "TO uselocal\nLOCAL \"x\nMAKE \"x 99\nOUTPUT :x\nEND\n"
+        "PRINT uselocal\nPRINT :x\n"
+        "LOCAL \"y\n"
+        "TO usetwolocal\nLOCAL \"z\nLOCAL \"z\nMAKE \"z 7\nOUTPUT :z\nEND\n"
+        "PRINT usetwolocal\n"
+        "MAKE \"a 1\nMAKE \"b 2\nPRINT NAMES\nPRINT COUNT NAMES\n"
+        "TO foo\nEND\nTO bar :n\nEND\nPRINT PROCEDURES\nPRINT COUNT PROCEDURES");
+}
+
 TEST(test_recursive_procedure_with_turtle_motion) {
     // A fractal-shaped script (real Logo usage, not a synthetic
     // grammar exercise): recursion, arithmetic, and turtle motion
@@ -834,6 +847,7 @@ int main(void) {
     RUN(test_trig_log_and_mod_operators);
     RUN(test_turtle_state_queries);
     RUN(test_remaining_word_and_list_operators);
+    RUN(test_variable_and_procedure_introspection);
     RUN(test_recursive_procedure_with_turtle_motion);
     RUN(test_nested_repeat_loops);
     RUN(test_nested_if_inside_while);

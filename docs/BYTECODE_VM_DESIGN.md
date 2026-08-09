@@ -838,9 +838,40 @@ footprint.
     already on record for excluding multi-element `RANDOM`/`PICK`
     scripts from this corpus). Confirmed clean under AddressSanitizer on
     both `test_eval` and `test_shadow_diff`.
+- **Variable/procedure introspection: done** (`THING`/`LOCAL`/`NAMES`/
+  `PROCEDURES`, fourth batch off `docs/ROADMAP.md`'s Phase 5 Stage 1
+  checklist). `THING` is a direct port (shares `find_var`, already
+  exposed). `LOCAL` shares `app->scopes`/`scope_depth` directly — the
+  same fields `call_ast_procedure` already pushes/pops for every call,
+  so a `LOCAL` declared inside an `AST_PROC_DEF`'s body lands in exactly
+  the scope frame the caller expects, no new state needed. `NAMES`
+  shares `app->variables`/`var_count` (the same globals table
+  `find_var`/`set_var` already read/write) directly, so it's also a
+  one-to-one port.
+  - **`PROCEDURES` needed a genuinely different implementation, not a
+    port**: interpreter.c's own `PROCEDURES` walks `app->procedures[]`
+    (its private, text-based `Procedure` table, populated as `eval_logo`
+    parses each `TO`) — but this engine's own `TO` definitions are
+    `AST_PROC_DEF` nodes living in `pool`, never registered into that
+    table at all (see the `NEW`/`SEND` milestone's own note on the two
+    engines' separate procedure representations). `do_procedures`
+    instead walks `pool->nodes[]` directly collecting every
+    `AST_PROC_DEF`'s name, the same "search every node in the flat
+    array, regardless of nesting" reach `find_proc_def` already uses.
+    Confirmed the enumeration order matches interpreter.c's own for
+    ordinary top-to-bottom scripts (both engines register a `TO` in
+    source order), so shadow-diffing `PROCEDURES`' own `PRINT` output
+    works — this isn't guaranteed for every conceivable script shape
+    (e.g. hoisting), but held for every case tested.
+  - 6 new `tests/test_eval.c` cases and 1 new shadow-diff script
+    (`LOCAL` exercised both inside and outside a procedure call, and
+    twice with the same name in one call, mirroring interpreter.c's own
+    "already local" no-op check). Confirmed clean under AddressSanitizer
+    on both `test_eval` and `test_shadow_diff`.
 - **Next**: continuing down `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist
-  — variable/procedure introspection (`THING`/`NAMES`/`PROCEDURES`/
-  `LOCAL`) is the next batch, followed by control flow, `TELL`, file
-  I/O, and drawing primitives — see that file for the full breakdown and
-  what's deliberately out of scope. `TEXT` (deferred above) stays on the
-  checklist rather than being checked off with the rest of this batch.
+  — deferred execution and control flow (`RUN`/`APPLY`/`FOR`/`FOREVER`/
+  `CATCH`/`THROW`) is the next batch, followed by `TELL`, file I/O, and
+  drawing primitives — see that file for the full breakdown and what's
+  deliberately out of scope. `TEXT` (deferred two milestones ago) stays
+  on the checklist rather than being checked off with the rest of that
+  batch.

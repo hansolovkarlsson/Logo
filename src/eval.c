@@ -934,6 +934,81 @@ static void do_make(LogoApp *app, AstPool *pool, const int *arg_idx) {
     else if (val.type == VALUE_ARRAY) set_var_array(app, varname, val.list_head, (int)val.number);
     else set_var(app, varname, val.number);
 }
+// THING name -- the reflective, computed-name sibling of :name (:name
+// only ever takes a literal identifier written right there in the
+// source, while THING takes any expression that evaluates to a word,
+// e.g. THING WORD "item :n). Mirrors interpreter.c's own THING exactly,
+// sharing the same find_var.
+static EvalValue do_thing(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue name_val = eval_expr(app, pool, arg_idx[0]);
+    char name_text[512];
+    eval_value_to_text(app, name_val, name_text, sizeof(name_text));
+    Variable *v = find_var(app, name_text);
+    if (v == NULL) return num_val(0);
+    if (v->type == VALUE_WORD) return word_val(v->word);
+    if (v->type == VALUE_LIST) return list_val(v->list_head);
+    if (v->type == VALUE_ARRAY) return array_val(v->list_head, (int)v->number);
+    return num_val(v->number);
+}
+// LOCAL "name -- a variable scoped to the current call, without being
+// a parameter. Only valid inside an active procedure call; the scope's
+// vars array shares its fixed capacity (MAX_PARAMS) with real
+// parameters. Mirrors interpreter.c's own LOCAL exactly, sharing the
+// same app->scopes/scope_depth call_ast_procedure already reads/writes
+// (see eval.h's own note on why that sharing is safe: both engines'
+// procedure calls push/pop the identical scope stack).
+static void do_local(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    const char *varname = pool->nodes[arg_idx[0]].text;
+    if (app->scope_depth <= 0) {
+        append_output(app, "LOCAL: can only be used inside a procedure\n");
+        return;
+    }
+    Scope *scope = &app->scopes[app->scope_depth - 1];
+    for (int i = 0; i < scope->count; i++) {
+        if (strcasecmp(scope->vars[i].name, varname) == 0) return; // already local
+    }
+    if (scope->count >= MAX_PARAMS) {
+        append_output(app, "LOCAL: too many local variables\n");
+        return;
+    }
+    Variable *v = &scope->vars[scope->count++];
+    snprintf(v->name, sizeof(v->name), "%s", varname);
+    v->type = VALUE_NUMBER;
+    v->number = 0;
+}
+// NAMES -- every currently-defined global variable's name, as a list.
+// Mirrors interpreter.c's own NAMES exactly, sharing the same
+// app->variables/var_count globals table.
+static EvalValue do_names(LogoApp *app) {
+    int head = -1;
+    int *next_slot = &head;
+    for (int i = 0; i < app->var_count; i++) {
+        int node = value_to_node(app, word_val(app->variables[i].name));
+        if (node < 0) return list_pool_exhausted(app);
+        *next_slot = node;
+        next_slot = &app->list_pool[node].next;
+    }
+    return list_val(head);
+}
+// PROCEDURES -- every currently-defined procedure's name, as a list.
+// Unlike NAMES, this can't share interpreter.c's own app->procedures
+// table -- this engine's own TO definitions are AST_PROC_DEF nodes in
+// `pool`, never registered into that text-based table at all, so this
+// walks the pool directly instead (the same "search every node,
+// regardless of nesting" reach find_proc_def already uses).
+static EvalValue do_procedures(LogoApp *app, AstPool *pool) {
+    int head = -1;
+    int *next_slot = &head;
+    for (int i = 0; i < pool->node_count; i++) {
+        if (pool->nodes[i].type == AST_PROC_DEF) {
+            int node = value_to_node(app, word_val(pool->nodes[i].text));
+            if (node < 0) return list_pool_exhausted(app);
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+    }
+    return list_val(head);
+}
 static void do_output(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue val = eval_expr(app, pool, arg_idx[0]);
     app->output_type = val.type;
@@ -1679,6 +1754,17 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_print(app, pool, arg_idx);
     } else if (strcasecmp(name, "MAKE") == 0) {
         do_make(app, pool, arg_idx);
+    } else if (strcasecmp(name, "THING") == 0) {
+        if (result != NULL) *result = do_thing(app, pool, arg_idx);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "LOCAL") == 0) {
+        do_local(app, pool, arg_idx);
+    } else if (strcasecmp(name, "NAMES") == 0) {
+        if (result != NULL) *result = do_names(app);
+        if (produced != NULL) *produced = 1;
+    } else if (strcasecmp(name, "PROCEDURES") == 0) {
+        if (result != NULL) *result = do_procedures(app, pool);
+        if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "OUTPUT") == 0) {
         do_output(app, pool, arg_idx);
     } else if (strcasecmp(name, "STOP") == 0) {

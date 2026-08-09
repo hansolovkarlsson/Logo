@@ -407,6 +407,44 @@ TEST(test_cross_product_of_two_3element_lists) {
     CHECK_STREQ(captured_output, "0 0 1\nCROSS: expected two 3-element lists\n\n");
 }
 
+TEST(test_thing_reads_a_variable_by_computed_name) {
+    LogoApp *app = new_app();
+    run_source(app,
+        "MAKE \"x 5\nMAKE \"greeting \"hi\nMAKE \"nums [1 2 3]\n"
+        "PRINT THING \"x\nPRINT THING WORD \"gree \"ting\nPRINT THING \"nums\nPRINT THING \"nosuch");
+    CHECK_STREQ(captured_output, "5\nhi\n1 2 3\n0\n");
+}
+
+TEST(test_local_declares_a_call_scoped_variable) {
+    LogoApp *app = new_app();
+    run_source(app, "TO test\nLOCAL \"x\nMAKE \"x 99\nOUTPUT :x\nEND\nMAKE \"x 1\nPRINT test\nPRINT :x");
+    CHECK_STREQ(captured_output, "99\n1\n");
+}
+
+TEST(test_local_outside_a_procedure_reports_an_error) {
+    LogoApp *app = new_app();
+    run_source(app, "LOCAL \"y");
+    CHECK_STREQ(captured_output, "LOCAL: can only be used inside a procedure\n");
+}
+
+TEST(test_local_twice_with_the_same_name_is_a_no_op) {
+    LogoApp *app = new_app();
+    run_source(app, "TO test2\nLOCAL \"z\nLOCAL \"z\nMAKE \"z 7\nOUTPUT :z\nEND\nPRINT test2");
+    CHECK_STREQ(captured_output, "7\n");
+}
+
+TEST(test_names_lists_every_global_variable) {
+    LogoApp *app = new_app();
+    run_source(app, "MAKE \"a 1\nMAKE \"b 2\nPRINT NAMES\nPRINT COUNT NAMES");
+    CHECK_STREQ(captured_output, "a b\n2\n");
+}
+
+TEST(test_procedures_lists_every_defined_procedure) {
+    LogoApp *app = new_app();
+    run_source(app, "TO foo\nEND\nTO bar :x\nEND\nPRINT PROCEDURES\nPRINT COUNT PROCEDURES");
+    CHECK_STREQ(captured_output, "foo bar\n2\n");
+}
+
 TEST(test_local_scope_shadows_global) {
     // Not named "setx": that's a genuine built-in in the real
     // interpreter (sets the turtle's X coordinate) this evaluator
@@ -1009,6 +1047,12 @@ int main(void) {
     RUN(test_subst_replaces_matching_elements_including_a_whole_sublist);
     RUN(test_dot_product_of_two_numeric_lists);
     RUN(test_cross_product_of_two_3element_lists);
+    RUN(test_thing_reads_a_variable_by_computed_name);
+    RUN(test_local_declares_a_call_scoped_variable);
+    RUN(test_local_outside_a_procedure_reports_an_error);
+    RUN(test_local_twice_with_the_same_name_is_a_no_op);
+    RUN(test_names_lists_every_global_variable);
+    RUN(test_procedures_lists_every_defined_procedure);
     RUN(test_local_scope_shadows_global);
     RUN(test_list_literal_prints_space_separated_without_brackets);
     RUN(test_nested_list_literal_prints_with_inner_brackets);
