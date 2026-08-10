@@ -636,6 +636,88 @@ TEST(test_procedure_that_throws_in_expression_position_cascades_both_diagnostics
 // finish_call tail -- not exercised by this corpus, and can't be,
 // short of the parser itself changing.
 
+// REPEAT/FOREVER/FOR (docs/ROADMAP.md's Stage 2 checklist -- a known
+// gap noted, not fixed, back in the THROW/CATCH batch). All three need
+// persistent loop-control state (a remaining count, an iteration
+// counter, FOR's own limit/step) kept on the VM's own value stack via
+// the new OP_PEEK, specifically so it survives a *recursive* call
+// within the loop body -- see bytecode.h's own OP_PEEK comment. The
+// first six cases are ported from test_eval.c's own confirmed corpus;
+// the rest are new, targeting fractional counts (REPEAT's own upfront
+// truncation), THROW propagating out of FOR, and -- the most important
+// property of this whole design -- recursion safety.
+
+TEST(test_repeat_loop) {
+    shadow_diff_vm("REPEAT 3 [PRINT \"hi]");
+}
+
+TEST(test_forever_runs_until_stop) {
+    shadow_diff_vm("MAKE \"i 0\nFOREVER [MAKE \"i :i + 1 PRINT :i IF :i = 3 [STOP]]");
+}
+
+TEST(test_for_counts_up_by_default_step) {
+    shadow_diff_vm("FOR [i 1 3] [PRINT :i]");
+}
+
+TEST(test_for_limit_is_a_full_expression_not_just_a_literal) {
+    shadow_diff_vm("MAKE \"n 2\nFOR [i 1 :n + 1] [PRINT :i]");
+}
+
+TEST(test_for_with_explicit_step) {
+    shadow_diff_vm("FOR [i 0 10 5] [PRINT :i]");
+}
+
+TEST(test_for_counts_down_when_limit_is_less_than_start) {
+    shadow_diff_vm("FOR [i 3 1] [PRINT :i]");
+}
+
+TEST(test_for_step_zero_reports_an_error) {
+    shadow_diff_vm("FOR [i 1 3 0] [PRINT :i]");
+}
+
+TEST(test_repeat_truncates_a_fractional_count) {
+    // REPEAT 3.5 must run exactly 3 times, matching do_repeat's own
+    // upfront (int) cast -- not 4, which a naive "decrement until <=0"
+    // loop would produce without truncating first.
+    shadow_diff_vm("REPEAT 3.5 [PRINT \"x]");
+}
+
+TEST(test_throw_breaks_a_for_loop_early) {
+    shadow_diff_vm("CATCH \"stop [FOR [i 1 10] [PRINT :i IF :i = 3 [THROW \"stop]]]\nPRINT \"after");
+}
+
+TEST(test_repeat_count_survives_a_recursive_call_in_its_own_body) {
+    // The core recursion-safety case this whole design (a value-stack
+    // slot via OP_PEEK, not a hidden Logo variable) exists for: the
+    // SAME compiled REPEAT statement runs recursively (countdown 1's
+    // own REPEAT, invoked from inside countdown 2's own REPEAT body),
+    // and each invocation's own remaining-count has to stay correct
+    // across the other's entire run.
+    shadow_diff_vm(
+        "TO countdown :n\n"
+        "  IF :n = 0 [STOP]\n"
+        "  REPEAT 2 [\n"
+        "    PRINT :n\n"
+        "    countdown :n - 1\n"
+        "  ]\n"
+        "END\n"
+        "countdown 2");
+}
+
+TEST(test_for_limit_and_step_survive_a_recursive_call_in_its_own_body) {
+    // Same property as above, for FOR's own two persistent stack slots
+    // (limit and step) instead of REPEAT's one.
+    shadow_diff_vm(
+        "TO nested :n\n"
+        "  IF :n = 0 [STOP]\n"
+        "  FOR [i 1 2] [\n"
+        "    PRINT LIST :n :i\n"
+        "    nested :n - 1\n"
+        "  ]\n"
+        "END\n"
+        "nested 2");
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -708,6 +790,17 @@ int main(void) {
     RUN(test_throw_inside_an_if_branch_is_caught_by_enclosing_catch);
     RUN(test_nested_catch_with_non_matching_inner_tag_propagates_to_outer);
     RUN(test_procedure_that_throws_in_expression_position_cascades_both_diagnostics);
+    RUN(test_repeat_loop);
+    RUN(test_forever_runs_until_stop);
+    RUN(test_for_counts_up_by_default_step);
+    RUN(test_for_limit_is_a_full_expression_not_just_a_literal);
+    RUN(test_for_with_explicit_step);
+    RUN(test_for_counts_down_when_limit_is_less_than_start);
+    RUN(test_for_step_zero_reports_an_error);
+    RUN(test_repeat_truncates_a_fractional_count);
+    RUN(test_throw_breaks_a_for_loop_early);
+    RUN(test_repeat_count_survives_a_recursive_call_in_its_own_body);
+    RUN(test_for_limit_and_step_survive_a_recursive_call_in_its_own_body);
 
     if (failures == 0) {
         printf("All tests passed.\n");

@@ -1807,3 +1807,97 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
     integration (the real point of this whole stage, deliberately
     last), or the known `REPEAT`/`FOREVER`/`FOR` gap noted above, or
     whatever the user picks next.
+- **`REPEAT`/`FOREVER`/`FOR`: done** (sixth batch off Stage 2's own
+  checklist, 2026-08-09, user said "do next — REPEAT/FOREVER/FOR" --
+  closing the gap the `THROW`/`CATCH` batch had explicitly deferred).
+  All three needed persistent loop-control state -- a remaining count,
+  an iteration counter, `FOR`'s own limit/step/internal counter -- that
+  survives a *recursive* call within the loop body. A hidden Logo
+  variable was considered and rejected immediately: it would collide
+  across nested/recursive invocations of the same compiled loop,
+  exactly the class of bug `CATCH`'s own tag-clobbering already
+  surfaced in the previous batch. The actual fix: a new opcode,
+  `OP_PEEK` (`.a` = depth below the current top; pushes a *copy* of
+  that value without removing the original), keeps this state on the
+  VM's own value stack instead -- naturally protected by whatever
+  `VmFrame` a recursive call pushes, the same way `exec_for`'s own
+  plain C-local `limit`/`step` doubles are naturally protected by the
+  C call stack itself.
+  - **`REPEAT`**: count truncated once via a small newly-exposed
+    `eval_int_value` (`INT`'s own value-taking core, split from
+    `do_int` the same way every earlier batch's builtins were --
+    added to `vm.c`'s `call_builtin` dispatch too, as a genuine side
+    effect, not a wholesale "port every math operator" batch, just the
+    one `REPEAT` itself needs), then kept as REPEAT's own single
+    persistent stack slot, decremented in place each iteration via
+    plain `push 1; OP_SUB` (works because nothing else sits on top of
+    it at that point -- ordinary arithmetic already does an in-place
+    "replace" when the operand being replaced is the direct target of
+    the pop). No `MAX_WHILE_ITERATIONS` cap needed -- `do_repeat`'s own
+    C `for`-loop was never capped either, naturally bounded by `count`
+    itself.
+  - **`FOREVER`**: the same single-counter shape as `REPEAT`, but
+    counting *up* and capped against `MAX_WHILE_ITERATIONS` (matching
+    `do_forever`'s own cap) -- a genuine necessity here, unlike
+    `WHILE`'s still-open gap: an uncapped `FOREVER` can hang the VM
+    outright, not just diverge from a safety net nobody happened to
+    need yet.
+  - **`FOR`: the harder case, and where a real, second bug surfaced.**
+    `FOR`'s first working version re-read its own loop variable back
+    from the *Logo-visible* variable (via `OP_PUSH_VAR`) for its own
+    condition check and increment -- but `exec_for`'s own tree-walker
+    equivalent never does this: its loop control is a genuinely
+    separate, C-local `double i`, naturally protected by the C call
+    stack; only the *Logo-visible* copy (written via a plain
+    `set_var(node->text, i)` purely for the block's own benefit, per
+    that function's own comment: "no push_scope ... unlike a real
+    parameter") is deliberately left unscoped. Confusing "the value the
+    loop uses to decide when to stop" with "the value the block sees"
+    meant a recursive call whose own `FOR` loop happened to share the
+    same variable name would silently corrupt the *outer* loop's own
+    next comparison, once the inner call returned and left the global
+    variable at whatever value its own loop finished on.
+    **Caught directly by `tests/test_vm.c`'s own recursion-safety
+    test** (`test_for_limit_and_step_survive_a_recursive_call_in_its_
+    own_body`) -- `nested 2` produced only 3 of the expected 6 output
+    lines, `ast_eval`'s own output confirmed correct first via direct
+    inspection before concluding the VM was wrong, not the test.
+    Traced with temporary `VM_DEBUG`-gated instrumentation (per-
+    instruction `pc`/opcode/stack-contents dumps compared against a
+    hand-derived expected trace) after several rounds of pure
+    reasoning about stack offsets kept concluding "this should already
+    be correct" -- confirms this project's own "confirmed directly,
+    not guessed" bar sometimes needs an actual runtime trace, not just
+    careful reading, and that's fine. Fixed by giving `FOR` a
+    *third*, genuinely separate persistent stack slot for its own
+    internal counter (never read back from Logo state at all) --
+    needing one more new opcode, `OP_POKE` (the write-back half of
+    `OP_PEEK`: pops the top value and overwrites a persistent slot
+    below it), since this counter sits *underneath* `limit`/`step` on
+    the stack rather than on top, so the "push 1; add" in-place trick
+    that works for `REPEAT`/`FOREVER`'s own lone top-of-stack counter
+    doesn't apply here. `FOR`'s own loop is compiled as two near-
+    duplicate variants (ascending via `OP_CMP_LE`, descending via
+    `OP_CMP_GE`), the direction picked once via a runtime branch on
+    step's own sign rather than re-derived every iteration -- a
+    deliberate code-size-for-simplicity trade favoring a compiler that
+    isn't hand-written by a user. No `MAX_WHILE_ITERATIONS` cap for
+    `FOR` itself in this batch either -- left alongside `WHILE`'s own
+    still-open gap, since `FOR`'s own termination is normally
+    guaranteed by its own start/limit/step arithmetic, a smaller risk
+    than `FOREVER`'s unbounded-by-default shape.
+  - 11 new `tests/test_vm.c` cases: 6 ported directly from
+    `test_eval.c`'s own confirmed corpus (`REPEAT`, `FOREVER` until
+    `STOP`, `FOR` counting up/down, an explicit step, a full-expression
+    limit, `step` = 0's own error), plus a fractional-count truncation
+    case, `THROW` breaking a `FOR` loop early, and -- the two cases
+    that matter most for this whole design -- `REPEAT` and `FOR` each
+    recursing into a call containing the exact same loop construct,
+    confirming the outer invocation's own state survives the inner
+    one's entire run intact. Confirmed clean under AddressSanitizer;
+    all 6 test suites pass via `make test`.
+  - **Next**: `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates (the last
+    named item on Stage 2's own instruction-coverage checklist),
+    suspend/resume's actual GTK integration (the real point of this
+    whole stage, deliberately last), the still-open `WHILE`/`FOR`
+    iteration-cap gap, or whatever the user picks next.

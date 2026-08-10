@@ -310,14 +310,58 @@ instruction-set/frame-layout detail behind each of these.
   `WHILE` loop early, an `IF` branch, nested `CATCH` with a
   non-matching inner tag, and a procedure that throws in expression
   position — confirming the "didn't output a value" diagnostic and the
-  uncaught-throw report both fire, in the right order). **Not part of
-  this batch, a known pre-existing gap surfaced while working on
-  it, not introduced by it**: `REPEAT`/`FOREVER`/`FOR` were never
-  ported to this VM at all (no special form recognizes their own
-  `ARG_BLOCK` argument shape yet), so they don't participate in this
-  cooperative-unwind mechanism either — only `WHILE` (already ported)
-  does. All 9 new cases passed on the first run after the nested-CATCH
-  fix; confirmed clean under AddressSanitizer.
+  uncaught-throw report both fire, in the right order). All 9 new
+  cases passed on the first run after the nested-CATCH fix; confirmed
+  clean under AddressSanitizer. (`REPEAT`/`FOREVER`/`FOR` were left as
+  a known, separate gap from this batch — see below, now closed.)
+- [x] **`REPEAT`/`FOREVER`/`FOR`** (2026-08-09) — the loop-construct
+  gap this VM's own `THROW`/`CATCH` batch had explicitly deferred.
+  All three needed persistent loop-control state (a remaining count,
+  an iteration counter, `FOR`'s own limit/step/internal counter) that
+  survives a *recursive* call within the loop body — a hidden Logo
+  variable would collide across nested/recursive invocations of the
+  same compiled loop (exactly the class of bug `CATCH`'s own tag
+  clobbering already surfaced), so a new opcode, `OP_PEEK` (read a
+  copy of a value at a fixed depth without popping it), keeps this
+  state on the VM's own value stack instead, naturally protected by
+  whatever `VmFrame` a recursive call pushes. `REPEAT`'s own count is
+  truncated once via a small newly-exposed `eval_int_value` (`INT`'s
+  own core, added to `vm.c`'s builtin dispatch too as a side effect —
+  not a wholesale math-operators port, just the one operator `REPEAT`
+  itself needs); `FOREVER` gets the `MAX_WHILE_ITERATIONS`-capped
+  iteration counter its own tree-walker equivalent has (a real
+  necessity, unlike `WHILE`'s still-open gap — an uncapped `FOREVER`
+  can hang the VM outright). **A second, harder bug this surfaced,
+  caught by `tests/test_vm.c`'s own recursion-safety test, not
+  guessed**: `FOR`'s first working version re-read its own loop
+  variable back from the *Logo-visible* variable for its condition/
+  increment — `exec_for`'s own tree-walker equivalent never does this
+  (its loop control is a genuinely separate, C-local `double i`,
+  naturally recursion-safe; only the *Logo-visible* copy, written via
+  a plain `set_var` purely for the block's own benefit, is
+  deliberately not scoped) — so a recursive call whose own `FOR` loop
+  shared the same variable name corrupted the outer loop's next
+  comparison once it returned. Fixed by giving `FOR` a third,
+  genuinely separate persistent stack slot for its own internal
+  counter (never read back from Logo state at all), needing one more
+  new opcode, `OP_POKE` (the write-back half of `OP_PEEK`, since this
+  counter sits underneath `limit`/`step` on the stack, not on top,
+  so a plain "push 1; add" can't update it in place the way it can for
+  `REPEAT`/`FOREVER`'s own lone top-of-stack counter). `FOR`'s own
+  loop is compiled as two near-duplicate variants (ascending/
+  descending), the direction picked once via a runtime branch on
+  step's sign rather than re-derived every iteration. No
+  `MAX_WHILE_ITERATIONS` cap for `FOR` itself in this batch — left
+  alongside `WHILE`'s own still-open gap, since `FOR`'s termination is
+  normally guaranteed by its own arithmetic, a smaller risk than
+  `FOREVER`'s. 11 new `tests/test_vm.c` cases — 6 ported from
+  `test_eval.c`'s own confirmed corpus, plus a fractional-count
+  truncation case, `THROW` breaking a `FOR` loop early, and (the two
+  cases that actually matter most for this design) `REPEAT` and `FOR`
+  each recursing into a call containing the exact same loop construct,
+  confirming the outer invocation's own state survives intact.
+  Confirmed clean under AddressSanitizer; all 6 test suites pass via
+  `make test`.
 - [ ] `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates compiled once instead
   of re-lexed/re-parsed per element (today's real cost, in both
   `eval_logo` and Stage 1's own `ast_eval`) — a genuine semantic

@@ -209,6 +209,15 @@ void eval_throw_value(LogoApp *app, EvalValue tag_val);
 void eval_catch_check(LogoApp *app, const char *tag_text);
 void eval_report_uncaught_throw(LogoApp *app);
 
+// INT -- exposed alongside THROW/CATCH's own pieces for an unrelated
+// reason: compiler.c's own REPEAT compilation needs this exact
+// truncation for its count, matching do_repeat's own upfront
+// `(int)eval_to_number(...)` (without it, REPEAT 3.5 [...] would run
+// one extra iteration under a naive stack-based decrement-until-
+// positive loop). Not a wholesale "port every math operator" batch --
+// just this one, because REPEAT genuinely needs it.
+EvalValue eval_int_value(EvalValue v);
+
 // ERASE -- a special form (like MAKE/LOCAL), not an ordinary builtin:
 // its argument is a raw procedure name (ARG_QUOTED_WORD), never an
 // evaluated expression, and it directly mutates `pool` (see eval.c's

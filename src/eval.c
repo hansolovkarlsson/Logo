@@ -1373,8 +1373,19 @@ static EvalValue do_random(LogoApp *app, AstPool *pool, const int *arg_idx) {
 static EvalValue do_round(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return num_val(round(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
 }
+// Exposed (unlike its sibling math operators, still eval.c-private --
+// see docs/BYTECODE_VM_DESIGN.md's own note on this being a genuinely
+// small, deliberate addition, not "port all math operators") because
+// compiler.c's own REPEAT compilation needs this exact truncation:
+// REPEAT's own count is truncated once, up front, exactly like
+// do_repeat's own `(int)eval_to_number(...)` -- without it, a
+// fractional count (REPEAT 3.5 [...]) would run one extra iteration
+// under a naive decrement-until-positive loop.
+EvalValue eval_int_value(EvalValue v) {
+    return num_val(trunc(eval_to_number(v)));
+}
 static EvalValue do_int(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(trunc(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_int_value(eval_expr(app, pool, arg_idx[0]));
 }
 // Mirrors interpreter.c's own mod_result exactly: fmod's result takes
 // the sign of the dividend, but MOD's result should take the sign of

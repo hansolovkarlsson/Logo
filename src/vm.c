@@ -34,6 +34,24 @@ static EvalValue pop(Vm *vm) {
     return vm->stack[--vm->stack_top];
 }
 
+// See bytecode.h's own comment on OP_PEEK: reads a copy of the value
+// `depth` slots below the current top (0 = the top itself) without
+// removing it.
+static EvalValue peek(Vm *vm, int depth) {
+    int idx = vm->stack_top - 1 - depth;
+    if (idx < 0 || idx >= vm->stack_top) return num_val(0);
+    return vm->stack[idx];
+}
+
+// See bytecode.h's own comment on OP_POKE: pops the top value, then
+// overwrites the persistent slot `depth` below the NEW (post-pop) top
+// with it.
+static void poke(Vm *vm, int depth, EvalValue v) {
+    int idx = vm->stack_top - 1 - depth;
+    if (idx < 0 || idx >= vm->stack_top) return;
+    vm->stack[idx] = v;
+}
+
 // Binary arithmetic (OP_ADD/OP_SUB/OP_MUL/OP_DIV): pop right then left
 // (right was pushed last), matching eval_expr's own AST_BINOP
 // left-then-right evaluation order and AST_OP_DIV's own "divide by
@@ -287,6 +305,7 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         *produced = 0;
         return num_val(0);
     }
+    if (strcasecmp(name, "INT") == 0) return eval_int_value(args[0]);
     // Unreachable for a well-formed compiled program -- compile_call
     // only ever emits OP_CALL_BUILTIN for a name find_proc_def couldn't
     // resolve to a user procedure, and the parser itself already
@@ -679,6 +698,14 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
             }
             case OP_CHECK_UNCAUGHT_THROW:
                 if (app->throw_requested) eval_report_uncaught_throw(app);
+                pc++;
+                break;
+            case OP_PEEK:
+                push(vm, peek(vm, instr->a));
+                pc++;
+                break;
+            case OP_POKE:
+                poke(vm, instr->a, pop(vm));
                 pc++;
                 break;
             default:
