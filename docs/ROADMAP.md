@@ -957,15 +957,17 @@ agreed per-agent semantic yet — pause just that agent, or the whole
 swarm?), the same "documented gap, not silent corruption" spirit as
 every other `vm_run_depth`-gated refusal.
 
-- [ ] First slice: `Agent` struct, the save/restore context switch
-  (reuses `find_var` and every existing opcode unchanged — swaps
-  `app->scopes`/`scope_depth`/`throw_requested`/`throw_tag`/`run_depth`
-  around each agent's turn rather than threading a new parameter through
-  everything that touches them), a minimal cooperative round-robin
-  scheduler in `ui.c` (reusing `VmRunResult`/the existing suspend/resume
-  machinery — a voluntary yield is just another suspend reason, resumed
-  on the next scheduling tick instead of a timer), and `LAUNCH`/`AWAIT`.
-  Not started.
+- [ ] **First slice** (scoped in detail 2026-08-10, see
+  `docs/CONCURRENT_AGENTS_DESIGN.md`'s own "Proposed first slice" for
+  the full breakdown — not started): `Agent` struct + the save/restore
+  context switch (reuses `find_var` and every existing opcode
+  unchanged), three new opcodes (`OP_LAUNCH`/`OP_AWAIT`/`OP_YIELD`, new
+  files `agent.h`/`agent.c` — not `ui.c`, since a 4th resolved decision
+  (`YIELD` is explicit-only, not automatic per loop iteration) means
+  this slice never needs a real GTK timer/keypress at all, so the whole
+  round-robin is a plain, synchronous, headless-testable C loop.
+  `WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/`ANIMATESPRITE` inside an agent are
+  deliberately deferred together past this slice, not just `PAUSE`.
 
 ## Robustness
 

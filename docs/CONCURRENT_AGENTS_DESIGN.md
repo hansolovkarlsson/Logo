@@ -1,7 +1,8 @@
 # MultiLogo-style concurrent turtle agents
 
-Status: **scoped, not started.** Three design decisions resolved with the
-user 2026-08-10 (see "Decisions" below); no code written yet.
+Status: **scoped, not started.** Four design decisions resolved with the
+user 2026-08-10 (see "Decisions" and "Proposed first slice" below); no
+code written yet.
 
 ## Why
 
@@ -113,13 +114,32 @@ established pattern for every suspend/resume-era batch (`WAIT`/`WAITKEY`/
    (`vm_run_depth > 1`) — except this is a *design* gap (no agreed
    meaning yet), not a *mechanical* one (the suspend can't propagate).
    `WAIT`/`WAITKEY`/`INPUT`/`ANIMATESPRITE` all still work fine inside
-   an agent.
+   an agent — **except in the first slice specifically**, where all
+   five are deferred together (see decision #4 and "Proposed first
+   slice" below): this slice never needs a real GTK timer/keypress at
+   all, a real simplification, not just PAUSE's own open semantic
+   question.
+4. **`YIELD` is explicit only, not automatic per loop iteration**
+   (resolved while scoping the first slice specifically, 2026-08-10).
+   The Logo programmer calls it themselves at chosen points, same model
+   Lua coroutines use. Automatic yielding after every `REPEAT`/`WHILE`/
+   `FOR`/`FOREVER` iteration would give real fairness against a runaway
+   loop, but touches `compile_call`'s own loop-compiling code in four
+   places — real risk to already-shipped, tested code, set aside for
+   a later follow-up rather than folded into an already-large first
+   slice. A script that never `YIELD`s inside a long loop will starve
+   its sibling agents until that loop finishes — a known, narrow
+   limitation to document, matching this project's own tolerance for
+   the comparable `WHILE`/`FOR` iteration-cap gap already accepted
+   elsewhere.
 
 ## Mechanism
 
 **A new `Agent` struct** bundles everything that needs to be per-agent
 instead of shared:
 ```c
+typedef enum { AGENT_READY, AGENT_WAITING_JOIN, AGENT_FINISHED } AgentState;
+
 typedef struct {
     Vm vm;                      // already fully self-contained (stack/frames/pc)
     int turtle_index;           // fixed at spawn, per decision #2
@@ -128,7 +148,9 @@ typedef struct {
     gboolean throw_requested;
     char throw_tag[64];
     int run_depth;
-    gboolean finished;
+    AgentState state;           // just READY/WAITING_JOIN/FINISHED in the first
+                                 // slice -- WAITING_TIMER/WAITING_KEY are a later
+                                 // follow-up, once WAIT/WAITKEY-in-an-agent lands
 } Agent;
 ```
 `pool`/`chunk` (the compiled program) are **not** duplicated — every
@@ -176,22 +198,90 @@ it's implicitly agent 0) until every currently-launched agent has
 finished — the natural "join" needed before a top-level script can look
 at the finished drawing.
 
-## Proposed first slice
+## Proposed first slice (scoped 2026-08-10)
 
-Matching this project's own "vertical slice first" precedent (Stage 2's
-own first batch): `Agent` struct, the save/restore context switch, a
-minimal round-robin scheduler, `LAUNCH`/`AWAIT`, and enough of `YIELD`
-(likely: automatically after every top-level statement inside an agent's
-own script, not requiring the user to call it explicitly — matching how
-a script doesn't need to manually request a timeslice) to prove genuine
-interleaving — demonstrated with two agents each recursing/looping and
-touching their own turtle, confirming neither's variables or turtle
-selection leak into the other. `PAUSE`-inside-an-agent's own refusal
-message, `WAIT`/`WAITKEY` proven to work correctly from deep inside an
-agent's own nested calls (the actual point of decision #1). Shadow-diff
-testing doesn't apply here (no `ast_eval` equivalent will ever exist) —
-same headless, direct-`vm_run`-call testing style already established
-for suspend/resume/sprites.
+**A fourth decision, resolved while scoping this slice specifically**:
+`YIELD` is **explicit only** — the Logo programmer calls it themselves at
+chosen points in their own agent script, the same model Lua coroutines
+use. The alternative (automatic yield after every loop iteration, for
+real fairness against a runaway `REPEAT`/`WHILE`/`FOR`/`FOREVER`) was
+considered and set aside: it touches `compile_call`'s own loop-compiling
+code in four places, real risk to already-shipped, tested code, on top
+of everything else this slice already needs. A script that never calls
+`YIELD` inside a long loop will starve its sibling agents until that
+loop finishes — a known, narrow limitation to document, matching this
+project's own tolerance for the comparable `WHILE`/`FOR` iteration-cap
+gap already accepted elsewhere. Automatic, granular yielding is a real,
+separate follow-up, not attempted here.
+
+**A crucial simplification this forces, worth its own callout**: this
+slice deliberately does *not* support `WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/
+`ANIMATESPRITE` inside an agent yet (their own multi-agent semantics —
+does `WAIT` in one agent block just that agent, or the whole scheduler
+tick? — are a real follow-up design question, not resolved here). That
+means **nothing in this slice ever needs a real GLib timer or keypress**
+— every suspend reason the scheduler has to handle (`LAUNCH`/`AWAIT`/
+`YIELD`, plus ordinary completion) is resolved by the scheduler itself,
+on its own next loop iteration, never by GTK's event loop. So the whole
+round-robin can be a **plain, synchronous C loop** — no new `ui.c`
+scheduler state, no GTK re-entry, completely headless-testable, the same
+style `vm.c`'s own existing tests already use. If an agent hits `WAIT`/
+`WAITKEY`/`PAUSE`/`INPUT`/`ANIMATESPRITE`, the scheduler treats it as an
+explicit, reported error (that agent is torn down with a clear message,
+not silently mishandled or hung) rather than attempting semantics nobody
+has agreed on yet.
+
+**Concrete pieces**:
+- Three new opcodes (`OP_LAUNCH`/`OP_AWAIT`/`OP_YIELD`, `bytecode.h`) and
+  three new `VmRunResult` variants (`vm.h`), gated by the same
+  `vm_run_depth > 1` refusal every other suspend opcode already has (a
+  `LAUNCH`/`AWAIT`/`YIELD` reached from inside a `MAP`/`FOREACH`
+  template or `RUN`/`LOAD`'d code has the identical wrong-chunk hazard).
+  `OP_LAUNCH` resolves its own procedure name via `find_proc_def`/
+  `bytecode_find_proc` (mirroring `APPLY`'s own resolution, including
+  its own "no such procedure" and "must take no inputs" — no argument-
+  passing to a launched agent in this slice) and hands the resolved
+  target `pc` back via a new `Vm.launch_target_pc` field, the same
+  "suspend, carry a payload, let the driver act on it" shape
+  `suspend_seconds`/`pause_level` already established.
+- A new `Agent` struct and scheduler (own new files, `agent.h`/`agent.c`
+  — not `ui.c`, since nothing here touches GTK): `Vm` plus the per-agent
+  copies of `scopes[]`/`scope_depth`/`throw_requested`/`throw_tag`/
+  `run_depth`, a fixed `turtle_index` (auto-assigned at spawn from
+  `app->turtles[]`, refusing with a clear message if all `MAX_TURTLES`
+  (10 — a real, fairly low bound worth remembering) are already taken),
+  and a small state enum (`READY`/`WAITING_JOIN`/`FINISHED` — no
+  `WAITING_TIMER`/`WAITING_KEY` needed yet, per the simplification
+  above). The context switch is the save/restore swap already designed:
+  before running an agent's own turn, copy its saved state into `app`'s
+  shared fields (`scopes`/`scope_depth`/`throw_requested`/`throw_tag`/
+  `run_depth`/`current_turtle`); copy back out once its turn ends.
+- `ui.c`'s own `run_logo_script` needs exactly one new branch: if its
+  initial `vm_run` call returns `VM_RUN_SUSPENDED_LAUNCH` (instead of
+  any case `handle_vm_result` already knows), hand off to a new
+  `scheduler_run(...)` — a blocking call that owns the round-robin until
+  every agent is `FINISHED`, then returns control to `handle_vm_result`
+  exactly as if the whole thing had been one ordinary script. Everything
+  else in `ui.c` (`g_suspended_run`/`g_paused_runs`, `on_entry_key_pressed`,
+  ...) stays completely untouched — a concurrent-agent run and an
+  ordinary suspend/resume run can never overlap in this slice, since
+  agents can't reach any of `ui.c`'s own suspend paths at all yet.
+- Testing: fully headless, no shadow-diff (no `ast_eval` equivalent will
+  ever exist) — direct `vm_run`/scheduler calls asserting on final
+  variable/turtle state, the same style already established for
+  suspend/resume/sprites. Proof case: two agents, each looping and
+  touching their own turtle/variables, `YIELD`ing mid-loop, confirming
+  neither's state leaks into the other — the actual point of decision #1
+  (scope-depth-independent correctness), demonstrated without yet
+  needing `WAIT`/`WAITKEY` themselves inside an agent to prove it.
+
+**Deliberately deferred past this slice, not silently dropped**:
+`WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/`ANIMATESPRITE` inside an agent (needs
+its own follow-up design — likely `Agent` gaining real `WAITING_TIMER`/
+`WAITING_KEY` states and `ui.c` finally getting involved, once this
+slice's own mechanism is proven); automatic per-loop-iteration yielding;
+passing arguments to a launched agent; any way to inspect a running
+agent's own state from outside it (introspection, `WHO`-style).
 
 ## Progress
 
