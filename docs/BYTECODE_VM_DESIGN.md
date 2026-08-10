@@ -23,7 +23,8 @@ live app. `TEXT`/`SHOW`/`SAVE`/file I/O (12 of 13 originally flagged;
 same gap: a scripted audit found 35 `parser.c`-declared builtins total
 never reaching `vm.c` at all (math operators, list/word operators, type
 predicates, `RUN`/`APPLY`, some turtle-command short aliases, and
-`LOAD`), reported in full and not yet scoped/prioritized.
+`LOAD`). Math operators (15 of the 35) are done now too; 20 names
+remain, reported in full, not yet scoped/prioritized.
 
 ## Why
 
@@ -2341,10 +2342,25 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   already work, just not `HT`/`ST`/`SETH`/`SETPC`/`SETPW`/`SETBG`), and
   `LOAD` itself. Reported to the user in full rather than fixed ad hoc;
   scope/priority for the rest is their own call, not yet decided.
-  - **Next**: the newly-found 34-item remainder of the builtin-coverage
-    audit (see `docs/ROADMAP.md`'s own full breakdown) is the largest
-    concrete item now. `PAUSE`'s own Ctrl+C-based force-unpause (left
-    out, matching the broader interrupt-checking gap), and the
+- **Math operators — the first slice of the 35-name audit** (2026-08-10):
+  `ABS`/`SQRT`/`POWER`/`RANDOM`/`ROUND`/`MOD`/`SIN`/`COS`/`TAN`/`ASIN`/
+  `ACOS`/`ARCTAN`/`LN`/`LOG`/`EXP` now work through the VM. Even
+  simpler than file-I/O: every one is a pure function needing no
+  `app`/`pool` at all, the same shape `eval_int_value` already
+  established, so each new `eval_X_value` core is a one-liner around
+  the existing `fabs`/`sqrt`/`pow`/… call. Zero new opcodes, zero
+  `compiler.c` changes, confirmed via `make test` that `ast_eval`'s own
+  behavior is unchanged. 5 new `tests/test_vm.c` cases via ordinary
+  `shadow_diff_vm` — except `RANDOM`, which draws from the same
+  process-global RNG stream in both engines, so shadow-diffing it
+  directly would spuriously "diverge"; tested as a single-engine bounds
+  check instead. Confirmed clean under AddressSanitizer (same one
+  pre-existing crash); all 6 `make test` suites pass; `bin/logo`/
+  `bin/logi` build and run cleanly.
+  - **Next**: 20 names remain from the original 35-name audit — list/
+    word operators, the 4 type predicates, `APPLY`/`RUN`, the turtle
+    short aliases, and `LOAD` itself (see `docs/ROADMAP.md`'s own full
+    breakdown). `PAUSE`'s own Ctrl+C-based force-unpause, and the
     still-open `WHILE`/`FOR` iteration-cap gap and
-    `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,
+    `OUTPUT`/`STOP`-inside-a-template limitation, remain smaller,
     optional follow-ups, or whatever the user picks next.

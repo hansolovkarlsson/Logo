@@ -1118,6 +1118,45 @@ TEST(test_two_nested_pauses_share_one_pause_depth_and_resume_in_lifo_order) {
     free(app);
 }
 
+// Math operators (see docs/ROADMAP.md's own note on the 35-name audit
+// this closes the first, highest-value slice of): unlike sprites/
+// suspend-resume, these already work identically in ast_eval, so
+// ordinary shadow_diff_vm applies -- no filesystem side effects to
+// worry about doubling up, unlike the file-I/O batch. RANDOM is the
+// one exception: both engines draw from the same process-global RNG
+// stream, so running the identical script through both back-to-back
+// would consume different draws and spuriously "diverge" -- tested
+// separately, single-engine, as a bounds check instead.
+
+TEST(test_math_operators_abs_sqrt_power_round) {
+    shadow_diff_vm("PRINT ABS -5\nPRINT SQRT 16\nPRINT POWER 2 10\nPRINT ROUND 3.6\nPRINT ROUND 3.4");
+}
+
+TEST(test_mod_takes_the_sign_of_the_divisor) {
+    shadow_diff_vm("PRINT MOD 7 3\nPRINT MOD (-7) 3\nPRINT MOD 7 (-3)");
+}
+
+TEST(test_trig_operators_use_degrees) {
+    shadow_diff_vm("PRINT SIN 90\nPRINT COS 0\nPRINT TAN 45\nPRINT ASIN 1\nPRINT ACOS 1\nPRINT ARCTAN 1");
+}
+
+TEST(test_log_and_exp_operators) {
+    shadow_diff_vm("PRINT LN 1\nPRINT LOG 100\nPRINT EXP 0");
+}
+
+TEST(test_random_stays_within_bounds) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT RANDOM 10", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    char *end;
+    double n = strtod(captured_output, &end);
+    if (end == captured_output || n < 0 || n >= 10) {
+        failures++;
+        printf("FAIL %s: expected a number in [0, 10), got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
 // Sprites (see docs/BYTECODE_VM_DESIGN.md's suspend/resume design):
 // vm.c-only, not shadow-diffed against ast_eval (which never gained
 // sprite support at all -- see parser.c's own note). load_sprite_image
@@ -1619,6 +1658,11 @@ int main(void) {
     RUN(test_continue_with_nothing_paused_reports_an_error);
     RUN(test_pause_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
     RUN(test_two_nested_pauses_share_one_pause_depth_and_resume_in_lifo_order);
+    RUN(test_math_operators_abs_sqrt_power_round);
+    RUN(test_mod_takes_the_sign_of_the_divisor);
+    RUN(test_trig_operators_use_degrees);
+    RUN(test_log_and_exp_operators);
+    RUN(test_random_stays_within_bounds);
     RUN(test_setsprite_of_unknown_name_reports_error_and_leaves_default);
     RUN(test_setsprite_none_is_a_silent_reset_to_default);
     RUN(test_stampsprite_records_default_triangle_when_no_sprite_set);

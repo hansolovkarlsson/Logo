@@ -1359,22 +1359,43 @@ static void do_forever(LogoApp *app, AstPool *pool, const int *arg_idx) {
         iterations++;
     }
 }
+// Value-taking cores (see eval.h's own note): pure EvalValue->EvalValue
+// functions needing no app/pool at all, same shape eval_int_value just
+// below already established -- exposed for vm.c's call_builtin, found
+// missing there by the same audit that found TEXT/SHOW/file-I/O
+// missing (2026-08-10, see docs/ROADMAP.md's own note on the full
+// 35-name list this surfaced).
+EvalValue eval_abs_value(EvalValue v) {
+    return num_val(fabs(eval_to_number(v)));
+}
 static EvalValue do_abs(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(fabs(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_abs_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_sqrt_value(EvalValue v) {
+    return num_val(sqrt(eval_to_number(v)));
 }
 static EvalValue do_sqrt(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(sqrt(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_sqrt_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_power_value(EvalValue base_val, EvalValue exponent_val) {
+    return num_val(pow(eval_to_number(base_val), eval_to_number(exponent_val)));
 }
 static EvalValue do_power(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double base = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double exponent = eval_to_number(eval_expr(app, pool, arg_idx[1]));
-    return num_val(pow(base, exponent));
+    EvalValue base_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue exponent_val = eval_expr(app, pool, arg_idx[1]);
+    return eval_power_value(base_val, exponent_val);
+}
+EvalValue eval_random_value(EvalValue v) {
+    return num_val(random_below(eval_to_number(v)));
 }
 static EvalValue do_random(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(random_below(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_random_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_round_value(EvalValue v) {
+    return num_val(round(eval_to_number(v)));
 }
 static EvalValue do_round(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(round(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_round_value(eval_expr(app, pool, arg_idx[0]));
 }
 // Exposed (unlike its sibling math operators, still eval.c-private --
 // see docs/BYTECODE_VM_DESIGN.md's own note on this being a genuinely
@@ -1400,41 +1421,71 @@ static double eval_mod_result(double a, double b) {
     if (r != 0 && ((r < 0) != (b < 0))) r += b;
     return r;
 }
+EvalValue eval_mod_value(EvalValue a_val, EvalValue b_val) {
+    return num_val(eval_mod_result(eval_to_number(a_val), eval_to_number(b_val)));
+}
 static EvalValue do_mod(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double a = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double b = eval_to_number(eval_expr(app, pool, arg_idx[1]));
-    return num_val(eval_mod_result(a, b));
+    EvalValue a_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue b_val = eval_expr(app, pool, arg_idx[1]);
+    return eval_mod_value(a_val, b_val);
 }
 // SIN/COS/TAN take degrees (converted to radians); ASIN/ACOS/ARCTAN
 // return degrees (converted back from radians) -- matches
 // interpreter.c's own convention throughout (SETHEADING/turtle angles
 // are degrees), not the C math library's native radians.
+EvalValue eval_sin_value(EvalValue v) {
+    return num_val(sin(eval_to_number(v) * M_PI / 180.0));
+}
 static EvalValue do_sin(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(sin(eval_to_number(eval_expr(app, pool, arg_idx[0])) * M_PI / 180.0));
+    return eval_sin_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_cos_value(EvalValue v) {
+    return num_val(cos(eval_to_number(v) * M_PI / 180.0));
 }
 static EvalValue do_cos(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(cos(eval_to_number(eval_expr(app, pool, arg_idx[0])) * M_PI / 180.0));
+    return eval_cos_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_tan_value(EvalValue v) {
+    return num_val(tan(eval_to_number(v) * M_PI / 180.0));
 }
 static EvalValue do_tan(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(tan(eval_to_number(eval_expr(app, pool, arg_idx[0])) * M_PI / 180.0));
+    return eval_tan_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_asin_value(EvalValue v) {
+    return num_val(asin(eval_to_number(v)) * 180.0 / M_PI);
 }
 static EvalValue do_asin(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(asin(eval_to_number(eval_expr(app, pool, arg_idx[0]))) * 180.0 / M_PI);
+    return eval_asin_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_acos_value(EvalValue v) {
+    return num_val(acos(eval_to_number(v)) * 180.0 / M_PI);
 }
 static EvalValue do_acos(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(acos(eval_to_number(eval_expr(app, pool, arg_idx[0]))) * 180.0 / M_PI);
+    return eval_acos_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_arctan_value(EvalValue v) {
+    return num_val(atan(eval_to_number(v)) * 180.0 / M_PI);
 }
 static EvalValue do_arctan(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(atan(eval_to_number(eval_expr(app, pool, arg_idx[0]))) * 180.0 / M_PI);
+    return eval_arctan_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_ln_value(EvalValue v) {
+    return num_val(log(eval_to_number(v)));
 }
 static EvalValue do_ln(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(log(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_ln_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_log_value(EvalValue v) {
+    return num_val(log10(eval_to_number(v)));
 }
 static EvalValue do_log(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(log10(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_log_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_exp_value(EvalValue v) {
+    return num_val(exp(eval_to_number(v)));
 }
 static EvalValue do_exp(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return num_val(exp(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
+    return eval_exp_value(eval_expr(app, pool, arg_idx[0]));
 }
 EvalValue eval_first_value(LogoApp *app, EvalValue arg) {
     if (arg.type == VALUE_LIST) {

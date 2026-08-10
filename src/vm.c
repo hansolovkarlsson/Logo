@@ -484,6 +484,21 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         return num_val(0);
     }
     if (strcasecmp(name, "INT") == 0) return eval_int_value(args[0]);
+    if (strcasecmp(name, "ABS") == 0) return eval_abs_value(args[0]);
+    if (strcasecmp(name, "SQRT") == 0) return eval_sqrt_value(args[0]);
+    if (strcasecmp(name, "POWER") == 0) return eval_power_value(args[0], args[1]);
+    if (strcasecmp(name, "RANDOM") == 0) return eval_random_value(args[0]);
+    if (strcasecmp(name, "ROUND") == 0) return eval_round_value(args[0]);
+    if (strcasecmp(name, "MOD") == 0) return eval_mod_value(args[0], args[1]);
+    if (strcasecmp(name, "SIN") == 0) return eval_sin_value(args[0]);
+    if (strcasecmp(name, "COS") == 0) return eval_cos_value(args[0]);
+    if (strcasecmp(name, "TAN") == 0) return eval_tan_value(args[0]);
+    if (strcasecmp(name, "ASIN") == 0) return eval_asin_value(args[0]);
+    if (strcasecmp(name, "ACOS") == 0) return eval_acos_value(args[0]);
+    if (strcasecmp(name, "ARCTAN") == 0) return eval_arctan_value(args[0]);
+    if (strcasecmp(name, "LN") == 0) return eval_ln_value(args[0]);
+    if (strcasecmp(name, "LOG") == 0) return eval_log_value(args[0]);
+    if (strcasecmp(name, "EXP") == 0) return eval_exp_value(args[0]);
     // MAP/FILTER/REDUCE/FOREACH reach here only when their own
     // template argument wasn't a literal `[...]` visible at compile
     // time (a runtime-computed template) or didn't parse cleanly when

@@ -317,4 +317,25 @@ EvalValue eval_directory_value(LogoApp *app);
 void eval_close_value(LogoApp *app, EvalValue idx_val);
 void eval_fileprint_value(LogoApp *app, EvalValue idx_val, EvalValue text_val);
 
+// Math operators -- pure EvalValue->EvalValue (no app/pool needed at
+// all), the same shape eval_int_value already established. Found
+// missing from vm.c by the same audit that found TEXT/SHOW/file-I/O
+// missing (2026-08-10, see docs/ROADMAP.md's own note on the full
+// 35-name list this surfaced).
+EvalValue eval_abs_value(EvalValue v);
+EvalValue eval_sqrt_value(EvalValue v);
+EvalValue eval_power_value(EvalValue base_val, EvalValue exponent_val);
+EvalValue eval_random_value(EvalValue v);
+EvalValue eval_round_value(EvalValue v);
+EvalValue eval_mod_value(EvalValue a_val, EvalValue b_val);
+EvalValue eval_sin_value(EvalValue v);
+EvalValue eval_cos_value(EvalValue v);
+EvalValue eval_tan_value(EvalValue v);
+EvalValue eval_asin_value(EvalValue v);
+EvalValue eval_acos_value(EvalValue v);
+EvalValue eval_arctan_value(EvalValue v);
+EvalValue eval_ln_value(EvalValue v);
+EvalValue eval_log_value(EvalValue v);
+EvalValue eval_exp_value(EvalValue v);
+
 #endif

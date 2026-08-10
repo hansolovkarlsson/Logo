@@ -842,6 +842,32 @@ instruction-set/frame-layout detail behind each of these.
   Reported to the user in full rather than fixed ad hoc as each one
   happened to surface in a test; scope/priority for the remaining 34 is
   the user's own call, not yet decided.
+- [x] **Math operators — the first, highest-value slice of the 35-name
+  audit** (2026-08-10): `ABS`/`SQRT`/`POWER`/`RANDOM`/`ROUND`/`MOD`/
+  `SIN`/`COS`/`TAN`/`ASIN`/`ACOS`/`ARCTAN`/`LN`/`LOG`/`EXP` all now work
+  through the VM. Even simpler than the file-I/O batch: every one of
+  these is a pure function needing no `app`/`pool` at all (not even
+  `RANDOM`, which calls the process-global `random_below` directly) —
+  the same shape `eval_int_value` (`REPEAT`'s own truncation helper)
+  already established, so each new `eval_X_value` core is a one-line
+  `EvalValue -> EvalValue` (or two-arg) wrapper around the existing
+  `fabs`/`sqrt`/`pow`/… call, with the `do_X` wrapper in `eval.c`
+  reduced to "evaluate my own argument(s), forward to the core." Zero
+  new opcodes, zero `compiler.c` changes, confirmed via a full
+  `make test` run that `ast_eval`'s own behavior didn't change. 5 new
+  `tests/test_vm.c` cases, all ordinary `shadow_diff_vm` calls (no
+  filesystem side effects to worry about, unlike file-I/O) except
+  `RANDOM` — both engines draw from the same process-global RNG stream,
+  so running one script through both back-to-back would consume
+  different draws and spuriously "diverge"; tested separately as a
+  single-engine bounds check instead. Confirmed clean under
+  AddressSanitizer (same one pre-existing, unrelated crash); all 6
+  `make test` suites pass; `bin/logo`/`bin/logi` build warning-free and
+  run without crashing. 20 names remain from the original 35-name
+  audit: list/word operators (`CROSS`/`DOT`/`FLATTEN`/`MEMBER?`/
+  `PARSE`/`PICK`/`SUBST`), the type predicates (`ARRAY?`/`LIST?`/
+  `NUMBER?`/`WORD?`), `APPLY`/`RUN`, the turtle-command short aliases
+  (`HT`/`SETBG`/`SETH`/`SETPC`/`SETPW`/`ST`), and `LOAD` itself.
 
 ## Robustness
 
