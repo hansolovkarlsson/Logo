@@ -635,20 +635,103 @@ instruction-set/frame-layout detail behind each of these.
   finishes, confirm it's rejected and the original still resumes
   correctly) needs the user to confirm directly, same reason as every
   other interactive check in this stage.
-- [ ] `ANIMATESPRITE` — **blocked, not skipped by oversight**: scoping
-  it (2026-08-10) found it operates on `Turtle.sprite_index`, which
+- [x] **`ANIMATESPRITE` + the sprite subsystem** (2026-08-10) —
+  originally found blocked (see the earlier note, preserved below) and
+  scoped as its own real project rather than folded into the
+  suspend/resume batch; picked up separately once `PAUSE` closed out
+  every other named suspend/resume item.
+  Ported the five ordinary (non-suspending) sprite commands —
+  `SETSPRITE`/`LOADSPRITE`/`LOADSPRITESHEET`/`SETSPRITEFRAME`/
+  `STAMPSPRITE` — plus `ANIMATESPRITE` itself, **`vm.c`-only, at the
+  user's own call**: matching the WAIT/WAITKEY/INPUT/PAUSE precedent
+  exactly, since `bin/logo` no longer runs on `ast_eval` at all, adding
+  these to `eval.c` too would only buy extra shadow-diff test
+  infrastructure (extending `TurtleSnapshot` again) for a subsystem
+  that only ever executes through the live VM now. All five ordinary
+  commands needed **zero special `compiler.c` treatment** — confirmed
+  directly that `ARG_QUOTED_WORD` arguments already compile through the
+  generic `OP_CALL_BUILTIN` fallback path exactly like any other
+  expression (an `AST_WORD` node just becomes an ordinary
+  `OP_PUSH_WORD`), the same reason `DELETEFILE`/`TEXT`/`SHOW` never
+  needed a special branch either — direct ports living as new static
+  helpers in `vm.c` (`exec_loadsprite`/`exec_loadspritesheet`/
+  `exec_setsprite`/`exec_setspriteframe`/`exec_stampsprite`), reusing
+  already-public `LogoApp`/`Turtle` fields and the
+  `app->load_sprite_image` callback-pointer seam (same shape as
+  `request_redraw` — silently a no-op when `NULL`, e.g. headless
+  tests). Deliberately dropped `interpreter.c`'s own `"expected a
+  \"name"`/`"expected a \"path"` sscanf-parse-failure errors: this
+  pipeline's real grammar-based parser already guarantees a
+  syntactically valid name at parse time, the same reason `ERASE`/
+  `MAKE`/`DELETEFILE` never emit that class of error here either.
+  **`ANIMATESPRITE` itself needed a genuinely new mechanism, the one
+  real new piece of this batch**: unlike every suspend point so far
+  (each suspends exactly once), `ANIMATESPRITE` can suspend *multiple
+  times* per call — once per remaining frame. A new
+  `Vm.suspend_frames_remaining` (alongside the already-existing
+  `suspend_seconds`, reused here for the per-frame delay) tracks this;
+  `OP_ANIMATESPRITE` advances the first frame and suspends
+  (`VM_RUN_SUSPENDED_ANIMATESPRITE`) if `delay > 0`, and a new
+  `vm_resume_animatesprite` advances one more frame per call, either
+  suspending again (frames remain) or finally falling through to a real
+  `vm_run(vm->pc)` continuation once done — `ui.c` just re-arms its
+  timer each time via the existing `handle_vm_result` dispatch (a new
+  `on_animatesprite_timeout`, mirroring `on_wait_timeout`), needing no
+  new orchestration logic there beyond one more `VmRunResult` case.
+  Uses the same "block concurrent submission" `g_suspended_run` slot as
+  `WAIT` (not `PAUSE`'s reentrant stack) — animating doesn't want other
+  commands interleaving mid-sequence any more than `WAIT` does. If
+  `delay <= 0`, the whole frame loop runs synchronously with no suspend
+  at all — a faithful port of `interpreter.c`'s own real behavior, not
+  a "fix": its own busy-wait loop is the only thing that ever gives GTK
+  a chance to actually repaint an intermediate frame, so a `delay <= 0`
+  animation was never really animated from the user's own visual
+  perspective there either, just an instant jump to the final frame.
+  Same `vm_run_depth`-based template refusal as every other suspend
+  opcode. 11 new headless `tests/test_vm.c` cases — the ordinary
+  commands' error/no-op paths mirror `tests/test_interpreter.c`'s own
+  sprite corpus exactly (`load_sprite_image` is `NULL` in test apps
+  there too, so no sprite is ever really registered via `LOADSPRITE`);
+  the two that matter most directly poke `app`'s own sprite fields
+  (`sprite_count`/`sprite_names`/`sprite_frame_cols`/`rows`,
+  `Turtle.sprite_index`/`sprite_frame`) to set up "a sprite exists"
+  without the GUI-only load path — confirming a 3-frame animation
+  suspends exactly 3 times with the right frame advancing each time
+  before finally completing, and that a zero-delay animation advances
+  all 5 frames (wrapping correctly mod 4) synchronously in one shot.
+  Confirmed clean under AddressSanitizer (same one pre-existing,
+  unrelated crash); all 6 `make test` suites pass; `bin/logo`/`bin/logi`
+  build warning-free and run without crashing. The real image-decoding
+  half (an actual `LOADSPRITE`d image drawing correctly, sprite-sheet
+  grid slicing) still needs the user to confirm manually against the
+  running app, same limitation `test_interpreter.c`'s own sprite corpus
+  already accepted for `eval_logo`.
+  **A separate, previously-unnoticed gap found while scoping this
+  (2026-08-10), not fixed here**: `TEXT`/`SHOW`/`DELETEFILE`/`LOAD`/
+  `SAVE` and the whole file-I/O family (`OPENREAD`/`OPENWRITE`/
+  `OPENAPPEND`/`READLINE`/`EOF?`/`DIRECTORY`/`CLOSE`/`FILEPRINT`) are
+  all in `parser.c`'s own `BUILTIN_SIGNATURES` (from Stage 1's own
+  batches) but were **never wired into `vm.c`'s `call_builtin`** —
+  confirmed directly, zero hits. They parse fine but silently no-op
+  through the VM today, falling through to the same defensive fallback
+  that swallows a genuinely unknown builtin. Flagged clearly rather
+  than silently left for someone to discover the hard way; the user
+  chose to keep it as its own separate, similarly-sized follow-up batch
+  rather than fold it into this one.
+  <details><summary>Original "blocked" note (2026-08-10, superseded above)</summary>
+  Scoping it first found it operates on `Turtle.sprite_index`, which
   only `SETSPRITE` ever sets away from its default `-1` — and
-  `SETSPRITE`/`LOADSPRITE`/`STAMPSPRITE`/`SETSPRITEFRAME` don't exist
+  `SETSPRITE`/`LOADSPRITE`/`STAMPSPRITE`/`SETSPRITEFRAME` didn't exist
   anywhere in `parser.c`/`eval.c` at all (sprites were deliberately out
   of Stage 1's own scope entirely, grouped with sound/`WINDOW` as "a
   large GTK/SDL-state surface disproportionate to a research
-  evaluator's needs"). So `ANIMATESPRITE` can't do anything real
-  through this pipeline yet regardless of its own suspend/resume
-  design — it would always hit the `"no sprite set"` error path, since
-  nothing can set a sprite first. Porting the whole sprite subsystem
-  first would be its own separate, larger scoping question, not a
-  quick add-on to this batch; the user chose to leave it blocked rather
-  than take that on now.
+  evaluator's needs"). So `ANIMATESPRITE` couldn't do anything real
+  through this pipeline at the time regardless of its own suspend/
+  resume design. Porting the whole sprite subsystem was its own
+  separate, larger scoping question; the user chose to leave it blocked
+  rather than take that on as part of the suspend/resume batch — then
+  picked it up as its own project right after, resolved above.
+  </details>
 - [x] **`PAUSE`/`CONTINUE`/`CO`** (2026-08-10) — the last actual open
   suspend/resume item, and it turned out to compose cleanly with
   `WAIT`'s own design rather than needing anything fundamentally new:
@@ -705,8 +788,8 @@ instruction-set/frame-layout detail behind each of these.
   confirm directly, same reason as every other interactive check in
   this stage.
   **This closes out every named suspend/resume item on Stage 2's own
-  checklist.** `ANIMATESPRITE` remains blocked on the not-yet-started
-  sprite subsystem (see above); nothing else is open here.
+  checklist.** `ANIMATESPRITE` itself was picked up as its own separate
+  project right after (see below) — it landed too.
 
 ## Robustness
 

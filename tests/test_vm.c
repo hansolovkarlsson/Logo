@@ -1118,6 +1118,196 @@ TEST(test_two_nested_pauses_share_one_pause_depth_and_resume_in_lifo_order) {
     free(app);
 }
 
+// Sprites (see docs/BYTECODE_VM_DESIGN.md's suspend/resume design):
+// vm.c-only, not shadow-diffed against ast_eval (which never gained
+// sprite support at all -- see parser.c's own note). load_sprite_image
+// is NULL in new_app() here, same convention as
+// tests/test_interpreter.c's own sprite corpus (mirrored below) -- so
+// no sprite is ever actually registered via LOADSPRITE/LOADSPRITESHEET
+// in these tests, only the parsing/validation/error paths are
+// reachable that way. ANIMATESPRITE's real multi-frame suspend/resume
+// mechanism (the actual new piece this batch adds) is exercised
+// separately, by directly poking app's sprite fields to set up "a
+// sprite exists" without going through the GUI-only load path at all.
+
+TEST(test_setsprite_of_unknown_name_reports_error_and_leaves_default) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SETSPRITE \"turtle", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "SETSPRITE: no such sprite \"turtle") == NULL) {
+        failures++;
+        printf("FAIL %s: expected \"no such sprite\", got \"%s\"\n", current_test, captured_output);
+    }
+    if (s.app->turtles[0].sprite_index != -1) {
+        failures++;
+        printf("FAIL %s: sprite_index -- expected -1, got %d\n", current_test, s.app->turtles[0].sprite_index);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_setsprite_none_is_a_silent_reset_to_default) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SETSPRITE \"none", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (s.app->turtles[0].sprite_index != -1) {
+        failures++;
+        printf("FAIL %s: sprite_index -- expected -1, got %d\n", current_test, s.app->turtles[0].sprite_index);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_stampsprite_records_default_triangle_when_no_sprite_set) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("STAMPSPRITE", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (s.app->raster_op_count != 1 || s.app->raster_ops[0].kind != RASTER_OP_STAMP ||
+        s.app->raster_ops[0].sprite_index != -1 || s.app->raster_ops[0].sprite_frame != 0) {
+        failures++;
+        printf("FAIL %s: expected one RASTER_OP_STAMP with sprite_index -1/frame 0, got count=%d\n",
+               current_test, s.app->raster_op_count);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_loadsprite_is_a_safe_no_op_with_no_gui) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT \"before\nLOADSPRITE \"turtle \"turtle.png\nPRINT \"after", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("before\nafter\n");
+    end_vm_session(s);
+}
+
+TEST(test_loadspritesheet_with_zero_cols_reports_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("LOADSPRITESHEET \"walk \"walk.png 0 2", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("LOADSPRITESHEET: cols and rows must be at least 1\n");
+    end_vm_session(s);
+}
+
+TEST(test_setspriteframe_without_a_sprite_set_reports_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SETSPRITEFRAME 2", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("SETSPRITEFRAME: no sprite set (use SETSPRITE first)\n");
+    end_vm_session(s);
+}
+
+TEST(test_animatesprite_without_a_sprite_set_reports_error_and_does_not_suspend) {
+    // Must bail out on the "no sprite" check before ever suspending --
+    // confirmed directly via VmRunResult (VM_RUN_HALTED, not
+    // VM_RUN_SUSPENDED_ANIMATESPRITE), not just by not hanging.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("ANIMATESPRITE 5 10", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ANIMATESPRITE: no sprite set (use SETSPRITE first)\n");
+    end_vm_session(s);
+}
+
+TEST(test_animatesprite_directly_inside_a_map_template_reports_an_error_instead_of_suspending) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT MAP [ANIMATESPRITE 1 2] [1 2]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "ANIMATESPRITE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+        failures++;
+        printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_animatesprite_with_a_positive_delay_advances_one_frame_per_suspend_then_completes) {
+    // The actual new mechanism this batch adds: unlike every other
+    // suspend point, one ANIMATESPRITE call suspends MULTIPLE times
+    // (once per remaining frame) before finally completing. Since
+    // load_sprite_image is NULL here (no real GUI), "a sprite exists"
+    // is set up by directly poking app's own sprite fields instead of
+    // going through LOADSPRITE/SETSPRITE -- ANIMATESPRITE only ever
+    // reads sprite_frame_cols/rows and Turtle.sprite_index/sprite_frame,
+    // never sprite_images itself, so this is a faithful, safe setup.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->sprite_count = 1;
+    snprintf(app->sprite_names[0], sizeof(app->sprite_names[0]), "test");
+    app->sprite_frame_cols[0] = 2;
+    app->sprite_frame_rows[0] = 2; // frame_count = 4
+    app->turtles[0].sprite_index = 0;
+    app->turtles[0].sprite_frame = 0;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("ANIMATESPRITE 1 3\nPRINT \"done", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_SUSPENDED_ANIMATESPRITE, "initial run");
+    if (vm->suspend_seconds != 1 || vm->suspend_frames_remaining != 2 || app->turtles[0].sprite_frame != 1) {
+        failures++;
+        printf("FAIL %s: after initial suspend -- expected seconds=1 remaining=2 frame=1, got seconds=%g remaining=%d frame=%d\n",
+               current_test, vm->suspend_seconds, vm->suspend_frames_remaining, app->turtles[0].sprite_frame);
+    }
+
+    status = vm_resume_animatesprite(vm, app, &result->pool, chunk);
+    expect_status(status, VM_RUN_SUSPENDED_ANIMATESPRITE, "resume 1");
+    if (app->turtles[0].sprite_frame != 2) {
+        failures++;
+        printf("FAIL %s: after resume 1 -- expected frame=2, got %d\n", current_test, app->turtles[0].sprite_frame);
+    }
+
+    status = vm_resume_animatesprite(vm, app, &result->pool, chunk);
+    expect_status(status, VM_RUN_SUSPENDED_ANIMATESPRITE, "resume 2");
+    if (app->turtles[0].sprite_frame != 3) {
+        failures++;
+        printf("FAIL %s: after resume 2 -- expected frame=3, got %d\n", current_test, app->turtles[0].sprite_frame);
+    }
+
+    status = vm_resume_animatesprite(vm, app, &result->pool, chunk);
+    expect_status(status, VM_RUN_HALTED, "resume 3 (final)");
+    expect_output("done\n");
+    if (app->turtles[0].sprite_frame != 3) {
+        failures++;
+        printf("FAIL %s: final frame -- expected 3 (3 total advances for frames=3), got %d\n", current_test, app->turtles[0].sprite_frame);
+    }
+
+    free(vm); free(chunk); parse_result_destroy(result); free(app);
+}
+
+TEST(test_animatesprite_with_a_non_positive_delay_runs_all_frames_synchronously) {
+    // Matches interpreter.c's own `if (delay > 0)` guard -- with no
+    // delay, every frame advances in one synchronous burst, no suspend
+    // at all.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->sprite_count = 1;
+    snprintf(app->sprite_names[0], sizeof(app->sprite_names[0]), "test");
+    app->sprite_frame_cols[0] = 2;
+    app->sprite_frame_rows[0] = 2; // frame_count = 4
+    app->turtles[0].sprite_index = 0;
+    app->turtles[0].sprite_frame = 0;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("ANIMATESPRITE 0 5\nPRINT \"done", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("done\n");
+    // 5 advances from frame 0, wrapping mod 4: 0->1->2->3->0->1
+    if (app->turtles[0].sprite_frame != 1) {
+        failures++;
+        printf("FAIL %s: final frame -- expected 1 (5 advances mod 4), got %d\n", current_test, app->turtles[0].sprite_frame);
+    }
+
+    free(vm); free(chunk); parse_result_destroy(result); free(app);
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -1233,6 +1423,16 @@ int main(void) {
     RUN(test_continue_with_nothing_paused_reports_an_error);
     RUN(test_pause_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
     RUN(test_two_nested_pauses_share_one_pause_depth_and_resume_in_lifo_order);
+    RUN(test_setsprite_of_unknown_name_reports_error_and_leaves_default);
+    RUN(test_setsprite_none_is_a_silent_reset_to_default);
+    RUN(test_stampsprite_records_default_triangle_when_no_sprite_set);
+    RUN(test_loadsprite_is_a_safe_no_op_with_no_gui);
+    RUN(test_loadspritesheet_with_zero_cols_reports_error);
+    RUN(test_setspriteframe_without_a_sprite_set_reports_error);
+    RUN(test_animatesprite_without_a_sprite_set_reports_error_and_does_not_suspend);
+    RUN(test_animatesprite_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
+    RUN(test_animatesprite_with_a_positive_delay_advances_one_frame_per_suspend_then_completes);
+    RUN(test_animatesprite_with_a_non_positive_delay_runs_all_frames_synchronously);
 
     if (failures == 0) {
         printf("All tests passed.\n");

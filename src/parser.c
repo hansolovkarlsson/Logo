@@ -280,13 +280,12 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
 
     // WAIT/WAITKEY/INPUT/PAUSE -- interpreter.c's own suspend-shaped
     // commands ported into this pipeline (see
-    // docs/BYTECODE_VM_DESIGN.md's suspend/resume design);
-    // ANIMATESPRITE left blocked on a whole separate, not-yet-started
-    // sprite subsystem. WAIT/PAUSE are plain statements, matching
-    // interpreter.c's own parse (its own strcasecmp dispatch, not
-    // parse_factor's keyword chain); WAITKEY/INPUT take no arguments
-    // but do produce a value (both are in interpreter.c's own
-    // parse_factor keyword chain), same shape as GETX/POS/HOME above.
+    // docs/BYTECODE_VM_DESIGN.md's suspend/resume design). WAIT/PAUSE
+    // are plain statements, matching interpreter.c's own parse (its own
+    // strcasecmp dispatch, not parse_factor's keyword chain); WAITKEY/
+    // INPUT take no arguments but do produce a value (both are in
+    // interpreter.c's own parse_factor keyword chain), same shape as
+    // GETX/POS/HOME above.
     { "WAIT", 1, { ARG_EXPR } },
     { "WAITKEY", 0, { 0 } },
     { "INPUT", 0, { 0 } },
@@ -298,6 +297,23 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     // OP_CALL_BUILTIN path, same shape as an ordinary zero-arg command.
     { "CONTINUE", 0, { 0 } },
     { "CO", 0, { 0 } },
+
+    // Sprites (eval.c: none of these -- vm.c-only, matching the same
+    // scope decision as WAIT/WAITKEY/INPUT/PAUSE above; bin/logo no
+    // longer runs on ast_eval, so this pipeline doesn't need parity
+    // there). LOADSPRITE/LOADSPRITESHEET/SETSPRITE are ARG_QUOTED_WORD,
+    // matching ERASE/DELETEFILE/LOAD's own raw-name convention;
+    // SETSPRITEFRAME/ANIMATESPRITE's arguments are plain expressions,
+    // matching interpreter.c's own parse_expr-based reads for those.
+    // ANIMATESPRITE is the one suspend-shaped member of this group (see
+    // OP_ANIMATESPRITE in bytecode.h) -- the other five are ordinary,
+    // synchronous commands.
+    { "LOADSPRITE", 2, { ARG_QUOTED_WORD, ARG_QUOTED_WORD } },
+    { "LOADSPRITESHEET", 4, { ARG_QUOTED_WORD, ARG_QUOTED_WORD, ARG_EXPR, ARG_EXPR } },
+    { "SETSPRITE", 1, { ARG_QUOTED_WORD } },
+    { "SETSPRITEFRAME", 1, { ARG_EXPR } },
+    { "STAMPSPRITE", 0, { 0 } },
+    { "ANIMATESPRITE", 2, { ARG_EXPR, ARG_EXPR } },
 };
 #define BUILTIN_SIGNATURE_COUNT (int)(sizeof(BUILTIN_SIGNATURES) / sizeof(BUILTIN_SIGNATURES[0]))
 

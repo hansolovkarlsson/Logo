@@ -121,6 +121,106 @@ static void exec_continue(LogoApp *app) {
     else append_output(app, "CONTINUE: nothing is paused\n");
 }
 
+// The five ordinary (non-suspending) sprite commands -- direct ports of
+// interpreter.c's own do_loadsprite/do_loadspritesheet/do_setsprite/
+// do_setspriteframe/do_stampsprite, deliberately vm.c-only (not also
+// added to eval.c/ast_eval, the same scope the user chose for
+// WAIT/WAITKEY/INPUT/PAUSE): bin/logo no longer runs on ast_eval at
+// all, so porting there too would only buy extra shadow-diff test
+// infrastructure for a subsystem that only ever executes through the
+// live VM. All five reuse already-public LogoApp/Turtle fields
+// (sprite_names/sprite_images/sprite_frame_cols/rows/sprite_count,
+// Turtle.sprite_index/sprite_frame) and app->load_sprite_image (a
+// GTK-side callback-pointer seam, same shape as request_redraw --
+// silently a no-op when NULL, e.g. headless tests, matching
+// interpreter.c's own convention exactly).
+//
+// Unlike interpreter.c's own versions, none of these re-validate their
+// own quoted-word arguments for a literal leading '"' ("expected a
+// \"name" style errors): that check exists there only because
+// interpreter.c parses raw text with sscanf; this pipeline's real
+// grammar-based parser (ARG_QUOTED_WORD) already guarantees a
+// syntactically valid name at parse time, the same reason ERASE/MAKE/
+// DELETEFILE never emit that class of error here either.
+static void exec_loadsprite(LogoApp *app, EvalValue name_val, EvalValue path_val) {
+    char name_buf[64], path_buf[512];
+    eval_value_to_text(app, name_val, name_buf, sizeof(name_buf));
+    eval_value_to_text(app, path_val, path_buf, sizeof(path_buf));
+    if (app->load_sprite_image != NULL && !app->load_sprite_image(app, name_buf, path_buf, 1, 1)) {
+        append_output(app, "LOADSPRITE: could not load \"");
+        append_output(app, path_buf);
+        append_output(app, "\n");
+    }
+}
+
+static void exec_loadspritesheet(LogoApp *app, EvalValue name_val, EvalValue path_val, EvalValue cols_val, EvalValue rows_val) {
+    char name_buf[64], path_buf[512];
+    eval_value_to_text(app, name_val, name_buf, sizeof(name_buf));
+    eval_value_to_text(app, path_val, path_buf, sizeof(path_buf));
+    double cols = eval_to_number(cols_val);
+    double rows = eval_to_number(rows_val);
+    if (cols < 1 || rows < 1) {
+        append_output(app, "LOADSPRITESHEET: cols and rows must be at least 1\n");
+    } else if (app->load_sprite_image != NULL &&
+               !app->load_sprite_image(app, name_buf, path_buf, (int)cols, (int)rows)) {
+        append_output(app, "LOADSPRITESHEET: could not load \"");
+        append_output(app, path_buf);
+        append_output(app, "\n");
+    }
+}
+
+static void exec_setsprite(LogoApp *app, EvalValue name_val) {
+    char name_buf[64];
+    eval_value_to_text(app, name_val, name_buf, sizeof(name_buf));
+    Turtle *t = current_turtle(app);
+    if (strcasecmp(name_buf, "NONE") == 0) {
+        t->sprite_index = -1;
+        t->sprite_frame = 0;
+        return;
+    }
+    int idx = -1;
+    for (int i = 0; i < app->sprite_count; i++) {
+        if (strcasecmp(app->sprite_names[i], name_buf) == 0) { idx = i; break; }
+    }
+    if (idx < 0) {
+        append_output(app, "SETSPRITE: no such sprite \"");
+        append_output(app, name_buf);
+        append_output(app, "\n");
+    } else {
+        t->sprite_index = idx;
+        t->sprite_frame = 0;
+    }
+}
+
+static void exec_setspriteframe(LogoApp *app, EvalValue n_val) {
+    double n = eval_to_number(n_val);
+    Turtle *t = current_turtle(app);
+    if (t->sprite_index < 0) {
+        append_output(app, "SETSPRITEFRAME: no sprite set (use SETSPRITE first)\n");
+        return;
+    }
+    int frame_count = app->sprite_frame_cols[t->sprite_index] * app->sprite_frame_rows[t->sprite_index];
+    if ((int)n < 0 || (int)n >= frame_count) {
+        append_output(app, "SETSPRITEFRAME: frame out of range\n");
+    } else {
+        t->sprite_frame = (int)n;
+    }
+}
+
+static void exec_stampsprite(LogoApp *app) {
+    if (app->raster_op_count < MAX_RASTER_OPS) {
+        Turtle *t = current_turtle(app);
+        RasterOp *op = &app->raster_ops[app->raster_op_count++];
+        op->kind = RASTER_OP_STAMP;
+        op->x = t->x;
+        op->y = t->y;
+        op->angle = t->angle;
+        op->sprite_index = t->sprite_index;
+        op->sprite_frame = t->sprite_frame;
+        op->line_count_at_call = app->line_count;
+    }
+}
+
 static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
@@ -130,6 +230,31 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
     }
     if (strcasecmp(name, "CONTINUE") == 0 || strcasecmp(name, "CO") == 0) {
         exec_continue(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "LOADSPRITE") == 0) {
+        exec_loadsprite(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "LOADSPRITESHEET") == 0) {
+        exec_loadspritesheet(app, args[0], args[1], args[2], args[3]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETSPRITE") == 0) {
+        exec_setsprite(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETSPRITEFRAME") == 0) {
+        exec_setspriteframe(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "STAMPSPRITE") == 0) {
+        exec_stampsprite(app);
         *produced = 0;
         return num_val(0);
     }
@@ -1039,6 +1164,44 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 vm->vm_run_depth--;
                 return VM_RUN_SUSPENDED_PAUSE;
             }
+            case OP_ANIMATESPRITE: {
+                int frames = (int)eval_to_number(pop(vm));
+                double delay = eval_to_number(pop(vm));
+                if (vm->vm_run_depth > 1) {
+                    append_output(app, "ANIMATESPRITE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    pc++;
+                    break;
+                }
+                Turtle *t = current_turtle(app);
+                if (t->sprite_index < 0) {
+                    append_output(app, "ANIMATESPRITE: no sprite set (use SETSPRITE first)\n");
+                    pc++;
+                    break;
+                }
+                if (frames <= 0) {
+                    pc++;
+                    break;
+                }
+                int frame_count = app->sprite_frame_cols[t->sprite_index] * app->sprite_frame_rows[t->sprite_index];
+                if (delay <= 0) {
+                    // No suspend at all -- matches interpreter.c's own
+                    // loop, which never actually yields to GTK's main
+                    // loop when delay <= 0, so intermediate frames were
+                    // never visible there either, just an instant jump
+                    // to the final frame.
+                    for (int i = 0; i < frames; i++) {
+                        t->sprite_frame = (t->sprite_frame + 1) % frame_count;
+                    }
+                    pc++;
+                    break;
+                }
+                t->sprite_frame = (t->sprite_frame + 1) % frame_count;
+                vm->pc = pc + 1;
+                vm->suspend_seconds = delay;
+                vm->suspend_frames_remaining = frames - 1;
+                vm->vm_run_depth--;
+                return VM_RUN_SUSPENDED_ANIMATESPRITE;
+            }
             default:
                 pc++;
                 break;
@@ -1064,4 +1227,15 @@ VmRunResult vm_resume_with_input(Vm *vm, LogoApp *app, AstPool *pool, BytecodeCh
     vm->last_call_produced_output = 1;
     vm->last_call_resolved = 1;
     return vm_run(vm, app, pool, chunk, vm->pc);
+}
+
+VmRunResult vm_resume_animatesprite(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk) {
+    if (vm->suspend_frames_remaining <= 0) {
+        return vm_run(vm, app, pool, chunk, vm->pc);
+    }
+    Turtle *t = current_turtle(app);
+    int frame_count = app->sprite_frame_cols[t->sprite_index] * app->sprite_frame_rows[t->sprite_index];
+    t->sprite_frame = (t->sprite_frame + 1) % frame_count;
+    vm->suspend_frames_remaining--;
+    return VM_RUN_SUSPENDED_ANIMATESPRITE;
 }

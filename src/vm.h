@@ -28,22 +28,27 @@
 
 // vm_run's own result: VM_RUN_HALTED means it ran to OP_HALT (or fell
 // off the end of the chunk) exactly like before this existed -- the
-// only outcome possible until WAIT/WAITKEY/INPUT/PAUSE. The SUSPENDED
-// values mean vm_run returned *early*, mid-chunk, with `vm` left fully
-// intact (its stack/frames untouched) so it can be resumed later via
-// vm_resume/vm_resume_with_key/vm_resume_with_input -- see those
-// functions' own comments, and bytecode.h's own OP_WAIT/OP_WAITKEY/
-// OP_INPUT/OP_PAUSE comments for why only these four opcodes can ever
+// only outcome possible until WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE.
+// The SUSPENDED values mean vm_run returned *early*, mid-chunk, with
+// `vm` left fully intact (its stack/frames untouched) so it can be
+// resumed later via vm_resume/vm_resume_with_key/vm_resume_with_input/
+// vm_resume_animatesprite -- see those functions' own comments, and
+// bytecode.h's own OP_WAIT/OP_WAITKEY/OP_INPUT/OP_PAUSE/
+// OP_ANIMATESPRITE comments for why only these five opcodes can ever
 // produce a SUSPENDED result. VM_RUN_SUSPENDED_PAUSE resumes via the
 // plain vm_resume (like VM_RUN_SUSPENDED_WAIT) -- PAUSE produces no
 // value, same as WAIT, so no dedicated vm_resume_with_* function is
-// needed for it.
+// needed for it. VM_RUN_SUSPENDED_ANIMATESPRITE is the one case that
+// can be returned *repeatedly* for a single ANIMATESPRITE call (once
+// per remaining frame) before finally falling through to a real
+// vm_run continuation -- see vm_resume_animatesprite's own comment.
 typedef enum {
     VM_RUN_HALTED,
     VM_RUN_SUSPENDED_WAIT,
     VM_RUN_SUSPENDED_WAITKEY,
     VM_RUN_SUSPENDED_INPUT,
     VM_RUN_SUSPENDED_PAUSE,
+    VM_RUN_SUSPENDED_ANIMATESPRITE,
 } VmRunResult;
 
 // One in-flight OP_CALL_PROC: where to resume in `code` when this
@@ -115,49 +120,57 @@ typedef struct {
     // vm_resume/vm_resume_with_key continue from, replacing the plain
     // C-local `pc` every other opcode uses, since suspending means
     // *returning out of vm_run entirely*, so nothing else can hold it.
-    // `suspend_seconds` is valid only after VM_RUN_SUSPENDED_WAIT
-    // (OP_WAIT's own already-evaluated, already-truncated-to-"was it >
-    // 0" argument) -- the caller (ui.c) decides how to actually wait
-    // that long; vm.c itself never touches a clock or GTK. `pause_level`
-    // is valid only after VM_RUN_SUSPENDED_PAUSE -- OP_PAUSE's own
-    // already-incremented app->pause_depth, captured once at suspend
-    // time; ui.c reads it to know which level on its own pause stack
-    // this particular suspended run is waiting for (CONTINUE/CO only
-    // ever decrement app->pause_depth by one, so at most the single
-    // innermost -- highest-level -- paused run ever becomes eligible to
-    // resume per CONTINUE, mirroring interpreter.c's own do_pause loop
-    // condition exactly: it keeps waiting while pause_depth >= my_level).
+    // `suspend_seconds` is valid after VM_RUN_SUSPENDED_WAIT (OP_WAIT's
+    // own already-evaluated, already-truncated-to-"was it > 0" argument)
+    // and is REUSED after VM_RUN_SUSPENDED_ANIMATESPRITE (the per-frame
+    // delay -- the same number for every one of that call's own
+    // suspends, so one field suffices) -- the caller (ui.c) decides how
+    // to actually wait that long; vm.c itself never touches a clock or
+    // GTK. `pause_level` is valid only after VM_RUN_SUSPENDED_PAUSE --
+    // OP_PAUSE's own already-incremented app->pause_depth, captured
+    // once at suspend time; ui.c reads it to know which level on its
+    // own pause stack this particular suspended run is waiting for
+    // (CONTINUE/CO only ever decrement app->pause_depth by one, so at
+    // most the single innermost -- highest-level -- paused run ever
+    // becomes eligible to resume per CONTINUE, mirroring
+    // interpreter.c's own do_pause loop condition exactly: it keeps
+    // waiting while pause_depth >= my_level). `suspend_frames_remaining`
+    // is valid only after VM_RUN_SUSPENDED_ANIMATESPRITE -- how many
+    // MORE frame advances are still owed after the wait this particular
+    // suspend represents elapses; see vm_resume_animatesprite.
     int pc;
     double suspend_seconds;
     int pause_level;
+    int suspend_frames_remaining;
 
     // How many nested vm_run calls are currently on the C stack for
     // this one Vm -- 1 for an ordinary top-level run, >1 only inside a
     // MAP/FILTER/REDUCE/FOREACH template's own recursive vm_run call
-    // (see exec_map_compiled and friends). WAIT/WAITKEY/INPUT/PAUSE
-    // check this because a SUSPENDED return from an inner, recursive
-    // vm_run call would only unwind that one C frame -- straight back
-    // into exec_map_compiled's own C loop, not out to whatever's
-    // driving the outermost vm_run (ui.c) -- silently losing the
-    // suspend instead of delivering it. Rather than attempt that (a
-    // real redesign, not a small fix -- see docs/BYTECODE_VM_DESIGN.md),
-    // all four refuse outright with a clear runtime message whenever
-    // vm_run_depth > 1, the same "documented gap, not silent
-    // corruption" spirit as the template batch's own frame_floor
-    // mitigation for OUTPUT/STOP.
+    // (see exec_map_compiled and friends). WAIT/WAITKEY/INPUT/PAUSE/
+    // ANIMATESPRITE check this because a SUSPENDED return from an
+    // inner, recursive vm_run call would only unwind that one C frame
+    // -- straight back into exec_map_compiled's own C loop, not out to
+    // whatever's driving the outermost vm_run (ui.c) -- silently
+    // losing the suspend instead of delivering it. Rather than attempt
+    // that (a real redesign, not a small fix -- see
+    // docs/BYTECODE_VM_DESIGN.md), all five refuse outright with a
+    // clear runtime message whenever vm_run_depth > 1, the same
+    // "documented gap, not silent corruption" spirit as the template
+    // batch's own frame_floor mitigation for OUTPUT/STOP.
     int vm_run_depth;
 } Vm;
 
 // Runs `chunk` (as produced by compile_program) against `app`/`pool`
 // starting at instruction `start_pc`, until OP_HALT (VM_RUN_HALTED) or
-// a WAIT/WAITKEY/INPUT/PAUSE suspend point (VM_RUN_SUSPENDED_*, see
-// VmRunResult). `vm` must already be zeroed (a fresh `Vm vm = {0};` on
-// the caller's own heap allocation) for a first call -- same "caller
-// owns storage, callee just uses it" convention as ast_eval's own
-// AstPool/LogoApp parameters. On a SUSPENDED result, `vm` (and
-// `pool`/`chunk`) must be kept alive by the caller and handed to
-// vm_resume/vm_resume_with_key/vm_resume_with_input later -- do not
-// call vm_run again directly on a suspended `vm`.
+// a WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE suspend point
+// (VM_RUN_SUSPENDED_*, see VmRunResult). `vm` must already be zeroed (a
+// fresh `Vm vm = {0};` on the caller's own heap allocation) for a first
+// call -- same "caller owns storage, callee just uses it" convention as
+// ast_eval's own AstPool/LogoApp parameters. On a SUSPENDED result,
+// `vm` (and `pool`/`chunk`) must be kept alive by the caller and handed
+// to vm_resume/vm_resume_with_key/vm_resume_with_input/
+// vm_resume_animatesprite later -- do not call vm_run again directly on
+// a suspended `vm`.
 VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start_pc);
 
 // Continues a `vm` most recently suspended with VM_RUN_SUSPENDED_WAIT
@@ -184,5 +197,20 @@ VmRunResult vm_resume_with_key(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChun
 // convention of dedicated functions per concept over one parameterized
 // one (e.g. eval_first_value/eval_last_value).
 VmRunResult vm_resume_with_input(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *line);
+
+// Continues a `vm` most recently suspended with
+// VM_RUN_SUSPENDED_ANIMATESPRITE (i.e. by OP_ANIMATESPRITE, or by a
+// previous call to this same function). Unlike every other vm_resume*
+// function, this one does NOT necessarily re-enter vm_run at all: if
+// `vm->suspend_frames_remaining` is still > 0, it just advances one
+// more sprite frame and returns VM_RUN_SUSPENDED_ANIMATESPRITE again
+// (with `suspend_seconds` unchanged, so the caller re-arms the same
+// per-frame delay) -- only once frames are exhausted does it finally
+// call vm_run(vm->pc) to continue real bytecode execution. Use this
+// once the per-frame delay the previous suspend asked for has elapsed;
+// the caller doesn't need to know or care how many frames remain, just
+// keep calling this each time its own timer fires until it returns
+// something other than VM_RUN_SUSPENDED_ANIMATESPRITE.
+VmRunResult vm_resume_animatesprite(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk);
 
 #endif

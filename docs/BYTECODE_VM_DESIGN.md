@@ -13,10 +13,12 @@ vertical slice (`docs/ROADMAP.md`'s "Phase 5, Stage 2" checklist, item
 landed too — see the Progress log below. Suspend/resume's own GTK
 integration (the real point of this whole stage) landed 2026-08-10,
 scoped to `WAIT`/`WAITKEY`, then `INPUT`, then `PAUSE`/`CONTINUE`/`CO`
-— every named suspend/resume item on Stage 2's checklist is now done.
-`bin/logo` now runs scripts through the compiler+VM instead of
-`eval_logo`, the first real cutover of the live app. `ANIMATESPRITE`
-remains blocked on a whole separate, not-yet-started sprite subsystem.
+— every named suspend/resume item on Stage 2's checklist is done, and
+`ANIMATESPRITE` (plus the sprite subsystem it needed) landed right
+after as its own separate project. `bin/logo` now runs scripts through
+the compiler+VM instead of `eval_logo`, the first real cutover of the
+live app. A separately-found gap remains open: `TEXT`/`SHOW`/file I/O
+were never wired into `vm.c`'s `call_builtin` at all.
 
 ## Why
 
@@ -2248,7 +2250,65 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   interactive reentrant-nesting check itself needs the user to confirm
   directly.
   - **This closes out every named suspend/resume item on Stage 2's own
-    checklist.** `ANIMATESPRITE` remains blocked on the not-yet-started
-    sprite subsystem. The still-open `WHILE`/`FOR` iteration-cap gap and
-    the `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,
-    optional follow-ups, or whatever the user picks next.
+    checklist.** `ANIMATESPRITE` itself was picked up as its own
+    separate project right after — see below, it landed too.
+
+- **`ANIMATESPRITE` + the sprite subsystem** (2026-08-10) — originally
+  found blocked while scoping the batch above (`SETSPRITE`/`LOADSPRITE`/
+  `STAMPSPRITE`/`SETSPRITEFRAME` didn't exist anywhere in `parser.c`/
+  `eval.c`, sprites having been deliberately out of Stage 1's own scope
+  from the start), scoped as its own real project instead of folded
+  into suspend/resume, and picked up right after `PAUSE` closed out
+  every other named item.
+  The five ordinary sprite commands landed `vm.c`-only, at the user's
+  own call (same scope decision as `WAIT`/`WAITKEY`/`INPUT`/`PAUSE` —
+  `bin/logo` no longer runs on `ast_eval`, so porting there too would
+  only buy extra shadow-diff test infrastructure for a subsystem that
+  only ever executes live). All five needed zero special `compiler.c`
+  treatment — confirmed directly that `ARG_QUOTED_WORD` arguments
+  already compile through the generic `OP_CALL_BUILTIN` fallback path
+  like any other expression, the same reason `DELETEFILE`/`TEXT`/
+  `SHOW` never needed a special branch either.
+  `ANIMATESPRITE` itself needed the one genuinely new mechanism: unlike
+  every suspend point so far (each suspends exactly once),
+  `ANIMATESPRITE` can suspend *multiple times* per call — once per
+  remaining frame. A new `Vm.suspend_frames_remaining` (alongside the
+  already-existing `suspend_seconds`, reused for the per-frame delay)
+  tracks this; `OP_ANIMATESPRITE` advances the first frame and
+  suspends if `delay > 0`, and a new `vm_resume_animatesprite` advances
+  one more frame per call, either suspending again or finally falling
+  through to a real `vm_run` continuation once done — `ui.c` just
+  re-arms its timer each time via the existing `handle_vm_result`
+  dispatch, needing no new orchestration logic beyond one more
+  `VmRunResult` case. Uses the same `g_suspended_run` concurrency-block
+  slot as `WAIT` (not `PAUSE`'s reentrant stack). A `delay <= 0`
+  animation runs its whole frame loop synchronously with no suspend at
+  all — a faithful port of `interpreter.c`'s own real behavior (its own
+  busy-wait loop is the only thing that ever lets GTK repaint an
+  intermediate frame, so a zero-delay animation was never really
+  animated there either).
+  11 new headless `tests/test_vm.c` cases — the ordinary commands'
+  error/no-op paths mirror `tests/test_interpreter.c`'s own sprite
+  corpus exactly; the two that matter most directly poke `app`'s own
+  sprite fields to set up "a sprite exists" without the GUI-only load
+  path, confirming a 3-frame animation suspends exactly 3 times with
+  the right frame advancing each time, and a zero-delay animation
+  advances all frames (wrapping correctly) synchronously in one shot.
+  Confirmed clean under AddressSanitizer (same one pre-existing crash);
+  all 6 `make test` suites pass; `bin/logo`/`bin/logi` build
+  warning-free and run without crashing. The real image-decoding half
+  still needs manual confirmation against the running app, same
+  limitation `test_interpreter.c`'s own sprite corpus already accepts.
+  **A separate, previously-unnoticed gap found while scoping this, not
+  fixed here**: `TEXT`/`SHOW`/`DELETEFILE`/`LOAD`/`SAVE` and the whole
+  file-I/O family are all in `parser.c`'s own `BUILTIN_SIGNATURES` but
+  were never wired into `vm.c`'s `call_builtin` — confirmed directly,
+  zero hits. They parse fine but silently no-op through the VM today.
+  Flagged clearly; the user chose to keep it as its own separate,
+  similarly-sized follow-up batch.
+  - **Next**: the file-I/O/`TEXT`/`SHOW` gap just found, `PAUSE`'s own
+    Ctrl+C-based force-unpause (left out, matching the broader
+    interrupt-checking gap), and the still-open `WHILE`/`FOR`
+    iteration-cap gap and `OUTPUT`/`STOP`-inside-a-template limitation
+    all remain smaller, optional follow-ups, or whatever the user picks
+    next.

@@ -564,6 +564,19 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "PAUSE", want_value);
         return;
     }
+    if (strcasecmp(name, "ANIMATESPRITE") == 0) {
+        // delay frames -- both plain expressions, pushed delay-then-
+        // frames (matching interpreter.c's own parse_expr order), so
+        // OP_ANIMATESPRITE's own handler pops frames first, then delay.
+        // Same shape as WAIT/PAUSE otherwise: produces no value itself.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        compile_expr(c, pool, args[0], chunk);
+        compile_expr(c, pool, args[1], chunk);
+        emit(chunk, (Instr){.op = OP_ANIMATESPRITE});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "ANIMATESPRITE", want_value);
+        return;
+    }
     if (strcasecmp(name, "SEND") == 0) {
         // Unlike every other call form, SEND's own callee isn't known
         // until runtime (resolved through obj's prototype chain --

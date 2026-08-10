@@ -128,6 +128,27 @@ typedef enum {
     OP_WAITKEY, // suspends unconditionally (VM_RUN_SUSPENDED_WAITKEY); the resuming vm_resume_with_key call pushes the pressed key's name as the value this instruction itself would otherwise have pushed, then continues at vm->pc
     OP_INPUT,   // suspends unconditionally (VM_RUN_SUSPENDED_INPUT); the resuming vm_resume_with_input call pushes the whole submitted line as the value this instruction itself would otherwise have pushed, then continues at vm->pc -- same shape as OP_WAITKEY, just gated by a different ui.c flag/event (Return-submits-the-buffer, not any keypress)
     OP_PAUSE,   // increments the shared app->pause_depth, captures the result as vm->pause_level, prints interpreter.c's own "Paused (level N)..." message, then suspends unconditionally (VM_RUN_SUSPENDED_PAUSE) with vm->pc pointing at the OP_VOID_RESULT that always immediately follows (PAUSE never itself produces a value, same as WAIT) -- resumed via the plain vm_resume, not a dedicated vm_resume_with_* function, once whatever's driving the VM (ui.c) decides app->pause_depth has dropped low enough (see CONTINUE/CO, ordinary builtins that just decrement it -- no opcode of their own needed)
+
+    // OP_ANIMATESPRITE -- the one member of this group that can suspend
+    // MORE THAN ONCE per call (once per remaining frame), unlike every
+    // opcode above. Pops frames then delay (compiled in that push
+    // order). If there's no sprite set, or frames <= 0, it's a
+    // synchronous no-op/error, same as interpreter.c's own guard. If
+    // delay <= 0, the ENTIRE frame loop runs synchronously with no
+    // suspend at all -- a faithful port, not a fix: interpreter.c's own
+    // loop only actually yields to GTK's main loop (making intermediate
+    // frames visible) when its own busy-wait runs, which only happens
+    // when delay > 0, so a delay <= 0 animation was never really
+    // "animated" from the user's own visual perspective there either,
+    // just an instant jump to the final frame. Otherwise: advances the
+    // first frame, then suspends (VM_RUN_SUSPENDED_ANIMATESPRITE,
+    // vm->suspend_seconds = delay, vm->suspend_frames_remaining =
+    // frames - 1) with vm->pc pointing at the OP_VOID_RESULT that
+    // always immediately follows (ANIMATESPRITE never itself produces a
+    // value, same as WAIT/PAUSE) -- resumed via vm_resume_animatesprite,
+    // which may itself return VM_RUN_SUSPENDED_ANIMATESPRITE again
+    // (more frames left) before eventually falling through to vm->pc.
+    OP_ANIMATESPRITE,
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,

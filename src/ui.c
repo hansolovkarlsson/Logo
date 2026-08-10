@@ -939,6 +939,7 @@ static void free_suspended_run(SuspendedRun *run) {
 }
 
 static gboolean on_wait_timeout(gpointer user_data);
+static gboolean on_animatesprite_timeout(gpointer user_data);
 static void maybe_resume_paused_runs(LogoApp *app);
 
 // Common tail for run_logo_script/on_wait_timeout/on_entry_key_pressed's
@@ -979,6 +980,14 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
                 free_suspended_run(run);
             }
             break;
+        case VM_RUN_SUSPENDED_ANIMATESPRITE:
+            // Same "block concurrent submission" slot as WAIT, not the
+            // PAUSE-style reentrant stack -- ANIMATESPRITE doesn't want
+            // other commands interleaving mid-animation any more than
+            // WAIT does.
+            g_suspended_run = run;
+            g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_animatesprite_timeout, app);
+            break;
     }
     // Every point control returns here is a point CONTINUE/CO might
     // just have run (as an ordinary submitted command, or as part of a
@@ -998,6 +1007,22 @@ static gboolean on_wait_timeout(gpointer user_data) {
     VmRunResult result = vm_resume(run->vm, app, &run->result->pool, run->chunk);
     handle_vm_result(app, run, result);
     return G_SOURCE_REMOVE; // one-shot; a further WAIT gets its own new timer via handle_vm_result
+}
+
+// Fires once per frame, exactly as long after the previous frame as
+// ANIMATESPRITE's own delay asked for. vm_resume_animatesprite may
+// return VM_RUN_SUSPENDED_ANIMATESPRITE again (more frames left), which
+// handle_vm_result's own case above re-arms into a fresh timer here --
+// or it may finally fall through to a real vm_run continuation, whose
+// result (VM_RUN_HALTED, another suspend, ...) handle_vm_result also
+// already knows how to handle.
+static gboolean on_animatesprite_timeout(gpointer user_data) {
+    LogoApp *app = (LogoApp *)user_data;
+    SuspendedRun *run = g_suspended_run;
+    g_suspended_run = NULL;
+    VmRunResult result = vm_resume_animatesprite(run->vm, app, &run->result->pool, run->chunk);
+    handle_vm_result(app, run, result);
+    return G_SOURCE_REMOVE;
 }
 
 // Resumes the innermost (highest-level, top-of-stack) paused run once
