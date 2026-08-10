@@ -60,49 +60,65 @@ static LogoApp *new_app(void) {
 // Runs `source` through both ast_eval and compile_program+vm_run,
 // asserting their captured output agrees.
 static void shadow_diff_vm(const char *source) {
-    LogoToken tokens[MAX_VM_TEST_TOKENS];
-    int n = logo_lex(source, tokens, MAX_VM_TEST_TOKENS);
-    if (n < 0) {
+    // Parsed independently per engine, into two entirely separate
+    // ParseResult/AstPool trees -- not one parse shared by both runs.
+    // ERASE (see eval_erase_declare/OP_ERASE) mutates the AST it's
+    // given as its whole mechanism, so a single shared pool would let
+    // whichever engine runs first contaminate the second one's own
+    // read of "does this procedure still exist" -- a real bug this
+    // test file's own first ERASE test caught directly (ast_eval's own
+    // ERASE was blanking the AST_PROC_DEF node the VM's later run then
+    // also needed to see intact), not a VM defect.
+    LogoToken tree_tokens[MAX_VM_TEST_TOKENS];
+    int tree_n = logo_lex(source, tree_tokens, MAX_VM_TEST_TOKENS);
+    if (tree_n < 0) {
         failures++;
         printf("FAIL %s: source needed more than %d tokens\n", current_test, MAX_VM_TEST_TOKENS);
         return;
     }
-    ParseResult *result = calloc(1, sizeof(ParseResult));
-    logo_parse(tokens, n, result);
-    if (result->error_count > 0) {
+    ParseResult *tree_result = calloc(1, sizeof(ParseResult));
+    logo_parse(tree_tokens, tree_n, tree_result);
+    if (tree_result->error_count > 0) {
         failures++;
         printf("FAIL %s: parse reported %d error(s), first: %s\n",
-               current_test, result->error_count, result->errors[0].message);
-        parse_result_destroy(result);
+               current_test, tree_result->error_count, tree_result->errors[0].message);
+        parse_result_destroy(tree_result);
         return;
     }
-
     captured_output[0] = '\0';
     LogoApp *tree_app = new_app();
-    ast_eval(tree_app, &result->pool, result->program);
+    ast_eval(tree_app, &tree_result->pool, tree_result->program);
     char tree_output[4096];
     snprintf(tree_output, sizeof(tree_output), "%s", captured_output);
+    free(tree_app);
+    parse_result_destroy(tree_result);
 
+    LogoToken vm_tokens[MAX_VM_TEST_TOKENS];
+    int vm_n = logo_lex(source, vm_tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *vm_result = calloc(1, sizeof(ParseResult));
+    logo_parse(vm_tokens, vm_n, vm_result);
+    // vm_result's own error_count was already implicitly checked by
+    // tree_result's identical parse above (same source, same grammar,
+    // so a parse error here would already have been reported and
+    // returned on) -- no need to check again.
     captured_output[0] = '\0';
     LogoApp *vm_app = new_app();
     BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
-    int start_pc = compile_program(&result->pool, result->program, chunk);
+    int start_pc = compile_program(&vm_result->pool, vm_result->program, chunk);
     Vm *vm = calloc(1, sizeof(Vm));
-    vm_run(vm, vm_app, &result->pool, chunk, start_pc);
+    vm_run(vm, vm_app, &vm_result->pool, chunk, start_pc);
     char vm_output[4096];
     snprintf(vm_output, sizeof(vm_output), "%s", captured_output);
+    free(chunk);
+    free(vm);
+    free(vm_app);
+    parse_result_destroy(vm_result);
 
     if (strcmp(tree_output, vm_output) != 0) {
         failures++;
         printf("FAIL %s: output differs\n  tree: \"%s\"\n  vm:   \"%s\"\n",
                current_test, tree_output, vm_output);
     }
-
-    free(chunk);
-    free(vm);
-    free(tree_app);
-    free(vm_app);
-    parse_result_destroy(result);
 }
 
 TEST(test_literals_and_print) {
@@ -358,6 +374,77 @@ TEST(test_new_sets_a_prototype_property) {
     shadow_diff_vm("NEW \"dog \"animal\nPRINT GETPROP \"dog \"prototype");
 }
 
+// Turtle/drawing commands (docs/ROADMAP.md's Stage 2 checklist, item
+// 2's third batch). shadow_diff_vm only diffs captured text output
+// (not full turtle-state snapshots the way test_shadow_diff.c does),
+// so these lean on the observable getters (GETX/GETY/HEADING/POS/
+// CANVASSIZE/WHO) and on error-message paths to get real coverage out
+// of a text-only diff; a handful of purely side-effecting commands
+// with no getter at all (PENUP/PENDOWN/WRAP/FENCE/WINDOW/SETPENCOLOR/
+// SETPENWIDTH/SETBACKGROUND/LABEL/FILL/ARC/ERASERECT) are still
+// exercised for "runs without diverging/crashing," just not verified
+// beyond that here.
+
+TEST(test_turtle_motion_and_queries) {
+    shadow_diff_vm("FD 100\nRT 90\nBK 30\nLT 45\nPRINT GETX\nPRINT GETY\nPRINT HEADING\nPRINT POS");
+}
+
+TEST(test_setxy_setheading_setx_sety) {
+    shadow_diff_vm("SETXY 50 75\nPRINT POS\nSETHEADING 180\nPRINT HEADING\nSETX 10\nSETY 20\nPRINT POS");
+}
+
+TEST(test_distance_and_towards) {
+    shadow_diff_vm("PRINT DISTANCE [0 0] [3 4]\nPRINT TOWARDS [10 0]");
+}
+
+TEST(test_home_and_clear) {
+    shadow_diff_vm("FD 50\nHOME\nPRINT POS\nCLEAR\nPRINT POS");
+}
+
+TEST(test_who_and_tell) {
+    shadow_diff_vm("PRINT WHO\nTELL 2\nPRINT WHO\nFD 10\nPRINT GETX");
+}
+
+TEST(test_tell_out_of_range_reports_error) {
+    shadow_diff_vm("TELL 9999");
+}
+
+TEST(test_canvassize_and_setcanvassize) {
+    shadow_diff_vm("PRINT CANVASSIZE\nSETCANVASSIZE 500 500\nPRINT CANVASSIZE");
+}
+
+TEST(test_setcanvassize_out_of_range_reports_error) {
+    shadow_diff_vm("SETCANVASSIZE 1 1");
+}
+
+TEST(test_pen_and_canvas_appearance_smoke) {
+    shadow_diff_vm(
+        "PENUP\nPENDOWN\nSETPENCOLOR 300 -10 128\nSETPENWIDTH 100\n"
+        "SETBACKGROUND 0 0 0\nWRAP\nFENCE\nWINDOW\nPRINT \"ok");
+}
+
+TEST(test_drawing_primitives_smoke) {
+    shadow_diff_vm("ARC 90 50\nLABEL \"hi\nFILL\nERASERECT 10 10\nCLEAN\nHIDETURTLE\nSHOWTURTLE\nPRINT \"ok");
+}
+
+TEST(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called) {
+    // Locks in a real gap the vm.c dispatch had before this batch:
+    // exec_call_proc's own "unknown procedure" path (reached here
+    // because ERASE blanks the AST_PROC_DEF's own text after the
+    // compiler already committed to OP_CALL_PROC for this call) needs
+    // to print "I don't know how to foo" AND suppress OP_CHECK_OUTPUT's
+    // own generic message, matching do_user_procedure_call exactly.
+    shadow_diff_vm("TO foo\nPRINT 1\nEND\nERASE \"foo\nfoo");
+}
+
+TEST(test_erase_of_unknown_procedure_reports_error) {
+    shadow_diff_vm("ERASE \"nosuch");
+}
+
+TEST(test_erase_removes_the_procedure_from_procedures_output) {
+    shadow_diff_vm("TO a\nEND\nTO b\nEND\nERASE \"a\nPRINT PROCEDURES");
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -398,6 +485,19 @@ int main(void) {
     RUN(test_removeprop_removes_a_property);
     RUN(test_proplist_lists_alternating_keys_and_values);
     RUN(test_new_sets_a_prototype_property);
+    RUN(test_turtle_motion_and_queries);
+    RUN(test_setxy_setheading_setx_sety);
+    RUN(test_distance_and_towards);
+    RUN(test_home_and_clear);
+    RUN(test_who_and_tell);
+    RUN(test_tell_out_of_range_reports_error);
+    RUN(test_canvassize_and_setcanvassize);
+    RUN(test_setcanvassize_out_of_range_reports_error);
+    RUN(test_pen_and_canvas_appearance_smoke);
+    RUN(test_drawing_primitives_smoke);
+    RUN(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called);
+    RUN(test_erase_of_unknown_procedure_reports_error);
+    RUN(test_erase_removes_the_procedure_from_procedures_output);
 
     if (failures == 0) {
         printf("All tests passed.\n");

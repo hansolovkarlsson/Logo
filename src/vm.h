@@ -61,6 +61,21 @@ typedef struct {
     // can run between a call's own return and its OP_CHECK_OUTPUT, so
     // there's never more than one pending answer to track.
     int last_call_produced_output;
+
+    // The other half of that same "resolved && !produced" check --
+    // whether the most recent call resolved to something real at all.
+    // 0 only for a call to a genuinely unknown procedure (matching
+    // do_user_procedure_call's own *resolved=0, which exists
+    // specifically so its own "I don't know how to X" message isn't
+    // *also* followed by the generic "X: didn't output a value"
+    // wrapper). Everything else -- an ordinary builtin, a successful
+    // procedure call, and even the recursion-too-deep case -- leaves
+    // this 1: do_user_procedure_call itself never touches *resolved on
+    // the MAX_SCOPE_DEPTH path, so a recursion-too-deep call used in
+    // expression position genuinely does print both "Recursion too
+    // deep, call ignored" and "X: didn't output a value" in ast_eval --
+    // a real double message this VM has to reproduce, not avoid.
+    int last_call_resolved;
 } Vm;
 
 // Runs `chunk` (as produced by compile_program) against `app`/`pool`

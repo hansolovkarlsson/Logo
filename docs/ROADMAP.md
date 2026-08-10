@@ -176,6 +176,52 @@ instruction-set/frame-layout detail behind each of these.
     new opcode than an ordinary builtin call, worth its own dedicated
     design rather than folding into a batch about property-list
     plumbing.
+  - [x] **Turtle/drawing commands, plus `ERASE`/`PROCEDURES`**
+    (2026-08-09): `FD`/`BK`/`RT`/`LT`/`SETXY`/`SETHEADING`/`SETX`/
+    `SETY`/`GETX`/`GETY`/`HEADING`/`POS`/`CANVASSIZE`/`DISTANCE`/
+    `TOWARDS`/`PENUP`/`PENDOWN`/`HOME`/`TELL`/`WHO`/`CLEAR`/`ARC`/
+    `CLEAN`/`HIDETURTLE`/`SHOWTURTLE`/`WRAP`/`FENCE`/`WINDOW`/
+    `SETPENCOLOR`/`SETPENWIDTH`/`SETBACKGROUND`/`SETCANVASSIZE`/
+    `LABEL`/`FILL`/`ERASERECT`, plus `ERASE`/`PROCEDURES` (pulled in
+    alongside since a real `ERASE` test needs `PROCEDURES` to observe
+    it). One new opcode, `OP_ERASE` (`ERASE`'s argument is
+    `ARG_QUOTED_WORD`, a raw name, same shape as `MAKE`/`LOCAL`, so it
+    can't go through the ordinary `OP_CALL_BUILTIN` path).
+    **A real, unplanned gap this surfaced and fixed, not left open**:
+    `ERASE` mutates the AST it's given (blanking an `AST_PROC_DEF`'s
+    own name) as its whole mechanism, so a call compiled as
+    `OP_CALL_PROC` (because the name resolved to a real procedure *at
+    compile time*) can still fail *at runtime* if `ERASE` ran first —
+    `exec_call_proc`'s own "unknown procedure" path didn't print
+    anything before this batch, unlike `do_user_procedure_call`'s own
+    `"I don't know how to X"`, and didn't suppress `OP_CHECK_OUTPUT`'s
+    generic message the way `do_user_procedure_call`'s own
+    `*resolved=0` does either — both fixed via a new `last_call_resolved`
+    flag on `Vm`, mirroring `eval_expr`'s own `resolved && !produced`
+    check exactly (including reproducing a genuine *double* message
+    ast_eval itself prints for recursion-too-deep in expression
+    position, which does NOT clear `resolved`).
+    **A second, harder bug this surfaced: the test harness itself, not
+    the VM.** `tests/test_vm.c`'s `shadow_diff_vm` used to parse the
+    source once and hand the *same* `AstPool` to both `ast_eval` and
+    `compile_program`/`vm_run` — fine for every prior batch (nothing
+    mutated the AST), but `ERASE` breaks that assumption: whichever
+    engine ran first would blank the procedure's name before the
+    second engine's own run ever saw it, producing a false failure
+    that looked like a VM bug but was actually stale test-harness
+    design. Fixed by parsing the source independently per engine (two
+    full lex+parse passes, two separate `ParseResult`s) — the same
+    "never let one run's side effects leak into another's" discipline
+    `test_shadow_diff.c` already followed for its own two engines, now
+    actually required here for a specific operator's sake, not just as
+    a precaution. 27 new `tests/test_vm.c` cases — turtle motion/
+    queries, `DISTANCE`/`TOWARDS`, `HOME`/`CLEAR`, `WHO`/`TELL`
+    (including out-of-range), canvas size (including out-of-range),
+    pen/canvas-appearance and drawing-primitive smoke tests (`text`-
+    diff-only coverage — `shadow_diff_vm` doesn't snapshot full turtle
+    state the way `test_shadow_diff.c` does), and the three `ERASE`
+    cases above. Confirmed clean under AddressSanitizer; all 6 test
+    suites pass via `make test`.
 - [ ] `THROW`/`CATCH` as a real unwind mechanism, not just another
   opcode — non-local exit to an arbitrary ancestor frame needs its own
   design (an explicit unwind-target stack the VM consults), flagged

@@ -1542,3 +1542,70 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   - **Next**: continue `docs/ROADMAP.md`'s Stage 2 instruction-coverage
     checklist — turtle/drawing commands, `SEND` as its own batch, or
     whatever the user picks next.
+- **Turtle/drawing commands, plus `ERASE`/`PROCEDURES`: done** (third
+  batch off Stage 2's instruction-coverage checklist item, 2026-08-09,
+  user said "do next"). The whole turtle-motion/query/pen/canvas/
+  drawing-primitive surface, ~30 operators, plus `ERASE` (pulled in for
+  its own `OP_ERASE`, the argument shape `MAKE`/`LOCAL` already needed)
+  and `PROCEDURES` (pulled in alongside `ERASE` since a real test of
+  "does `ERASE` actually remove it" needs a way to observe the
+  procedure list). Mechanically the same shape as the two batches
+  before it — an `eval_X_value` core extracted per operator with a real
+  `eval_expr` call to factor out, exposed via `eval.h`, wired into
+  `vm.c`'s `call_builtin` — except the zero-argument ones
+  (`GETX`/`WHO`/`PENUP`/`CLEAR`/... ~17 of them) needed no split at all
+  (no `eval_expr` call existed to factor out), so they're exposed
+  directly under their own `do_` names rather than renamed, a
+  deliberate small inconsistency with the `eval_X_value` convention
+  noted directly in `eval.h` rather than silently left unexplained.
+  - **A real, unplanned correctness gap this batch surfaced and fixed
+    in `vm.c` itself, not just eval.c plumbing**: `ERASE` mutates the
+    AST it's given (blanking an `AST_PROC_DEF`'s own name) as its whole
+    mechanism -- so a call the compiler already committed to
+    `OP_CALL_PROC` (because the name resolved to a real procedure *at
+    compile time*) can still fail *at runtime* if `ERASE` ran first.
+    `exec_call_proc`'s own "unknown procedure" path didn't print
+    anything before this batch (unlike `do_user_procedure_call`'s own
+    `"I don't know how to X"`) and didn't suppress `OP_CHECK_OUTPUT`'s
+    generic message the way `do_user_procedure_call`'s `*resolved=0`
+    does -- both fixed via a new `Vm.last_call_resolved` flag,
+    mirroring `eval_expr`'s own `resolved && !produced` check exactly,
+    including reproducing a real *double* message `ast_eval` itself
+    prints for recursion-too-deep in expression position (which does
+    NOT clear `resolved`, confirmed directly against
+    `do_user_procedure_call`'s own code before assuming otherwise).
+  - **A second, harder bug this surfaced: the test harness, not the
+    VM.** `tests/test_vm.c`'s own `shadow_diff_vm` used to parse the
+    source once and hand the *same* `AstPool` to both `ast_eval` and
+    `compile_program`/`vm_run` -- harmless for every prior batch
+    (nothing mutated the AST), but a real hazard against `ERASE`:
+    whichever engine ran first would blank the procedure's name before
+    the second engine's own run ever saw it, producing a failure that
+    read like a VM defect but was actually a stale test-harness
+    assumption. Caught immediately by the very first `ERASE` test
+    (`ast_eval`'s own run reported "no such procedure" for a procedure
+    that plainly still existed in the source). Fixed by parsing `source`
+    independently per engine -- two full lex+parse passes, two
+    entirely separate `ParseResult`s -- the same "never let one run's
+    side effects leak into another's" discipline `test_shadow_diff.c`
+    already used for its own two engines (there, trivially true since
+    the old engine never touches an AST at all; here, a real
+    requirement once one of the *new* engines' own operators can mutate
+    the tree it's given).
+  - 27 new `tests/test_vm.c` cases: turtle motion + observable-getter
+    queries (`GETX`/`GETY`/`HEADING`/`POS`), `SETXY`/`SETHEADING`/
+    `SETX`/`SETY`, `DISTANCE`/`TOWARDS`, `HOME`/`CLEAR`, `WHO`/`TELL`
+    (including out-of-range), `CANVASSIZE`/`SETCANVASSIZE` (including
+    out-of-range), a pen/canvas-appearance smoke test and a
+    drawing-primitives smoke test (text-diff-only coverage --
+    `shadow_diff_vm` doesn't snapshot full turtle state the way
+    `test_shadow_diff.c`'s own `TurtleSnapshot` does, a known, named
+    scope limit of this file, not silently assumed sufficient), and the
+    three `ERASE` cases (delete-then-call, unknown-procedure error,
+    removed-from-`PROCEDURES`). Confirmed clean under AddressSanitizer;
+    all 6 test suites pass via `make test`.
+  - **Next**: continue `docs/ROADMAP.md`'s Stage 2 instruction-coverage
+    checklist -- `SEND` as its own batch (its dynamic dispatch/
+    resolved-suppression shape, deferred twice now), `THROW`/`CATCH`'s
+    unwind design, `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates, or
+    whatever the user picks next.

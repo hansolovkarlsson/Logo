@@ -797,56 +797,88 @@ static int eval_resolve_method(LogoApp *app, AstPool *pool, const char *objname,
 // grows -- add the next built-in as its own function too, not as a
 // new inline branch, or this will resurface again.
 
+void eval_fd_value(LogoApp *app, EvalValue dist_val) {
+    move_turtle_forward(app, eval_to_number(dist_val));
+}
 static void do_fd(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    move_turtle_forward(app, eval_to_number(eval_expr(app, pool, arg_idx[0])));
+    eval_fd_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void eval_bk_value(LogoApp *app, EvalValue dist_val) {
+    move_turtle_forward(app, -eval_to_number(dist_val));
 }
 static void do_bk(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    move_turtle_forward(app, -eval_to_number(eval_expr(app, pool, arg_idx[0])));
+    eval_bk_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void eval_rt_value(LogoApp *app, EvalValue angle_val) {
+    current_turtle(app)->angle += eval_to_number(angle_val);
 }
 static void do_rt(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    current_turtle(app)->angle += eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    eval_rt_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void eval_lt_value(LogoApp *app, EvalValue angle_val) {
+    current_turtle(app)->angle -= eval_to_number(angle_val);
 }
 static void do_lt(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    current_turtle(app)->angle -= eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    eval_lt_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void eval_setxy_value(LogoApp *app, EvalValue x_val, EvalValue y_val) {
+    move_turtle_to(app, eval_to_number(x_val), eval_to_number(y_val));
 }
 static void do_setxy(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double x = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double y = eval_to_number(eval_expr(app, pool, arg_idx[1]));
-    move_turtle_to(app, x, y);
+    eval_setxy_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+void eval_setheading_value(LogoApp *app, EvalValue angle_val) {
+    current_turtle(app)->angle = eval_to_number(angle_val);
 }
 static void do_setheading(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    current_turtle(app)->angle = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+    eval_setheading_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void eval_setx_value(LogoApp *app, EvalValue x_val) {
+    move_turtle_to(app, eval_to_number(x_val), current_turtle(app)->y);
 }
 static void do_setx(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    move_turtle_to(app, eval_to_number(eval_expr(app, pool, arg_idx[0])), current_turtle(app)->y);
+    eval_setx_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void eval_sety_value(LogoApp *app, EvalValue y_val) {
+    move_turtle_to(app, current_turtle(app)->x, eval_to_number(y_val));
 }
 static void do_sety(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    move_turtle_to(app, current_turtle(app)->x, eval_to_number(eval_expr(app, pool, arg_idx[0])));
+    eval_sety_value(app, eval_expr(app, pool, arg_idx[0]));
 }
-static EvalValue do_getx(LogoApp *app) {
+// do_getx/do_gety/do_heading/do_pos/do_canvassize below (and every
+// other zero-argument turtle/drawing do_* in this file -- do_who,
+// do_penup/do_pendown/do_home/do_clear/do_clean/do_hideturtle/
+// do_showturtle/do_wrap/do_fence/do_window/do_fill) take only `app`,
+// no AST argument at all -- there's no separate "wrapper vs. value-
+// taking core" split to make for these the way FD/BUTFIRST/etc. above
+// needed, since there's no eval_expr call to factor out. Each is
+// already exactly the function vm.c's OP_CALL_BUILTIN dispatch calls
+// directly -- just exposed here (static removed, declared in eval.h),
+// kept under their original do_ names rather than renamed to match
+// this file's eval_X_value convention, since renaming would be pure
+// churn with nothing left to distinguish from a "core."
+EvalValue do_getx(LogoApp *app) {
     return num_val(current_turtle(app)->x);
 }
-static EvalValue do_gety(LogoApp *app) {
+EvalValue do_gety(LogoApp *app) {
     return num_val(current_turtle(app)->y);
 }
-static EvalValue do_heading(LogoApp *app) {
+EvalValue do_heading(LogoApp *app) {
     // The raw stored angle, same convention SETHEADING/RT/LT already
     // use -- not normalized to 0-360 (RT 720 just keeps adding).
     return num_val(current_turtle(app)->angle);
 }
-static EvalValue do_pos(LogoApp *app) {
+EvalValue do_pos(LogoApp *app) {
     return eval_list_wrap_pair(app, num_val(current_turtle(app)->x), num_val(current_turtle(app)->y));
 }
-static EvalValue do_canvassize(LogoApp *app) {
+EvalValue do_canvassize(LogoApp *app) {
     return eval_list_wrap_pair(app, num_val(app->canvas_width), num_val(app->canvas_height));
 }
 // Plain distance between two arbitrary [x y] points, not tied to the
 // turtle's own position (unlike TOWARDS below) -- pass POS as one of
 // the two points for "distance from here". Mirrors interpreter.c's own
 // DISTANCE exactly.
-static EvalValue do_distance(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue a = eval_expr(app, pool, arg_idx[0]);
-    EvalValue b = eval_expr(app, pool, arg_idx[1]);
+EvalValue eval_distance_value(LogoApp *app, EvalValue a, EvalValue b) {
     double av[2], bv[2];
     if (!eval_list_as_two_numbers(app, a, av) || !eval_list_as_two_numbers(app, b, bv)) {
         append_output(app, "DISTANCE: expected two 2-element lists\n");
@@ -856,6 +888,9 @@ static EvalValue do_distance(LogoApp *app, AstPool *pool, const int *arg_idx) {
     double dy = bv[1] - av[1];
     return num_val(sqrt(dx * dx + dy * dy));
 }
+static EvalValue do_distance(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_distance_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
 // The heading (same convention as HEADING/SETHEADING/RT/LT) to face
 // directly from the turtle's current position toward point -- derived
 // from the same dx/dy-vs-heading formula move_turtle_forward uses, so
@@ -863,8 +898,7 @@ static EvalValue do_distance(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // walks straight to point. Unlike HEADING (a live, unbounded
 // accumulator), this is a freshly computed compass bearing, normalized
 // to [0, 360). Mirrors interpreter.c's own TOWARDS exactly.
-static EvalValue do_towards(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue p = eval_expr(app, pool, arg_idx[0]);
+EvalValue eval_towards_value(LogoApp *app, EvalValue p) {
     double pv[2];
     if (!eval_list_as_two_numbers(app, p, pv)) {
         append_output(app, "TOWARDS: expected a 2-element list\n");
@@ -876,13 +910,16 @@ static EvalValue do_towards(LogoApp *app, AstPool *pool, const int *arg_idx) {
     if (heading < 0) heading += 360.0;
     return num_val(heading);
 }
-static void do_penup(LogoApp *app) {
+static EvalValue do_towards(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_towards_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void do_penup(LogoApp *app) {
     current_turtle(app)->pen_down = FALSE;
 }
-static void do_pendown(LogoApp *app) {
+void do_pendown(LogoApp *app) {
     current_turtle(app)->pen_down = TRUE;
 }
-static void do_home(LogoApp *app) {
+void do_home(LogoApp *app) {
     move_turtle_to(app, home_x(app), home_y(app));
     current_turtle(app)->angle = 0;
 }
@@ -894,8 +931,8 @@ static void do_home(LogoApp *app) {
 // function (do_fd, do_setxy, do_home, do_clear, ...) already operates
 // on whichever turtle is current -- this is the one missing piece that
 // actually lets more than turtle 0 ever become current.
-static void do_tell(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int index = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+void eval_tell_value(LogoApp *app, EvalValue index_val) {
+    int index = (int)eval_to_number(index_val);
     if (index < 0 || index >= MAX_TURTLES) {
         char msg[64];
         snprintf(msg, sizeof(msg), "TELL: turtle index must be 0-%d\n", MAX_TURTLES - 1);
@@ -910,12 +947,15 @@ static void do_tell(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     app->current_turtle = index;
 }
+static void do_tell(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_tell_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 // WHO -- the current turtle's index, the one thing TELL sets but has
 // no way to read back on its own. Direct port.
-static EvalValue do_who(LogoApp *app) {
+EvalValue do_who(LogoApp *app) {
     return num_val(app->current_turtle);
 }
-static void do_clear(LogoApp *app) {
+void do_clear(LogoApp *app) {
     app->line_count = 0;
     app->label_count = 0;
     app->raster_op_count = 0;
@@ -945,9 +985,9 @@ static double eval_clamp_range(double v, double lo, double hi) {
 // now-exposed record_line directly (the same helper move_turtle_to
 // itself uses for every ordinary move) since ARC deliberately bypasses
 // move_turtle_to's own position-tracking.
-static void do_arc(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double angle_deg = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double radius = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+void eval_arc_value(LogoApp *app, EvalValue angle_val, EvalValue radius_val) {
+    double angle_deg = eval_to_number(angle_val);
+    double radius = eval_to_number(radius_val);
 
     double center_x = current_turtle(app)->x;
     double center_y = current_turtle(app)->y;
@@ -964,54 +1004,66 @@ static void do_arc(LogoApp *app, AstPool *pool, const int *arg_idx) {
                     center_x + radius * cos(rad1), center_y + radius * sin(rad1));
     }
 }
-static void do_clean(LogoApp *app) {
+static void do_arc(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_arc_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
+void do_clean(LogoApp *app) {
     app->line_count = 0;
     app->label_count = 0;
     app->raster_op_count = 0;
 }
-static void do_hideturtle(LogoApp *app) {
+void do_hideturtle(LogoApp *app) {
     current_turtle(app)->visible = FALSE;
 }
-static void do_showturtle(LogoApp *app) {
+void do_showturtle(LogoApp *app) {
     current_turtle(app)->visible = TRUE;
 }
 // WRAP/FENCE/WINDOW -- what happens when a move would cross the canvas
 // edge. Trivial one-line app->edge_mode setters: the actual behavior
 // lives in move_turtle_to (already shared with interpreter.c since the
 // turtle-motion batch), so these ports need nothing more.
-static void do_wrap(LogoApp *app) {
+void do_wrap(LogoApp *app) {
     app->edge_mode = EDGE_WRAP;
 }
-static void do_fence(LogoApp *app) {
+void do_fence(LogoApp *app) {
     app->edge_mode = EDGE_FENCE;
 }
-static void do_window(LogoApp *app) {
+void do_window(LogoApp *app) {
     app->edge_mode = EDGE_WINDOW;
 }
-static void do_setpencolor(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double r = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double g = eval_to_number(eval_expr(app, pool, arg_idx[1]));
-    double b = eval_to_number(eval_expr(app, pool, arg_idx[2]));
+void eval_setpencolor_value(LogoApp *app, EvalValue r_val, EvalValue g_val, EvalValue b_val) {
+    double r = eval_to_number(r_val);
+    double g = eval_to_number(g_val);
+    double b = eval_to_number(b_val);
     Turtle *t = current_turtle(app);
     t->pen_r = eval_clamp01(r / 255.0);
     t->pen_g = eval_clamp01(g / 255.0);
     t->pen_b = eval_clamp01(b / 255.0);
 }
-static void do_setpenwidth(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double width = eval_to_number(eval_expr(app, pool, arg_idx[0]));
+static void do_setpencolor(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_setpencolor_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
+}
+void eval_setpenwidth_value(LogoApp *app, EvalValue width_val) {
+    double width = eval_to_number(width_val);
     current_turtle(app)->pen_width = eval_clamp_range(width, MIN_PEN_WIDTH, MAX_PEN_WIDTH);
 }
-static void do_setbackground(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double r = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double g = eval_to_number(eval_expr(app, pool, arg_idx[1]));
-    double b = eval_to_number(eval_expr(app, pool, arg_idx[2]));
+static void do_setpenwidth(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_setpenwidth_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+void eval_setbackground_value(LogoApp *app, EvalValue r_val, EvalValue g_val, EvalValue b_val) {
+    double r = eval_to_number(r_val);
+    double g = eval_to_number(g_val);
+    double b = eval_to_number(b_val);
     app->bg_r = eval_clamp01(r / 255.0);
     app->bg_g = eval_clamp01(g / 255.0);
     app->bg_b = eval_clamp01(b / 255.0);
 }
-static void do_setcanvassize(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double width = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double height = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+static void do_setbackground(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_setbackground_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
+}
+void eval_setcanvassize_value(LogoApp *app, EvalValue width_val, EvalValue height_val) {
+    double width = eval_to_number(width_val);
+    double height = eval_to_number(height_val);
     if (width < MIN_CANVAS_SIZE || width > MAX_CANVAS_SIZE ||
         height < MIN_CANVAS_SIZE || height > MAX_CANVAS_SIZE) {
         char msg[96];
@@ -1034,12 +1086,14 @@ static void do_setcanvassize(LogoApp *app, AstPool *pool, const int *arg_idx) {
         app->resize_canvas(app, width, height);
     }
 }
+static void do_setcanvassize(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_setcanvassize_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
 // LABEL text -- draws text at the turtle's current position, in its
 // current pen color. Pure data (position, color, text) recorded here,
 // same as interpreter.c's own version -- ui.c's draw_scene does the
 // actual Cairo text rendering, kept out of this file entirely.
-static void do_label(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue val = eval_expr(app, pool, arg_idx[0]);
+void eval_label_value(LogoApp *app, EvalValue val) {
     if (app->label_count >= MAX_LABELS) return;
     Turtle *t = current_turtle(app);
     Label *label = &app->labels[app->label_count++];
@@ -1050,13 +1104,16 @@ static void do_label(LogoApp *app, AstPool *pool, const int *arg_idx) {
     label->b = t->pen_b;
     eval_value_to_text(app, val, label->text, sizeof(label->text));
 }
+static void do_label(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_label_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 // FILL -- flood-fills the region containing the turtle, bounded by
 // whatever lines are drawn as of this exact moment, with the turtle's
 // current pen color. Same "record plain data, let ui.c do the actual
 // Cairo/rasterizing work" split as LABEL; line_count_at_call freezes
 // the boundary so a line drawn after this FILL can't retroactively
 // change what it filled.
-static void do_fill(LogoApp *app) {
+void do_fill(LogoApp *app) {
     if (app->raster_op_count >= MAX_RASTER_OPS) return;
     Turtle *t = current_turtle(app);
     RasterOp *op = &app->raster_ops[app->raster_op_count++];
@@ -1070,9 +1127,9 @@ static void do_fill(LogoApp *app) {
 }
 // ERASERECT w h -- paints a w-by-h rectangle centered on the turtle in
 // the background color, same call-time-frozen treatment as FILL.
-static void do_eraserect(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    double w = eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    double h = eval_to_number(eval_expr(app, pool, arg_idx[1]));
+void eval_eraserect_value(LogoApp *app, EvalValue w_val, EvalValue h_val) {
+    double w = eval_to_number(w_val);
+    double h = eval_to_number(h_val);
     if (app->raster_op_count >= MAX_RASTER_OPS) return;
     Turtle *t = current_turtle(app);
     RasterOp *op = &app->raster_ops[app->raster_op_count++];
@@ -1082,6 +1139,9 @@ static void do_eraserect(LogoApp *app, AstPool *pool, const int *arg_idx) {
     op->w = w;
     op->h = h;
     op->line_count_at_call = app->line_count;
+}
+static void do_eraserect(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_eraserect_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
 void eval_print_value(LogoApp *app, EvalValue v) {
     char text[2048];
@@ -1178,7 +1238,7 @@ EvalValue eval_names_value(LogoApp *app) {
 // blank .text -- ERASE's own way of "deleting" a procedure here (see
 // do_erase below), since there's no app->procedures-style array to
 // physically shift entries out of the way in.
-static EvalValue do_procedures(LogoApp *app, AstPool *pool) {
+EvalValue do_procedures(LogoApp *app, AstPool *pool) {
     int head = -1;
     int *next_slot = &head;
     for (int i = 0; i < pool->node_count; i++) {
@@ -1201,8 +1261,16 @@ static EvalValue do_procedures(LogoApp *app, AstPool *pool) {
 // Both find_proc_def (so a later call correctly reports "I don't know
 // how to X") and do_procedures above (skipping blank-text entries) rely
 // on this.
-static void do_erase(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    const char *name = pool->nodes[arg_idx[0]].text;
+// Takes `pool` (not just `app`, unlike every other function this batch
+// exposes) since it directly mutates an AST_PROC_DEF node's own text --
+// deletion here means "blank the name so no call/PROCEDURES listing
+// can ever match it again," not removing anything from a separate
+// procedure table the way interpreter.c's own ERASE does (this engine
+// has none). Exposed for vm.c's own OP_ERASE (a special form, like
+// MAKE/LOCAL -- ERASE's argument is a raw procedure name, ARG_QUOTED_WORD,
+// never an evaluated expression, so it can't go through the ordinary
+// OP_CALL_BUILTIN path the same way GETPROP/SETPROP etc. do).
+void eval_erase_declare(LogoApp *app, AstPool *pool, const char *name) {
     int def_node = find_proc_def(pool, name);
     if (def_node < 0) {
         append_output(app, "ERASE: no such procedure \"");
@@ -1211,6 +1279,9 @@ static void do_erase(LogoApp *app, AstPool *pool, const int *arg_idx) {
         return;
     }
     pool->nodes[def_node].text[0] = '\0';
+}
+static void do_erase(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_erase_declare(app, pool, pool->nodes[arg_idx[0]].text);
 }
 // TEXT "name -- the read-as-data complement to SHOW: instead of
 // printing a procedure's own TO...END definition, outputs its raw

@@ -89,7 +89,7 @@ static void exec_compare(LogoApp *app, Vm *vm, OpCode op) {
 // this builtin's own arity worth of values, in argument order -- the
 // parser guarantees that arity at parse time, so no argc parameter is
 // needed here.
-static EvalValue call_builtin(LogoApp *app, const char *name, EvalValue *args, int *produced) {
+static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
         eval_print_value(app, args[0]);
@@ -138,6 +138,150 @@ static EvalValue call_builtin(LogoApp *app, const char *name, EvalValue *args, i
         *produced = 0;
         return num_val(0);
     }
+    if (strcasecmp(name, "FD") == 0 || strcasecmp(name, "FORWARD") == 0) {
+        eval_fd_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "BK") == 0 || strcasecmp(name, "BACK") == 0) {
+        eval_bk_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "RT") == 0 || strcasecmp(name, "RIGHT") == 0) {
+        eval_rt_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "LT") == 0 || strcasecmp(name, "LEFT") == 0) {
+        eval_lt_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETXY") == 0) {
+        eval_setxy_value(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETHEADING") == 0) {
+        eval_setheading_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETX") == 0) {
+        eval_setx_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETY") == 0) {
+        eval_sety_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "GETX") == 0) return do_getx(app);
+    if (strcasecmp(name, "GETY") == 0) return do_gety(app);
+    if (strcasecmp(name, "HEADING") == 0) return do_heading(app);
+    if (strcasecmp(name, "POS") == 0) return do_pos(app);
+    if (strcasecmp(name, "CANVASSIZE") == 0) return do_canvassize(app);
+    if (strcasecmp(name, "DISTANCE") == 0) return eval_distance_value(app, args[0], args[1]);
+    if (strcasecmp(name, "TOWARDS") == 0) return eval_towards_value(app, args[0]);
+    if (strcasecmp(name, "PENUP") == 0 || strcasecmp(name, "PU") == 0) {
+        do_penup(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "PENDOWN") == 0 || strcasecmp(name, "PD") == 0) {
+        do_pendown(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "HOME") == 0) {
+        do_home(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "TELL") == 0) {
+        eval_tell_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "WHO") == 0) return do_who(app);
+    if (strcasecmp(name, "CLEAR") == 0 || strcasecmp(name, "CS") == 0) {
+        do_clear(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ARC") == 0) {
+        eval_arc_value(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "CLEAN") == 0) {
+        do_clean(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "HIDETURTLE") == 0) {
+        do_hideturtle(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SHOWTURTLE") == 0) {
+        do_showturtle(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "WRAP") == 0) {
+        do_wrap(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "FENCE") == 0) {
+        do_fence(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "WINDOW") == 0) {
+        do_window(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETPENCOLOR") == 0) {
+        eval_setpencolor_value(app, args[0], args[1], args[2]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETPENWIDTH") == 0) {
+        eval_setpenwidth_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETBACKGROUND") == 0) {
+        eval_setbackground_value(app, args[0], args[1], args[2]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SETCANVASSIZE") == 0) {
+        eval_setcanvassize_value(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "LABEL") == 0) {
+        eval_label_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "FILL") == 0) {
+        do_fill(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ERASERECT") == 0) {
+        eval_eraserect_value(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "PROCEDURES") == 0) return do_procedures(app, pool);
     // Unreachable for a well-formed compiled program -- compile_call
     // only ever emits OP_CALL_BUILTIN for a name find_proc_def couldn't
     // resolve to a user procedure, and the parser itself already
@@ -152,24 +296,50 @@ static EvalValue call_builtin(LogoApp *app, const char *name, EvalValue *args, i
 // OP_CALL_PROC -- pops instr->b args (in argument order), pushes a new
 // VmFrame + app->scopes[] scope (via eval_push_scope_for_call, the
 // same setup call_ast_procedure itself uses), and jumps `*pc` to the
-// procedure's own compiled body. On MAX_SCOPE_DEPTH (recursion too
-// deep, already reported to output by eval_push_scope_for_call), skips
-// the call entirely and pushes num_val(0) in its place -- matching
-// call_ast_procedure's own *produced=0/num_val(0) behavior on the same
-// condition.
+// procedure's own compiled body. `find_proc_def` is re-resolved here
+// at runtime, not trusted from compile time: compile_call only ever
+// emits OP_CALL_PROC because `name` resolved to a real AST_PROC_DEF
+// *when the program was compiled* -- but ERASE (see eval_erase_declare)
+// can blank that same node's own text before this instruction actually
+// runs, so a call compiled as "this is a procedure" can still resolve
+// to nothing by the time it executes, exactly as do_user_procedure_call
+// itself has to handle for the same reason (a script can ERASE a
+// procedure then still try to call it).
 static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *instr, int *pc) {
     int argc = instr->b;
     EvalValue args[AST_MAX_PARAMS];
     for (int i = argc - 1; i >= 0; i--) {
         args[i] = (i < AST_MAX_PARAMS) ? pop(vm) : (pop(vm), num_val(0));
     }
+    // *pc must always advance past this OP_CALL_PROC on any failure
+    // path below -- leaving it unchanged would re-execute the very
+    // same call forever (fatal for the recursion-too-deep case, where
+    // the caller keeps retrying the same now-permanently-failing
+    // call).
     int def_node = find_proc_def(pool, instr->text);
-    if (def_node < 0 || vm->frame_count >= MAX_VM_FRAMES) {
-        // *pc must still advance past this OP_CALL_PROC on failure --
-        // leaving it unchanged would re-execute the very same call
-        // forever (fatal for exactly the recursion-too-deep case this
-        // guards against, where the caller keeps retrying the same
-        // now-permanently-failing call).
+    if (def_node < 0) {
+        // Matches do_user_procedure_call's own "unknown procedure"
+        // path exactly, including *resolved=0 (here,
+        // last_call_resolved) -- this message is already specific
+        // enough that OP_CHECK_OUTPUT's own generic one must stay
+        // suppressed, not print on top of it.
+        append_output(app, "I don't know how to ");
+        append_output(app, instr->text);
+        append_output(app, "\n");
+        vm->last_call_resolved = 0;
+        vm->last_call_produced_output = 0;
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return;
+    }
+    if (vm->frame_count >= MAX_VM_FRAMES) {
+        // A VM-internal safety net, not something eval_logo/ast_eval
+        // have an analogous case for -- MAX_VM_FRAMES (256) is
+        // deliberately larger than MAX_SCOPE_DEPTH (200), so
+        // eval_push_scope_for_call's own check below always fires
+        // first in practice. resolved stays 1 (no more "unresolved"
+        // than a real call that happens to recurse very deep).
+        vm->last_call_resolved = 1;
         vm->last_call_produced_output = 0;
         push(vm, num_val(0));
         *pc = *pc + 1;
@@ -177,6 +347,14 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
     }
     AstNode *def = &pool->nodes[def_node];
     if (!eval_push_scope_for_call(app, def, args, argc < AST_MAX_PARAMS ? argc : AST_MAX_PARAMS)) {
+        // Recursion too deep -- eval_push_scope_for_call already
+        // printed its own message. resolved stays 1 here: unlike the
+        // unknown-procedure case, do_user_procedure_call never touches
+        // *resolved on this path, so ast_eval genuinely prints BOTH
+        // "Recursion too deep, call ignored" AND (in expression
+        // position) "X: didn't output a value" -- a real double
+        // message this VM has to reproduce, not avoid.
+        vm->last_call_resolved = 1;
         vm->last_call_produced_output = 0;
         push(vm, num_val(0));
         *pc = *pc + 1;
@@ -200,6 +378,7 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
 // position call to read.
 static void exec_return(Vm *vm, LogoApp *app, EvalValue value, int produced, int *pc) {
     vm->last_call_produced_output = produced;
+    vm->last_call_resolved = 1; // a call that reached its own OUTPUT/STOP was always resolved
     if (vm->frame_count <= 0) {
         // OUTPUT/STOP at the top level (no enclosing call) -- can't
         // happen for a well-formed compiled program (the compiler only
@@ -300,8 +479,9 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                     args[i] = (i < AST_MAX_PARAMS) ? pop(vm) : (pop(vm), num_val(0));
                 }
                 int produced;
-                EvalValue result = call_builtin(app, instr->text, args, &produced);
+                EvalValue result = call_builtin(app, pool, instr->text, args, &produced);
                 vm->last_call_produced_output = produced;
+                vm->last_call_resolved = 1; // an ordinary builtin call is always "resolved" in ast_eval's own sense
                 push(vm, result);
                 pc++;
                 break;
@@ -310,15 +490,18 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                 exec_call_proc(vm, app, pool, instr, &pc);
                 break;
             case OP_CHECK_OUTPUT: {
-                // Only ever emitted right after an OP_CALL_PROC used in
-                // expression position. That call already left exactly
-                // one value on the stack; if its own body never called
-                // OUTPUT (vm->last_call_produced_output, set by the
-                // OP_STOP/OP_OUTPUT that just returned, or by
-                // exec_call_proc's own early-failure paths), replace it
+                // Only ever emitted right after a call construct used
+                // in expression position. That call already left
+                // exactly one value on the stack; if it actually
+                // resolved to something (vm->last_call_resolved -- 0
+                // only for a call to a since-ERASEd/never-defined
+                // procedure, which already printed its own more
+                // specific "I don't know how to X" and must NOT also
+                // get this generic message) but didn't produce a real
+                // value (vm->last_call_produced_output), replace it
                 // with word_val("") and report the same diagnostic
                 // eval_expr's own AST_CALL case does.
-                if (!vm->last_call_produced_output) {
+                if (vm->last_call_resolved && !vm->last_call_produced_output) {
                     append_output(app, instr->text);
                     append_output(app, ": didn't output a value\n");
                     pop(vm);
@@ -346,8 +529,13 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                 eval_local_declare(app, instr->text);
                 pc++;
                 break;
+            case OP_ERASE:
+                eval_erase_declare(app, pool, instr->text);
+                pc++;
+                break;
             case OP_VOID_RESULT:
                 vm->last_call_produced_output = 0;
+                vm->last_call_resolved = 1; // MAKE/LOCAL/ERASE/WHILE are always "resolved" -- never the unknown-procedure case
                 push(vm, num_val(0));
                 pc++;
                 break;

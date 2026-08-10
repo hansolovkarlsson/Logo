@@ -179,6 +179,18 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "LOCAL", want_value);
         return;
     }
+    if (strcasecmp(name, "ERASE") == 0) {
+        // Same ARG_QUOTED_WORD shape as MAKE/LOCAL's own first argument.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        const char *procname = pool->nodes[args[0]].text;
+        Instr instr = {0};
+        instr.op = OP_ERASE;
+        snprintf(instr.text, sizeof(instr.text), "%s", procname);
+        emit(chunk, instr);
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "ERASE", want_value);
+        return;
+    }
 
     int argc = collect_children(pool, node_idx, args, AST_MAX_PARAMS);
     for (int i = 0; i < argc; i++) compile_expr(c, pool, args[i], chunk);

@@ -138,6 +138,68 @@ void eval_removeprop(LogoApp *app, EvalValue name_val, EvalValue key_val);
 EvalValue eval_proplist(LogoApp *app, EvalValue name_val);
 void eval_new_declare(LogoApp *app, EvalValue obj_val, EvalValue proto_val);
 
+// Turtle/drawing commands. Same split as every batch above: an
+// eval_X_value core wherever there's a real eval_expr call to factor
+// out of the corresponding do_X, exposed here for vm.c's
+// call_builtin. The zero-argument ones (do_getx/do_gety/do_heading/
+// do_pos/do_canvassize/do_who/do_penup/do_pendown/do_home/do_clear/
+// do_clean/do_hideturtle/do_showturtle/do_wrap/do_fence/do_window/
+// do_fill) never had an eval_expr call to begin with -- each already
+// took only `app`, so it's exposed directly under its own do_ name
+// (just `static` removed) rather than renamed to match the eval_
+// convention, since there's no separate "wrapper vs. core" left to
+// distinguish.
+EvalValue do_getx(LogoApp *app);
+EvalValue do_gety(LogoApp *app);
+EvalValue do_heading(LogoApp *app);
+EvalValue do_pos(LogoApp *app);
+EvalValue do_canvassize(LogoApp *app);
+EvalValue do_who(LogoApp *app);
+void do_penup(LogoApp *app);
+void do_pendown(LogoApp *app);
+void do_home(LogoApp *app);
+void do_clear(LogoApp *app);
+void do_clean(LogoApp *app);
+void do_hideturtle(LogoApp *app);
+void do_showturtle(LogoApp *app);
+void do_wrap(LogoApp *app);
+void do_fence(LogoApp *app);
+void do_window(LogoApp *app);
+void do_fill(LogoApp *app);
+
+void eval_fd_value(LogoApp *app, EvalValue dist_val);
+void eval_bk_value(LogoApp *app, EvalValue dist_val);
+void eval_rt_value(LogoApp *app, EvalValue angle_val);
+void eval_lt_value(LogoApp *app, EvalValue angle_val);
+void eval_setxy_value(LogoApp *app, EvalValue x_val, EvalValue y_val);
+void eval_setheading_value(LogoApp *app, EvalValue angle_val);
+void eval_setx_value(LogoApp *app, EvalValue x_val);
+void eval_sety_value(LogoApp *app, EvalValue y_val);
+EvalValue eval_distance_value(LogoApp *app, EvalValue a, EvalValue b);
+EvalValue eval_towards_value(LogoApp *app, EvalValue p);
+void eval_tell_value(LogoApp *app, EvalValue index_val);
+void eval_arc_value(LogoApp *app, EvalValue angle_val, EvalValue radius_val);
+void eval_setpencolor_value(LogoApp *app, EvalValue r_val, EvalValue g_val, EvalValue b_val);
+void eval_setpenwidth_value(LogoApp *app, EvalValue width_val);
+void eval_setbackground_value(LogoApp *app, EvalValue r_val, EvalValue g_val, EvalValue b_val);
+void eval_setcanvassize_value(LogoApp *app, EvalValue width_val, EvalValue height_val);
+void eval_label_value(LogoApp *app, EvalValue val);
+void eval_eraserect_value(LogoApp *app, EvalValue w_val, EvalValue h_val);
+
+// ERASE -- a special form (like MAKE/LOCAL), not an ordinary builtin:
+// its argument is a raw procedure name (ARG_QUOTED_WORD), never an
+// evaluated expression, and it directly mutates `pool` (see eval.c's
+// own comment on eval_erase_declare).
+void eval_erase_declare(LogoApp *app, AstPool *pool, const char *name);
+
+// PROCEDURES -- every currently-defined procedure's name (skipping any
+// ERASEd/blank-text AST_PROC_DEF), as a list. Takes `pool` directly
+// (like eval_erase_declare above) rather than an EvalValue argument --
+// it has none, zero-arity, but still needs `pool` itself, unlike every
+// other zero-arg builtin in this batch (do_who/do_penup/etc., which
+// only need `app`).
+EvalValue do_procedures(LogoApp *app, AstPool *pool);
+
 // find_proc_def itself now lives in ast.h/ast.c (it never touched
 // LogoApp, only AstPool -- see ast.h's own comment); eval.h re-exposes
 // nothing extra for it since ast.h is already transitively included
