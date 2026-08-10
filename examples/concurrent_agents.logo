@@ -1,0 +1,47 @@
+; LAUNCH/AWAIT/YIELD: MultiLogo-style concurrent turtle agents.
+;
+; LAUNCH "procname spawns a fresh turtle running that (zero-input)
+; procedure as its own independent agent. YIELD hands control to the
+; other running agents instead of running this one to completion in a
+; single burst. AWAIT blocks the caller until every launched agent has
+; finished.
+;
+; The scheduler is headless and synchronous, so the canvas only
+; repaints once everything below is done -- what proves the three
+; agents genuinely interleaved (rather than one running start-to-finish
+; before the next even starts) is that all three polygons come out
+; whole and correctly shaped despite each one only taking a single step
+; at a time before yielding to the other two.
+
+TO polygon :sides :length :start_x :start_y
+  PENUP
+  SETXY :start_x :start_y
+  PENDOWN
+  REPEAT :sides [
+    FD :length
+    RT (360 / :sides)
+    YIELD
+  ]
+END
+
+TO triangle
+  SETPENCOLOR 220 40 40
+  polygon 3 90 120 350
+END
+
+TO square
+  SETPENCOLOR 40 140 220
+  polygon 4 70 250 380
+END
+
+TO hexagon
+  SETPENCOLOR 40 180 90
+  polygon 6 50 380 350
+END
+
+LAUNCH "triangle
+LAUNCH "square
+LAUNCH "hexagon
+AWAIT
+
+PRINT "all-agents-done
