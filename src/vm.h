@@ -28,18 +28,22 @@
 
 // vm_run's own result: VM_RUN_HALTED means it ran to OP_HALT (or fell
 // off the end of the chunk) exactly like before this existed -- the
-// only outcome possible until WAIT/WAITKEY/INPUT. The SUSPENDED values
-// mean vm_run returned *early*, mid-chunk, with `vm` left fully intact
-// (its stack/frames untouched) so it can be resumed later via
+// only outcome possible until WAIT/WAITKEY/INPUT/PAUSE. The SUSPENDED
+// values mean vm_run returned *early*, mid-chunk, with `vm` left fully
+// intact (its stack/frames untouched) so it can be resumed later via
 // vm_resume/vm_resume_with_key/vm_resume_with_input -- see those
 // functions' own comments, and bytecode.h's own OP_WAIT/OP_WAITKEY/
-// OP_INPUT comments for why only these three opcodes can ever produce
-// a SUSPENDED result.
+// OP_INPUT/OP_PAUSE comments for why only these four opcodes can ever
+// produce a SUSPENDED result. VM_RUN_SUSPENDED_PAUSE resumes via the
+// plain vm_resume (like VM_RUN_SUSPENDED_WAIT) -- PAUSE produces no
+// value, same as WAIT, so no dedicated vm_resume_with_* function is
+// needed for it.
 typedef enum {
     VM_RUN_HALTED,
     VM_RUN_SUSPENDED_WAIT,
     VM_RUN_SUSPENDED_WAITKEY,
     VM_RUN_SUSPENDED_INPUT,
+    VM_RUN_SUSPENDED_PAUSE,
 } VmRunResult;
 
 // One in-flight OP_CALL_PROC: where to resume in `code` when this
@@ -114,29 +118,39 @@ typedef struct {
     // `suspend_seconds` is valid only after VM_RUN_SUSPENDED_WAIT
     // (OP_WAIT's own already-evaluated, already-truncated-to-"was it >
     // 0" argument) -- the caller (ui.c) decides how to actually wait
-    // that long; vm.c itself never touches a clock or GTK.
+    // that long; vm.c itself never touches a clock or GTK. `pause_level`
+    // is valid only after VM_RUN_SUSPENDED_PAUSE -- OP_PAUSE's own
+    // already-incremented app->pause_depth, captured once at suspend
+    // time; ui.c reads it to know which level on its own pause stack
+    // this particular suspended run is waiting for (CONTINUE/CO only
+    // ever decrement app->pause_depth by one, so at most the single
+    // innermost -- highest-level -- paused run ever becomes eligible to
+    // resume per CONTINUE, mirroring interpreter.c's own do_pause loop
+    // condition exactly: it keeps waiting while pause_depth >= my_level).
     int pc;
     double suspend_seconds;
+    int pause_level;
 
     // How many nested vm_run calls are currently on the C stack for
     // this one Vm -- 1 for an ordinary top-level run, >1 only inside a
     // MAP/FILTER/REDUCE/FOREACH template's own recursive vm_run call
-    // (see exec_map_compiled and friends). WAIT/WAITKEY/INPUT check
-    // this because a SUSPENDED return from an inner, recursive vm_run
-    // call would only unwind that one C frame -- straight back into
-    // exec_map_compiled's own C loop, not out to whatever's driving the
-    // outermost vm_run (ui.c) -- silently losing the suspend instead of
-    // delivering it. Rather than attempt that (a real redesign, not a
-    // small fix -- see docs/BYTECODE_VM_DESIGN.md), all three refuse
-    // outright with a clear runtime message whenever vm_run_depth > 1,
-    // the same "documented gap, not silent corruption" spirit as the
-    // template batch's own frame_floor mitigation for OUTPUT/STOP.
+    // (see exec_map_compiled and friends). WAIT/WAITKEY/INPUT/PAUSE
+    // check this because a SUSPENDED return from an inner, recursive
+    // vm_run call would only unwind that one C frame -- straight back
+    // into exec_map_compiled's own C loop, not out to whatever's
+    // driving the outermost vm_run (ui.c) -- silently losing the
+    // suspend instead of delivering it. Rather than attempt that (a
+    // real redesign, not a small fix -- see docs/BYTECODE_VM_DESIGN.md),
+    // all four refuse outright with a clear runtime message whenever
+    // vm_run_depth > 1, the same "documented gap, not silent
+    // corruption" spirit as the template batch's own frame_floor
+    // mitigation for OUTPUT/STOP.
     int vm_run_depth;
 } Vm;
 
 // Runs `chunk` (as produced by compile_program) against `app`/`pool`
 // starting at instruction `start_pc`, until OP_HALT (VM_RUN_HALTED) or
-// a WAIT/WAITKEY/INPUT suspend point (VM_RUN_SUSPENDED_*, see
+// a WAIT/WAITKEY/INPUT/PAUSE suspend point (VM_RUN_SUSPENDED_*, see
 // VmRunResult). `vm` must already be zeroed (a fresh `Vm vm = {0};` on
 // the caller's own heap allocation) for a first call -- same "caller
 // owns storage, callee just uses it" convention as ast_eval's own
@@ -147,8 +161,11 @@ typedef struct {
 VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start_pc);
 
 // Continues a `vm` most recently suspended with VM_RUN_SUSPENDED_WAIT
-// (i.e. by OP_WAIT), picking up exactly at `vm->pc`. Use this once
-// whatever the caller waited for (a timer) has elapsed.
+// (i.e. by OP_WAIT) or VM_RUN_SUSPENDED_PAUSE (i.e. by OP_PAUSE),
+// picking up exactly at `vm->pc`. Use this once whatever the caller
+// waited for (a timer, or app->pause_depth dropping low enough) has
+// happened -- both WAIT and PAUSE produce no value, so neither needs a
+// dedicated vm_resume_with_* variant the way WAITKEY/INPUT do.
 VmRunResult vm_resume(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk);
 
 // Continues a `vm` most recently suspended with VM_RUN_SUSPENDED_WAITKEY

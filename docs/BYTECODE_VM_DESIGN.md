@@ -12,11 +12,11 @@ vertical slice (`docs/ROADMAP.md`'s "Phase 5, Stage 2" checklist, item
 `REPEAT`/`FOREVER`/`FOR`, `MAP`/`FILTER`/`REDUCE`/`FOREACH`) has since
 landed too — see the Progress log below. Suspend/resume's own GTK
 integration (the real point of this whole stage) landed 2026-08-10,
-scoped to `WAIT`/`WAITKEY` then `INPUT`; `bin/logo` now runs scripts
-through the compiler+VM instead of `eval_logo`, the first real cutover
-of the live app. `ANIMATESPRITE` turned out to be blocked on a whole
-separate, not-yet-started sprite subsystem, so `PAUSE` is now the only
-actual open suspend/resume item.
+scoped to `WAIT`/`WAITKEY`, then `INPUT`, then `PAUSE`/`CONTINUE`/`CO`
+— every named suspend/resume item on Stage 2's checklist is now done.
+`bin/logo` now runs scripts through the compiler+VM instead of
+`eval_logo`, the first real cutover of the live app. `ANIMATESPRITE`
+remains blocked on a whole separate, not-yet-started sprite subsystem.
 
 ## Why
 
@@ -2207,9 +2207,48 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   subsystem first is its own separate, larger scoping question; left
   blocked rather than taken on as part of this batch, at the user's own
   call.
-  - **Next**: `PAUSE` is the only actual open suspend/resume item left
-    — its reentrant nested-command semantics (an ordinary REPL command
-    typed while paused can see the paused call's own live scope) have
-    no VM-level design yet. The still-open `WHILE`/`FOR` iteration-cap
-    gap and the `OUTPUT`/`STOP`-inside-a-template limitation remain
-    smaller, optional follow-ups too, or whatever the user picks next.
+- **`PAUSE`/`CONTINUE`/`CO`** (2026-08-10) — the last actual open
+  suspend/resume item, and it composed cleanly with `WAIT`'s own
+  design rather than needing anything fundamentally new: `PAUSE`
+  suspends/resumes exactly like `WAIT` (no value produced, resumed via
+  the plain `vm_resume`), reusing the already-shared `app->pause_depth`
+  and printing `interpreter.c`'s own exact `"Paused (level N)..."`
+  message. `CONTINUE`/`CO` needed no opcode at all — ordinary zero-arg
+  builtins that just decrement `app->pause_depth`, matching
+  `do_continue` exactly.
+  The one genuinely new piece: reconciling this with the previous
+  batch's own concurrency fix. `WAIT`/`WAITKEY`/`INPUT` correctly
+  *block* a second concurrent submission, but `PAUSE`'s entire point is
+  the opposite — the REPL must keep running ordinary commands while
+  paused, so the user can inspect/modify the paused call's own live
+  variables (falls out for free: variable storage is shared global
+  state via `app->scopes[]`, not per-`Vm`, matching `eval_logo`'s own
+  reentrant-call design exactly). Solved with a **separate** stack
+  (`ui.c`'s `g_paused_runs`, deliberately not folded into the
+  single-slot `g_suspended_run`) so a non-empty pause stack never trips
+  the concurrency guard. Nesting is fully supported (the user chose
+  this over a narrower single-level-only pass, since `app->pause_depth`
+  already naturally supports it — a small stack instead of one slot
+  wasn't much more code). A new `maybe_resume_paused_runs`, called at
+  the tail of `handle_vm_result` after every script action, checks the
+  innermost paused run's own captured level against `app->pause_depth`
+  and resumes it once `CONTINUE` has dropped it low enough, recursing
+  back through `handle_vm_result` so a chain of nested pauses unwinds
+  one `CONTINUE` at a time — matching `interpreter.c`'s own busy-wait
+  condition exactly, just checked on each transition instead of polled.
+  Ctrl+C-based force-unpause deliberately left out, matching the
+  already-documented gap that interrupt-checking isn't wired into this
+  pipeline at all yet. 5 new headless `tests/test_vm.c` cases — the one
+  that matters most: two independently compiled/run scripts sharing one
+  `LogoApp`, confirming nested `PAUSE`s capture strictly increasing
+  levels and a single `CONTINUE` resumes exactly the innermost one, in
+  the right order. Confirmed clean under AddressSanitizer (same one
+  pre-existing crash); all 6 `make test` suites pass; `bin/logo`/
+  `bin/logi` build warning-free and run without crashing. The
+  interactive reentrant-nesting check itself needs the user to confirm
+  directly.
+  - **This closes out every named suspend/resume item on Stage 2's own
+    checklist.** `ANIMATESPRITE` remains blocked on the not-yet-started
+    sprite subsystem. The still-open `WHILE`/`FOR` iteration-cap gap and
+    the `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,
+    optional follow-ups, or whatever the user picks next.

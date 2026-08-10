@@ -278,17 +278,26 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SETITEM", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
     { "FILLARRAY", 2, { ARG_EXPR, ARG_EXPR } },
 
-    // WAIT/WAITKEY/INPUT -- interpreter.c's own suspend-shaped commands
-    // ported into this pipeline (see docs/BYTECODE_VM_DESIGN.md's
-    // suspend/resume design); PAUSE/ANIMATESPRITE deliberately left for
-    // a later batch. WAIT is a plain statement, matching interpreter.c's
-    // own parse (its own strcasecmp dispatch, not parse_factor's
-    // keyword chain); WAITKEY/INPUT take no arguments but do produce a
-    // value (both are in interpreter.c's own parse_factor keyword
-    // chain), same shape as GETX/POS/HOME above.
+    // WAIT/WAITKEY/INPUT/PAUSE -- interpreter.c's own suspend-shaped
+    // commands ported into this pipeline (see
+    // docs/BYTECODE_VM_DESIGN.md's suspend/resume design);
+    // ANIMATESPRITE left blocked on a whole separate, not-yet-started
+    // sprite subsystem. WAIT/PAUSE are plain statements, matching
+    // interpreter.c's own parse (its own strcasecmp dispatch, not
+    // parse_factor's keyword chain); WAITKEY/INPUT take no arguments
+    // but do produce a value (both are in interpreter.c's own
+    // parse_factor keyword chain), same shape as GETX/POS/HOME above.
     { "WAIT", 1, { ARG_EXPR } },
     { "WAITKEY", 0, { 0 } },
     { "INPUT", 0, { 0 } },
+    { "PAUSE", 0, { 0 } },
+    // CONTINUE/CO -- PAUSE's own resume command, an ordinary statement
+    // (matching interpreter.c's own strcasecmp dispatch) needing no
+    // special compiler.c branch at all, unlike PAUSE itself: it never
+    // suspends, just decrements app->pause_depth via the generic
+    // OP_CALL_BUILTIN path, same shape as an ordinary zero-arg command.
+    { "CONTINUE", 0, { 0 } },
+    { "CO", 0, { 0 } },
 };
 #define BUILTIN_SIGNATURE_COUNT (int)(sizeof(BUILTIN_SIGNATURES) / sizeof(BUILTIN_SIGNATURES[0]))
 

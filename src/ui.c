@@ -904,6 +904,33 @@ typedef struct {
 
 static SuspendedRun *g_suspended_run = NULL;
 
+// PAUSE's own paused runs -- deliberately a SEPARATE stack from
+// g_suspended_run, not folded into it. WAIT/WAITKEY/INPUT all suspend
+// in a way that must block a second concurrent script (see
+// run_logo_script's own g_suspended_run != NULL check); PAUSE needs the
+// opposite: run_logo_script must keep accepting ordinary submissions
+// while one or more PAUSEs are outstanding, since that's the entire
+// feature (a command typed while paused can inspect/modify the paused
+// call's own live variables -- variable *storage* is already shared
+// global state, not per-Vm, so this falls out for free once the
+// concurrency-blocking check doesn't also, wrongly, apply here).
+// Nesting is supported: a command run while paused can itself hit
+// PAUSE again, pushing a second entry with a strictly higher level
+// (app->pause_depth only ever increments via PAUSE/decrements via
+// CONTINUE), so this is a genuine LIFO stack, not a single slot.
+// Fixed-size and generously bounded -- pause nesting is human-driven
+// (typing PAUSE-triggering commands interactively) and realistically
+// stays tiny; silently dropping (and freeing) an overflow entry rather
+// than reporting it robustly is the same "not yet a real limit anyone
+// hits" tradeoff already made for MAX_VM_STACK's own overflow handling.
+#define MAX_PAUSED_RUNS 32
+typedef struct {
+    SuspendedRun *run;
+    int level;
+} PausedRun;
+static PausedRun g_paused_runs[MAX_PAUSED_RUNS];
+static int g_paused_run_count = 0;
+
 static void free_suspended_run(SuspendedRun *run) {
     free(run->vm);
     free(run->chunk);
@@ -912,6 +939,7 @@ static void free_suspended_run(SuspendedRun *run) {
 }
 
 static gboolean on_wait_timeout(gpointer user_data);
+static void maybe_resume_paused_runs(LogoApp *app);
 
 // Common tail for run_logo_script/on_wait_timeout/on_entry_key_pressed's
 // own WAITKEY-resume branch: acts on whatever vm_run/vm_resume* just
@@ -941,7 +969,24 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             app->waiting_for_input = TRUE;
             if (app->request_redraw != NULL) app->request_redraw(app);
             break;
+        case VM_RUN_SUSPENDED_PAUSE:
+            if (g_paused_run_count < MAX_PAUSED_RUNS) {
+                g_paused_runs[g_paused_run_count].run = run;
+                g_paused_runs[g_paused_run_count].level = run->vm->pause_level;
+                g_paused_run_count++;
+            } else {
+                append_output(app, "PAUSE: too many nested pauses, this one was dropped\n");
+                free_suspended_run(run);
+            }
+            break;
     }
+    // Every point control returns here is a point CONTINUE/CO might
+    // just have run (as an ordinary submitted command, or as part of a
+    // just-resumed paused run's own further execution) -- so always
+    // check whether the innermost paused run is now eligible, cascading
+    // through handle_vm_result's own recursive call if resuming it
+    // completes or itself re-pauses/re-suspends.
+    maybe_resume_paused_runs(app);
 }
 
 // Fires once, exactly as long after WAIT suspended as it asked for --
@@ -955,23 +1000,48 @@ static gboolean on_wait_timeout(gpointer user_data) {
     return G_SOURCE_REMOVE; // one-shot; a further WAIT gets its own new timer via handle_vm_result
 }
 
+// Resumes the innermost (highest-level, top-of-stack) paused run once
+// app->pause_depth has dropped low enough for it -- mirrors
+// interpreter.c's own do_pause loop condition exactly (it keeps waiting
+// while pause_depth >= my_level, i.e. it's eligible again once
+// pause_depth < my_level). CONTINUE/CO only ever decrement
+// app->pause_depth by one, so at most this single innermost entry ever
+// becomes eligible per call; resuming it can itself complete, re-pause
+// (pushing a new entry), or hit another suspend point, all handled by
+// handle_vm_result's own recursive call back into this same function,
+// which is what lets a chain of nested pauses unwind one CONTINUE at a
+// time without any separate loop here.
+static void maybe_resume_paused_runs(LogoApp *app) {
+    if (g_paused_run_count > 0 && g_paused_runs[g_paused_run_count - 1].level > app->pause_depth) {
+        PausedRun top = g_paused_runs[--g_paused_run_count];
+        VmRunResult result = vm_resume(top.run->vm, app, &top.run->result->pool, top.run->chunk);
+        handle_vm_result(app, top.run, result);
+    }
+}
+
 // Lexes/parses/compiles `source` and runs it through the VM -- the
 // REPL/LOAD entry point eval_logo(app, text) used to be. A script that
-// never hits WAIT/WAITKEY just runs to completion here, same as
+// never hits a suspend point just runs to completion here, same as
 // before; one that does returns immediately (control genuinely goes
 // back to GTK's own main loop, not a busy-wait) with the paused run
-// stashed in g_suspended_run.
+// stashed in g_suspended_run (WAIT/WAITKEY/INPUT) or g_paused_runs
+// (PAUSE).
 static void run_logo_script(LogoApp *app, const char *source) {
-    // Only one script "thread" at a time -- g_suspended_run is a single
-    // slot, not a queue/stack. WAITKEY/INPUT already can't reach here
-    // while suspended (on_entry_key_pressed's own waiting_for_key/
-    // waiting_for_input branches intercept Enter first and never fall
-    // through to this call site), but WAIT (and ANIMATESPRITE, once it
-    // lands) suspend with neither flag set, so without this check a
-    // second concurrent run_logo_script call here would silently
-    // overwrite g_suspended_run out from under the first one -- its
-    // eventual timer callback would then resume the wrong script (or
-    // dereference a freed one), a real bug, not a hypothetical one.
+    // Only one non-PAUSE script "thread" at a time -- g_suspended_run
+    // is a single slot, not a queue/stack. WAITKEY/INPUT already can't
+    // reach here while suspended (on_entry_key_pressed's own
+    // waiting_for_key/waiting_for_input branches intercept Enter first
+    // and never fall through to this call site), but WAIT suspends with
+    // neither flag set, so without this check a second concurrent
+    // run_logo_script call here would silently overwrite g_suspended_run
+    // out from under the first one -- its eventual timer callback would
+    // then resume the wrong script (or dereference a freed one), a real
+    // bug, not a hypothetical one. Deliberately does NOT check
+    // g_paused_run_count: PAUSE's entire point is that ordinary
+    // submissions keep working while one or more are outstanding (see
+    // the g_paused_runs comment above), so a non-empty pause stack must
+    // never block a new submission the way a non-empty g_suspended_run
+    // does.
     if (g_suspended_run != NULL) {
         append_output(app, "A script is still running -- please wait for it to finish\n");
         return;

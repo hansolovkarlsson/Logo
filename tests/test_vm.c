@@ -1009,6 +1009,115 @@ TEST(test_input_directly_inside_a_map_template_reports_an_error_instead_of_suspe
     end_vm_session(s);
 }
 
+TEST(test_pause_suspends_with_the_right_level_then_resumes_and_completes) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT 1\nPAUSE\nPRINT 2", &status);
+    expect_status(status, VM_RUN_SUSPENDED_PAUSE, "initial run");
+    if (s.vm->pause_level != 1) {
+        failures++;
+        printf("FAIL %s: pause_level -- expected 1, got %d\n", current_test, s.vm->pause_level);
+    }
+    status = vm_resume(s.vm, s.app, &s.result->pool, s.chunk);
+    expect_status(status, VM_RUN_HALTED, "resume");
+    expect_output("1\nPaused (level 1). Type CONTINUE to resume.\n2\n");
+    end_vm_session(s);
+}
+
+TEST(test_continue_with_nothing_paused_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("CONTINUE", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("CONTINUE: nothing is paused\n");
+    end_vm_session(s);
+}
+
+TEST(test_pause_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("FOREACH [PAUSE] [1 2]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "PAUSE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+        failures++;
+        printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_two_nested_pauses_share_one_pause_depth_and_resume_in_lifo_order) {
+    // Mimics what ui.c's own pause stack relies on: two independently
+    // compiled/run scripts sharing ONE LogoApp, since variable/
+    // pause_depth state is global (app->pause_depth), not per-Vm. The
+    // second PAUSE happens while the first is still suspended,
+    // capturing a strictly higher level; a CONTINUE (its own tiny
+    // script, sharing the same app) drops pause_depth by exactly one,
+    // making only the innermost (highest-level) run eligible --
+    // resuming it first, then the outer one, confirms LIFO ordering,
+    // matching interpreter.c's own nested-PAUSE semantics.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+
+    LogoToken tokens1[MAX_VM_TEST_TOKENS];
+    int n1 = logo_lex("PAUSE\nPRINT \"outerdone", tokens1, MAX_VM_TEST_TOKENS);
+    ParseResult *result1 = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens1, n1, result1);
+    BytecodeChunk *chunk1 = calloc(1, sizeof(BytecodeChunk));
+    int start1 = compile_program(&result1->pool, result1->program, chunk1);
+    Vm *vm1 = calloc(1, sizeof(Vm));
+    VmRunResult status1 = vm_run(vm1, app, &result1->pool, chunk1, start1);
+    expect_status(status1, VM_RUN_SUSPENDED_PAUSE, "outer initial run");
+    if (vm1->pause_level != 1) {
+        failures++;
+        printf("FAIL %s: outer pause_level -- expected 1, got %d\n", current_test, vm1->pause_level);
+    }
+
+    LogoToken tokens2[MAX_VM_TEST_TOKENS];
+    int n2 = logo_lex("PAUSE\nPRINT \"innerdone", tokens2, MAX_VM_TEST_TOKENS);
+    ParseResult *result2 = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens2, n2, result2);
+    BytecodeChunk *chunk2 = calloc(1, sizeof(BytecodeChunk));
+    int start2 = compile_program(&result2->pool, result2->program, chunk2);
+    Vm *vm2 = calloc(1, sizeof(Vm));
+    VmRunResult status2 = vm_run(vm2, app, &result2->pool, chunk2, start2);
+    expect_status(status2, VM_RUN_SUSPENDED_PAUSE, "inner initial run");
+    if (vm2->pause_level != 2) {
+        failures++;
+        printf("FAIL %s: inner pause_level -- expected 2, got %d\n", current_test, vm2->pause_level);
+    }
+
+    LogoToken tokens3[MAX_VM_TEST_TOKENS];
+    int n3 = logo_lex("CONTINUE", tokens3, MAX_VM_TEST_TOKENS);
+    ParseResult *result3 = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens3, n3, result3);
+    BytecodeChunk *chunk3 = calloc(1, sizeof(BytecodeChunk));
+    int start3 = compile_program(&result3->pool, result3->program, chunk3);
+    Vm *vm3 = calloc(1, sizeof(Vm));
+    VmRunResult status3 = vm_run(vm3, app, &result3->pool, chunk3, start3);
+    expect_status(status3, VM_RUN_HALTED, "CONTINUE run");
+    if (app->pause_depth != 1) {
+        failures++;
+        printf("FAIL %s: pause_depth after one CONTINUE -- expected 1, got %d\n", current_test, app->pause_depth);
+    }
+
+    VmRunResult resumed2 = vm_resume(vm2, app, &result2->pool, chunk2);
+    expect_status(resumed2, VM_RUN_HALTED, "inner resume");
+    VmRunResult resumed1 = vm_resume(vm1, app, &result1->pool, chunk1);
+    expect_status(resumed1, VM_RUN_HALTED, "outer resume");
+
+    const char *inner_pos = strstr(captured_output, "innerdone");
+    const char *outer_pos = strstr(captured_output, "outerdone");
+    if (inner_pos == NULL || outer_pos == NULL) {
+        failures++;
+        printf("FAIL %s: expected both innerdone and outerdone in output, got \"%s\"\n", current_test, captured_output);
+    } else if (inner_pos > outer_pos) {
+        failures++;
+        printf("FAIL %s: expected innerdone before outerdone (LIFO), got \"%s\"\n", current_test, captured_output);
+    }
+
+    free(vm1); free(chunk1); parse_result_destroy(result1);
+    free(vm2); free(chunk2); parse_result_destroy(result2);
+    free(vm3); free(chunk3); parse_result_destroy(result3);
+    free(app);
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -1120,6 +1229,10 @@ int main(void) {
     RUN(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
     RUN(test_input_suspends_then_resumes_with_the_submitted_line_and_completes);
     RUN(test_input_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
+    RUN(test_pause_suspends_with_the_right_level_then_resumes_and_completes);
+    RUN(test_continue_with_nothing_paused_reports_an_error);
+    RUN(test_pause_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
+    RUN(test_two_nested_pauses_share_one_pause_depth_and_resume_in_lifo_order);
 
     if (failures == 0) {
         printf("All tests passed.\n");

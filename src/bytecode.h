@@ -112,13 +112,13 @@ typedef enum {
     OP_REDUCE_COMPILED,  // folds left-to-right (".text" is the accumulator's own name; ".text" with "2" appended is the current element's) via the template (an expression); pushes the final accumulator, or num_val(0) if the list was empty
     OP_FOREACH_COMPILED, // runs the template (a statement block) once per element for side effects only, stopping early on OUTPUT/STOP/THROW exactly like do_foreach; pushes num_val(0) (void, matching do_foreach)
 
-    // WAIT/WAITKEY/INPUT -- the first real suspend points this VM has
+    // WAIT/WAITKEY/INPUT/PAUSE -- the real suspend points this VM has
     // (see docs/BYTECODE_VM_DESIGN.md's suspend/resume design). Unlike
     // every opcode above, these can make vm_run *return early*,
     // mid-chunk, handing control back to whatever's driving it (ui.c's
     // GTK event loop) instead of running to OP_HALT/completion --
     // vm_run's own return type reflects this (see vm.h's VmRunResult).
-    // All three pop nothing themselves at the point they suspend except
+    // All four pop nothing themselves at the point they suspend except
     // what their own argument-compiling already pushed (OP_WAIT's lone
     // numeric arg, popped by its own handler before it decides whether
     // to suspend at all); the *value* a suspended call eventually
@@ -127,6 +127,7 @@ typedef enum {
     OP_WAIT,    // pops the already-evaluated seconds argument; if > 0, suspends (VM_RUN_SUSPENDED_WAIT, vm->suspend_seconds set) with vm->pc pointing at the OP_VOID_RESULT that always immediately follows (WAIT never itself produces a value); if <= 0, falls through to it immediately, same as interpreter.c's own `if (seconds > 0)` guard
     OP_WAITKEY, // suspends unconditionally (VM_RUN_SUSPENDED_WAITKEY); the resuming vm_resume_with_key call pushes the pressed key's name as the value this instruction itself would otherwise have pushed, then continues at vm->pc
     OP_INPUT,   // suspends unconditionally (VM_RUN_SUSPENDED_INPUT); the resuming vm_resume_with_input call pushes the whole submitted line as the value this instruction itself would otherwise have pushed, then continues at vm->pc -- same shape as OP_WAITKEY, just gated by a different ui.c flag/event (Return-submits-the-buffer, not any keypress)
+    OP_PAUSE,   // increments the shared app->pause_depth, captures the result as vm->pause_level, prints interpreter.c's own "Paused (level N)..." message, then suspends unconditionally (VM_RUN_SUSPENDED_PAUSE) with vm->pc pointing at the OP_VOID_RESULT that always immediately follows (PAUSE never itself produces a value, same as WAIT) -- resumed via the plain vm_resume, not a dedicated vm_resume_with_* function, once whatever's driving the VM (ui.c) decides app->pause_depth has dropped low enough (see CONTINUE/CO, ordinary builtins that just decrement it -- no opcode of their own needed)
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,

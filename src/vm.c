@@ -108,10 +108,28 @@ static void exec_compare(LogoApp *app, Vm *vm, OpCode op) {
 // this builtin's own arity worth of values, in argument order -- the
 // parser guarantees that arity at parse time, so no argc parameter is
 // needed here.
+// CONTINUE/CO -- the other half of PAUSE (see OP_PAUSE), but not itself
+// a suspend point: it's an ordinary command that just decrements the
+// shared app->pause_depth (interpreter.c's own do_continue, unported
+// until now since it had no PAUSE to pair with in this pipeline).
+// Whether that decrement actually satisfies some suspended run's own
+// captured pause_level is entirely ui.c's concern (see
+// maybe_resume_paused_runs there) -- this function has no opinion on
+// who, if anyone, is waiting.
+static void exec_continue(LogoApp *app) {
+    if (app->pause_depth > 0) app->pause_depth--;
+    else append_output(app, "CONTINUE: nothing is paused\n");
+}
+
 static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
         eval_print_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "CONTINUE") == 0 || strcasecmp(name, "CO") == 0) {
+        exec_continue(app);
         *produced = 0;
         return num_val(0);
     }
@@ -1005,6 +1023,21 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 vm->pc = pc + 1;
                 vm->vm_run_depth--;
                 return VM_RUN_SUSPENDED_INPUT;
+            }
+            case OP_PAUSE: {
+                if (vm->vm_run_depth > 1) {
+                    append_output(app, "PAUSE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    pc++;
+                    break;
+                }
+                int my_level = ++app->pause_depth;
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Paused (level %d). Type CONTINUE to resume.\n", my_level);
+                append_output(app, msg);
+                vm->pc = pc + 1;
+                vm->pause_level = my_level;
+                vm->vm_run_depth--;
+                return VM_RUN_SUSPENDED_PAUSE;
             }
             default:
                 pc++;

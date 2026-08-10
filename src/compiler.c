@@ -553,6 +553,17 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "INPUT", want_value);
         return;
     }
+    if (strcasecmp(name, "PAUSE") == 0) {
+        // Same shape as WAIT -- produces no value itself (the
+        // OP_VOID_RESULT immediately after is what runs once resumed).
+        // CONTINUE/CO deliberately have no branch here at all: they
+        // never suspend, so the generic OP_CALL_BUILTIN dispatch below
+        // already handles them correctly.
+        emit(chunk, (Instr){.op = OP_PAUSE});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "PAUSE", want_value);
+        return;
+    }
     if (strcasecmp(name, "SEND") == 0) {
         // Unlike every other call form, SEND's own callee isn't known
         // until runtime (resolved through obj's prototype chain --

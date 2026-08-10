@@ -1,0 +1,7 @@
+make "x 50
+repeat 100 [
+	fd :x
+	rt 91
+	pause
+]
+
