@@ -160,6 +160,22 @@ instruction-set/frame-layout detail behind each of these.
     `OP_CALL_PROC`) handles it uniformly. 18 new `tests/test_vm.c`
     cases (ported from already-confirmed `test_eval.c` scripts),
     confirmed clean under AddressSanitizer.
+  - [x] **Property lists / `NEW`** (2026-08-09): `SETPROP`/`GETPROP`/
+    `REMOVEPROP`/`PROPLIST`/`NEW`. Zero `compiler.c` changes needed —
+    exactly the payoff the previous batch's dispatch-generalization was
+    for: just exposing five already-value-shaped `eval.c` functions
+    (`eval_getprop`/`eval_setprop`/`eval_removeprop`/`eval_proplist`/ a
+    new `eval_new_declare`, the last centralizing the `"prototype"` key
+    string `NEW` writes under so it isn't duplicated between `do_new`
+    and `vm.c`) and adding them to `vm.c`'s `call_builtin` dispatch. 6
+    new `tests/test_vm.c` cases, confirmed clean under AddressSanitizer.
+    **`SEND` deliberately deferred, not part of this batch**: unlike
+    these, it dynamically resolves which procedure to call at runtime
+    (through the prototype chain) and has its own resolved/produced
+    error-suppression shape (see `do_send`'s own comment) — closer to a
+    new opcode than an ordinary builtin call, worth its own dedicated
+    design rather than folding into a batch about property-list
+    plumbing.
 - [ ] `THROW`/`CATCH` as a real unwind mechanism, not just another
   opcode — non-local exit to an arbitrary ancestor frame needs its own
   design (an explicit unwind-target stack the VM consults), flagged

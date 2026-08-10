@@ -125,6 +125,19 @@ void eval_setitem_value(LogoApp *app, EvalValue index_val, EvalValue array_val_,
 void eval_fillarray_value(LogoApp *app, EvalValue array_val_, EvalValue new_val);
 EvalValue eval_names_value(LogoApp *app);
 
+// Property lists / NEW (see eval.c's own "Property lists" section for
+// the shared app->plist_entries state). Same split as the batch above
+// -- SEND is deliberately NOT here: unlike these, it dynamically
+// resolves which procedure to call at runtime (through obj's prototype
+// chain) and has its own resolved/produced error-suppression shape
+// (see do_send's own comment), closer to a whole new opcode than an
+// ordinary builtin call -- left for its own dedicated follow-up batch.
+EvalValue eval_getprop(LogoApp *app, EvalValue name_val, EvalValue key_val);
+void eval_setprop(LogoApp *app, EvalValue name_val, EvalValue key_val, EvalValue val);
+void eval_removeprop(LogoApp *app, EvalValue name_val, EvalValue key_val);
+EvalValue eval_proplist(LogoApp *app, EvalValue name_val);
+void eval_new_declare(LogoApp *app, EvalValue obj_val, EvalValue proto_val);
+
 // find_proc_def itself now lives in ast.h/ast.c (it never touched
 // LogoApp, only AstPool -- see ast.h's own comment); eval.h re-exposes
 // nothing extra for it since ast.h is already transitively included

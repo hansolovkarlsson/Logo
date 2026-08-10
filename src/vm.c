@@ -121,6 +121,23 @@ static EvalValue call_builtin(LogoApp *app, const char *name, EvalValue *args, i
         return num_val(0);
     }
     if (strcasecmp(name, "NAMES") == 0) return eval_names_value(app);
+    if (strcasecmp(name, "GETPROP") == 0) return eval_getprop(app, args[0], args[1]);
+    if (strcasecmp(name, "SETPROP") == 0) {
+        eval_setprop(app, args[0], args[1], args[2]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "REMOVEPROP") == 0) {
+        eval_removeprop(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "PROPLIST") == 0) return eval_proplist(app, args[0]);
+    if (strcasecmp(name, "NEW") == 0) {
+        eval_new_declare(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
     // Unreachable for a well-formed compiled program -- compile_call
     // only ever emits OP_CALL_BUILTIN for a name find_proc_def couldn't
     // resolve to a user procedure, and the parser itself already

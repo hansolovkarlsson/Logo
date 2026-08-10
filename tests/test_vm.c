@@ -313,6 +313,51 @@ TEST(test_names_lists_every_global_variable) {
     shadow_diff_vm("MAKE \"a 1\nMAKE \"b 2\nPRINT NAMES\nPRINT COUNT NAMES");
 }
 
+// Property lists / NEW (docs/ROADMAP.md's Stage 2 checklist, item 2's
+// second batch) -- again ported from already-confirmed test_eval.c
+// scripts. SEND is deliberately not here -- see eval.h's own note on
+// why it's its own follow-up, not part of this batch.
+
+TEST(test_setprop_getprop_round_trips_a_number_word_and_list) {
+    shadow_diff_vm(
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"pos [10 20]\n"
+        "PRINT GETPROP \"turtle1 \"speed\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"pos");
+}
+
+TEST(test_getprop_of_missing_property_is_the_empty_list) {
+    shadow_diff_vm("PRINT GETPROP \"turtle1 \"nosuchkey\nPRINT EMPTY? GETPROP \"turtle1 \"nosuchkey");
+}
+
+TEST(test_setprop_on_same_key_overwrites_not_duplicates) {
+    shadow_diff_vm(
+        "SETPROP \"turtle1 \"color \"red\n"
+        "SETPROP \"turtle1 \"color \"blue\n"
+        "PRINT GETPROP \"turtle1 \"color\n"
+        "PRINT COUNT PROPLIST \"turtle1");
+}
+
+TEST(test_removeprop_removes_a_property) {
+    shadow_diff_vm(
+        "SETPROP \"turtle1 \"color \"red\n"
+        "REMOVEPROP \"turtle1 \"color\n"
+        "PRINT GETPROP \"turtle1 \"color");
+}
+
+TEST(test_proplist_lists_alternating_keys_and_values) {
+    shadow_diff_vm(
+        "SETPROP \"turtle1 \"speed 5\n"
+        "SETPROP \"turtle1 \"color \"red\n"
+        "PRINT PROPLIST \"turtle1");
+}
+
+TEST(test_new_sets_a_prototype_property) {
+    shadow_diff_vm("NEW \"dog \"animal\nPRINT GETPROP \"dog \"prototype");
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -347,6 +392,12 @@ int main(void) {
     RUN(test_local_outside_a_procedure_reports_an_error);
     RUN(test_local_twice_with_the_same_name_is_a_no_op);
     RUN(test_names_lists_every_global_variable);
+    RUN(test_setprop_getprop_round_trips_a_number_word_and_list);
+    RUN(test_getprop_of_missing_property_is_the_empty_list);
+    RUN(test_setprop_on_same_key_overwrites_not_duplicates);
+    RUN(test_removeprop_removes_a_property);
+    RUN(test_proplist_lists_alternating_keys_and_values);
+    RUN(test_new_sets_a_prototype_property);
 
     if (failures == 0) {
         printf("All tests passed.\n");

@@ -1507,3 +1507,38 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
     checklist — property lists, turtle/drawing commands, or whatever
     batch the user picks next, each shadow-diffed against `ast_eval`
     the same way.
+- **Property lists / `NEW`: done** (second batch off Stage 2's
+  instruction-coverage checklist item, 2026-08-09, user said "do
+  next"). `SETPROP`/`GETPROP`/`REMOVEPROP`/`PROPLIST`/`NEW`, sharing
+  `app->plist_entries` directly with `ast_eval`'s own property-list
+  operators, same as always.
+  - **The previous batch's dispatch generalization paid off
+    immediately**: `eval_getprop`/`eval_setprop`/`eval_removeprop`/
+    `eval_proplist` were *already* plain `(app, EvalValue...) ->
+    EvalValue`/`void` functions (their own `do_*` wrappers already just
+    called `eval_expr` then forwarded) — this batch needed zero new
+    `compiler.c` changes and zero new opcodes, just `static` removed,
+    declarations added to `eval.h`, and four new branches in `vm.c`'s
+    `call_builtin`. `NEW` needed one small addition: a new
+    `eval_new_declare(app, obj_val, proto_val)` wrapping `eval_setprop`
+    with the `"prototype"` key, so that string literal lives in one
+    place instead of being duplicated between `do_new` and `vm.c`.
+  - **`SEND` deliberately excluded, not forgotten**: it dynamically
+    resolves which procedure to call at runtime (through `obj`'s
+    prototype chain via `eval_resolve_method`), then calls it through
+    `call_ast_procedure` with its own `resolved`/`produced`
+    error-suppression shape (SEND's own "wrong number of inputs"/
+    "didn't output a value" messages need to fire instead of, not in
+    addition to, the generic wrapper's) — structurally closer to
+    needing its own opcode (dynamic dispatch, not a static
+    `OP_CALL_PROC` target) than an ordinary builtin call. Left as its
+    own dedicated follow-up rather than rushed into this batch.
+  - 6 new `tests/test_vm.c` cases (round-tripping a number/word/list
+    property, missing-property-is-empty-list, overwrite-not-duplicate,
+    `REMOVEPROP`, `PROPLIST`'s alternating key/value output, and `NEW`
+    setting the `"prototype"` property — all ported from confirmed
+    `test_eval.c` scripts). Confirmed clean under AddressSanitizer; all
+    6 test suites pass via `make test`.
+  - **Next**: continue `docs/ROADMAP.md`'s Stage 2 instruction-coverage
+    checklist — turtle/drawing commands, `SEND` as its own batch, or
+    whatever the user picks next.

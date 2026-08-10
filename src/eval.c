@@ -552,7 +552,7 @@ static int eval_list_subst_into(LogoApp *app, int list_head, EvalValue old_val, 
 // the WORD extraction above, and docs/BYTECODE_VM_DESIGN.md's
 // Progress notes on the ASan stack-fragility this caused once already).
 
-static EvalValue eval_getprop(LogoApp *app, EvalValue name_val, EvalValue key_val) {
+EvalValue eval_getprop(LogoApp *app, EvalValue name_val, EvalValue key_val) {
     char plist_name[32], key[32];
     eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
     eval_value_to_text(app, key_val, key, sizeof(key));
@@ -564,7 +564,7 @@ static EvalValue eval_getprop(LogoApp *app, EvalValue name_val, EvalValue key_va
     return num_val(e->number); // array-valued properties: not supported yet, same as everywhere else
 }
 
-static void eval_setprop(LogoApp *app, EvalValue name_val, EvalValue key_val, EvalValue val) {
+void eval_setprop(LogoApp *app, EvalValue name_val, EvalValue key_val, EvalValue val) {
     char plist_name[32], key[32];
     eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
     eval_value_to_text(app, key_val, key, sizeof(key));
@@ -585,7 +585,7 @@ static void eval_setprop(LogoApp *app, EvalValue name_val, EvalValue key_val, Ev
     e->list_head = val.list_head;
 }
 
-static void eval_removeprop(LogoApp *app, EvalValue name_val, EvalValue key_val) {
+void eval_removeprop(LogoApp *app, EvalValue name_val, EvalValue key_val) {
     char plist_name[32], key[32];
     eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
     eval_value_to_text(app, key_val, key, sizeof(key));
@@ -598,7 +598,7 @@ static void eval_removeprop(LogoApp *app, EvalValue name_val, EvalValue key_val)
     }
 }
 
-static EvalValue eval_proplist(LogoApp *app, EvalValue name_val) {
+EvalValue eval_proplist(LogoApp *app, EvalValue name_val) {
     char plist_name[32];
     eval_value_to_text(app, name_val, plist_name, sizeof(plist_name));
     int head = -1;
@@ -2214,10 +2214,17 @@ static void do_removeprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
 static EvalValue do_proplist(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return eval_proplist(app, eval_expr(app, pool, arg_idx[0]));
 }
-static void do_new(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue obj_val = eval_expr(app, pool, arg_idx[0]);
-    EvalValue proto_val = eval_expr(app, pool, arg_idx[1]);
+// NEW obj proto -- just SETPROP obj "prototype proto under the hood
+// (see the property-list section above for the shared app->plist_entries
+// state this rests on). Its own function, not inlined into do_new,
+// specifically so the "prototype" key string lives in exactly one
+// place -- vm.c's OP_CALL_BUILTIN "NEW" handler calls this too, rather
+// than repeating that literal.
+void eval_new_declare(LogoApp *app, EvalValue obj_val, EvalValue proto_val) {
     eval_setprop(app, obj_val, word_val("prototype"), proto_val);
+}
+static void do_new(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_new_declare(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
 // SEND obj "message arglist -- resolves `message` through obj's
 // prototype chain, then calls it with obj prepended as :self and
