@@ -445,6 +445,113 @@ TEST(test_erase_removes_the_procedure_from_procedures_output) {
     shadow_diff_vm("TO a\nEND\nTO b\nEND\nERASE \"a\nPRINT PROCEDURES");
 }
 
+// SEND (docs/ROADMAP.md's Stage 2 checklist, item 2's fourth batch --
+// deferred twice before this since its callee is only known at
+// runtime, unlike every other call construct; see compiler.c's own
+// SEND branch and vm.c's own exec_send). Ported directly from
+// test_eval.c's own already-confirmed SEND corpus.
+
+TEST(test_send_calls_a_method_registered_directly_on_the_object) {
+    shadow_diff_vm(
+        "TO dog_bark :self\n"
+        "  PRINT SENTENCE :self \"barks\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"dog_bark\n"
+        "SEND \"dog \"bark []");
+}
+
+TEST(test_send_finds_a_method_through_the_prototype_chain) {
+    shadow_diff_vm(
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "SETPROP \"animal \"sound \"generic\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "SEND \"dog \"speak []\n"
+        "SEND \"animal \"speak []");
+}
+
+TEST(test_send_inherits_methods_but_not_data_fields) {
+    shadow_diff_vm(
+        "TO animal_speak :self\n"
+        "  PRINT SENTENCE :self GETPROP :self \"sound\n"
+        "END\n"
+        "NEW \"animal \"nothing\n"
+        "SETPROP \"animal \"speak \"animal_speak\n"
+        "NEW \"dog \"animal\n"
+        "SETPROP \"dog \"sound \"Woof\n"
+        "NEW \"puppy \"dog\n"
+        "SEND \"puppy \"speak []");
+}
+
+TEST(test_send_passes_extra_message_arguments_after_self) {
+    shadow_diff_vm(
+        "TO animal_greet :self :name\n"
+        "  PRINT SENTENCE :self SENTENCE \"hi :name\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"greet \"animal_greet\n"
+        "SEND \"dog \"greet [alice]");
+}
+
+TEST(test_send_operator_form_captures_output) {
+    shadow_diff_vm(
+        "TO dog_getname :self\n"
+        "  OUTPUT :self\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"getname \"dog_getname\n"
+        "PRINT SEND \"dog \"getname []\n"
+        "MAKE \"n SEND \"dog \"getname []\n"
+        "PRINT :n");
+}
+
+TEST(test_send_operator_form_errors_if_method_never_outputs) {
+    shadow_diff_vm(
+        "TO dog_bark :self\n"
+        "  PRINT \"Woof\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"dog_bark\n"
+        "PRINT SEND \"dog \"bark []");
+}
+
+TEST(test_send_to_unknown_message_reports_does_not_understand) {
+    shadow_diff_vm("NEW \"dog \"nothing\nSEND \"dog \"bark []");
+}
+
+TEST(test_send_on_a_data_property_reports_not_a_method) {
+    shadow_diff_vm("NEW \"dog \"nothing\nSETPROP \"dog \"sound \"Woof\nSEND \"dog \"sound []");
+}
+
+TEST(test_send_method_without_self_param_reports_error) {
+    shadow_diff_vm(
+        "TO badmethod\n"
+        "  PRINT \"oops\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"bark \"badmethod\n"
+        "SEND \"dog \"bark []");
+}
+
+TEST(test_send_cyclic_prototype_chain_is_bounded_not_infinite) {
+    shadow_diff_vm("NEW \"a \"b\nNEW \"b \"a\nSEND \"a \"speak []");
+}
+
+TEST(test_send_wrong_argument_count_reports_error) {
+    shadow_diff_vm(
+        "TO animal_greet :self :name\n"
+        "  PRINT SENTENCE :self SENTENCE \"hi :name\n"
+        "END\n"
+        "NEW \"dog \"nothing\n"
+        "SETPROP \"dog \"greet \"animal_greet\n"
+        "SEND \"dog \"greet []");
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -498,6 +605,17 @@ int main(void) {
     RUN(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called);
     RUN(test_erase_of_unknown_procedure_reports_error);
     RUN(test_erase_removes_the_procedure_from_procedures_output);
+    RUN(test_send_calls_a_method_registered_directly_on_the_object);
+    RUN(test_send_finds_a_method_through_the_prototype_chain);
+    RUN(test_send_inherits_methods_but_not_data_fields);
+    RUN(test_send_passes_extra_message_arguments_after_self);
+    RUN(test_send_operator_form_captures_output);
+    RUN(test_send_operator_form_errors_if_method_never_outputs);
+    RUN(test_send_to_unknown_message_reports_does_not_understand);
+    RUN(test_send_on_a_data_property_reports_not_a_method);
+    RUN(test_send_method_without_self_param_reports_error);
+    RUN(test_send_cyclic_prototype_chain_is_bounded_not_infinite);
+    RUN(test_send_wrong_argument_count_reports_error);
 
     if (failures == 0) {
         printf("All tests passed.\n");

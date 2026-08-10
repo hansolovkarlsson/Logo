@@ -366,6 +366,96 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
     *pc = instr->a;
 }
 
+// OP_SEND -- unlike every other call construct in this VM, SEND's own
+// callee isn't known until runtime (resolved through obj's own
+// prototype chain, via eval_resolve_method -- the exact same function
+// do_send itself calls), so it can't be backpatched into a static
+// target the way OP_CALL_PROC's own targets are. Once resolved, the
+// target procedure's own compiled address is looked up by name in
+// `chunk`'s own persistent proc table (bytecode_find_proc -- the same
+// {name, start_pc} pairs compiler.c's own backpatching already
+// computed while compiling, just kept around instead of discarded),
+// and a VmFrame + scope is pushed exactly like OP_CALL_PROC's own
+// success path.
+//
+// Every one of SEND's own error cases (resolution failure, arity
+// mismatch, recursion too deep) is handled eagerly here, mirroring
+// do_send's own exact wording and control flow -- confirmed directly
+// against do_send's own code, not assumed, including the one place
+// SEND's own error-suppression genuinely differs from an ordinary
+// call's: do_send sets *resolved=0 on EVERY "didn't produce a value"
+// outcome, including recursion-too-deep (unlike do_user_procedure_call,
+// which leaves *resolved untouched -- and therefore 1 -- on that same
+// condition). last_call_resolved/last_send_message are still set even
+// on these eager paths (not just the deferred success path below) so
+// the OP_CHECK_SEND_OUTPUT that always immediately follows this
+// instruction sees consistent state regardless of which path was
+// taken.
+static void exec_send(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int *pc) {
+    EvalValue arglist_val = pop(vm);
+    EvalValue msg_val = pop(vm);
+    EvalValue obj_val = pop(vm);
+
+    char obj_text[32], msg_text[32];
+    eval_value_to_text(app, obj_val, obj_text, sizeof(obj_text));
+    eval_value_to_text(app, msg_val, msg_text, sizeof(msg_text));
+    snprintf(vm->last_send_message, sizeof(vm->last_send_message), "%s", msg_text);
+
+    int def_node = eval_resolve_method(app, pool, obj_text, msg_text); // prints its own specific "does not understand"/"is not a method on"/"must take :self" error
+    if (def_node < 0) {
+        vm->last_call_resolved = 0;
+        vm->last_call_produced_output = 0;
+        push(vm, word_val(""));
+        *pc = *pc + 1;
+        return;
+    }
+    AstNode *def = &pool->nodes[def_node];
+
+    EvalValue arg_vals[AST_MAX_PARAMS];
+    int n = eval_send_unpack_args(app, obj_text, arglist_val, arg_vals, AST_MAX_PARAMS);
+
+    if (n != def->param_count) {
+        append_output(app, "SEND: wrong number of inputs for message \"");
+        append_output(app, msg_text);
+        append_output(app, "\n");
+        vm->last_call_resolved = 0;
+        vm->last_call_produced_output = 0;
+        push(vm, word_val(""));
+        *pc = *pc + 1;
+        return;
+    }
+
+    int target_pc = bytecode_find_proc(chunk, def->text);
+    if (target_pc < 0 || vm->frame_count >= MAX_VM_FRAMES) {
+        // Can't happen for a well-formed compiled program -- def_node
+        // was just found as a real AST_PROC_DEF, and compile_program's
+        // own pass 1 compiles every one of those into chunk->procs.
+        // Stay defensive rather than corrupting VM state.
+        vm->last_call_resolved = 0;
+        vm->last_call_produced_output = 0;
+        push(vm, word_val(""));
+        *pc = *pc + 1;
+        return;
+    }
+    if (!eval_push_scope_for_call(app, def, arg_vals, n)) {
+        // Recursion too deep -- eval_push_scope_for_call already
+        // printed its own message. resolved is 0 here (not 1, unlike
+        // OP_CALL_PROC's own equivalent branch): do_send's own code
+        // unconditionally treats "the call didn't produce a value",
+        // for any reason including this one, as its own resolved=0
+        // case.
+        vm->last_call_resolved = 0;
+        vm->last_call_produced_output = 0;
+        push(vm, word_val(""));
+        *pc = *pc + 1;
+        return;
+    }
+    VmFrame *frame = &vm->frames[vm->frame_count++];
+    frame->return_pc = *pc + 1;
+    frame->value_stack_base = vm->stack_top;
+    *pc = target_pc;
+}
+
 // OP_OUTPUT/OP_STOP -- pops the current VmFrame (and its matching
 // app->scopes[] scope, in lockstep, per vm.h's own note), truncating
 // the value stack back to that frame's own base plus exactly one
@@ -533,6 +623,24 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                 eval_erase_declare(app, pool, instr->text);
                 pc++;
                 break;
+            case OP_SEND:
+                exec_send(vm, app, pool, chunk, &pc);
+                break;
+            case OP_CHECK_SEND_OUTPUT: {
+                // Same job as OP_CHECK_OUTPUT, but the name to report
+                // comes from vm->last_send_message (a runtime value
+                // exec_send itself just resolved), not from a
+                // compile-time .text field -- see bytecode.h's own
+                // comment on why SEND can't use the ordinary opcode.
+                if (vm->last_call_resolved && !vm->last_call_produced_output) {
+                    append_output(app, vm->last_send_message);
+                    append_output(app, ": didn't output a value\n");
+                    pop(vm);
+                    push(vm, word_val(""));
+                }
+                pc++;
+                break;
+            }
             case OP_VOID_RESULT:
                 vm->last_call_produced_output = 0;
                 vm->last_call_resolved = 1; // MAKE/LOCAL/ERASE/WHILE are always "resolved" -- never the unknown-procedure case

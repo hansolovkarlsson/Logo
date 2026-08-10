@@ -76,6 +76,19 @@ typedef struct {
     // deep, call ignored" and "X: didn't output a value" in ast_eval --
     // a real double message this VM has to reproduce, not avoid.
     int last_call_resolved;
+
+    // SEND's own message name, valid only right after OP_SEND runs
+    // (set on every one of its own paths, success or failure) and
+    // read by the OP_CHECK_SEND_OUTPUT that always immediately follows
+    // it in expression position. Unlike an ordinary call's own
+    // OP_CHECK_OUTPUT (which reads its own .text, a compile-time
+    // constant), SEND's target message is only known at runtime, so
+    // there's no instruction field compile_call could have baked it
+    // into -- this is that value's only home between the two
+    // instructions (and, for a successful call, across however many
+    // instructions the resolved procedure's own body needs to run
+    // before finally returning).
+    char last_send_message[INSTR_MAX_TEXT];
 } Vm;
 
 // Runs `chunk` (as produced by compile_program) against `app`/`pool`

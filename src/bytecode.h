@@ -60,6 +60,9 @@ typedef enum {
     OP_LOCAL,        // .text = variable name; declares a same-named scope-local variable in the current call (0 if it's genuinely new, otherwise a no-op) -- no stack effect of its own; compile_call always follows this with OP_VOID_RESULT, same as OP_SET_VAR (MAKE)
     OP_ERASE,        // .text = procedure name; blanks that AST_PROC_DEF's own name so it can never be called/listed again (eval_erase_declare) -- same ".text carries a raw name, not an evaluated expression" shape as OP_LOCAL, and the same reason: ERASE's argument is ARG_QUOTED_WORD, never compiled as an ordinary expression
     OP_VOID_RESULT,  // pushes num_val(0) and clears last_call_produced_output -- the special-form equivalent of a void builtin's OP_CALL_BUILTIN return, for MAKE/LOCAL/ERASE/WHILE (constructs with their own dedicated opcodes/compiled shape that still need to honor the "every call leaves exactly one value, and OP_CHECK_OUTPUT can tell whether it was a real one" convention every ordinary call follows)
+
+    OP_SEND,               // pop 3 (obj, message, arglist, in that order); resolves `message` through obj's prototype chain at RUNTIME (unlike every other call, the callee isn't known at compile time -- see vm.c's own exec_send), pushing a VM frame + jumping into the resolved procedure's own compiled body on success, or word_val("") with vm's own last_call_resolved cleared on any of SEND's own resolution/arity failures (each already prints its own specific message, mirroring do_send exactly -- never falls through to OP_CHECK_SEND_OUTPUT's generic one). No operands of its own: all 3 arguments were already compiled as ordinary expressions and are just popped.
+    OP_CHECK_SEND_OUTPUT,  // only ever emitted right after OP_SEND used in expression position -- same job as OP_CHECK_OUTPUT, but reads the message name to report from vm->last_send_message (a runtime value OP_SEND itself just resolved) rather than from a compile-time .text field, since compile_call can't know SEND's own callee name ahead of time the way it can for an ordinary call
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,
@@ -85,9 +88,30 @@ typedef struct {
 // (LogoApp, ParseResult, AstPool).
 #define MAX_INSTRUCTIONS 8192
 
+// name -> start_pc for every procedure compile_program compiled --
+// the same {name, start_pc} pairs compiler.c's own backpatching
+// already computes internally while compiling (see compiler.c's own
+// Compiler/ProcAddr), just kept on the chunk itself afterward instead
+// of discarded once compile_program returns. compiler.c's OP_CALL_PROC
+// backpatching still resolves its own targets *at compile time*
+// (faster, and the callee is always statically known there) -- this
+// table exists for the one case that genuinely can't be resolved until
+// runtime: SEND, whose callee depends on a prototype-chain lookup
+// against live app->plist_entries state that doesn't exist yet during
+// compilation.
+#define MAX_CHUNK_PROCS 50 // matches MAX_PROCEDURES in logo_types.h
+
+typedef struct {
+    char name[INSTR_MAX_TEXT];
+    int start_pc;
+} ProcAddr;
+
 typedef struct {
     Instr code[MAX_INSTRUCTIONS];
     int count;
+
+    ProcAddr procs[MAX_CHUNK_PROCS];
+    int proc_count;
 } BytecodeChunk;
 
 // Appends `instr` to `chunk`, returning its own index (the position a
@@ -95,5 +119,13 @@ typedef struct {
 // chunk is full -- same "loud error, not silent truncation" policy as
 // ast_alloc/list_alloc_node.
 int bytecode_emit(BytecodeChunk *chunk, Instr instr);
+
+// Looks up `name` in `chunk->procs`, returning its own start_pc, or -1
+// if this chunk never compiled a procedure by that name. Used by both
+// compiler.c's own backpatching (resolving an OP_CALL_PROC target
+// that wasn't known yet when it was first emitted) and vm.c's own
+// OP_SEND (resolving a message's target procedure at runtime, since
+// SEND's callee is never known at compile time at all).
+int bytecode_find_proc(const BytecodeChunk *chunk, const char *name);
 
 #endif

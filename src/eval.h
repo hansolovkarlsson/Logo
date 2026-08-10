@@ -186,6 +186,17 @@ void eval_setcanvassize_value(LogoApp *app, EvalValue width_val, EvalValue heigh
 void eval_label_value(LogoApp *app, EvalValue val);
 void eval_eraserect_value(LogoApp *app, EvalValue w_val, EvalValue h_val);
 
+// SEND's own two pure pieces (see eval.c's own "prototype-style
+// objects" section) -- neither one calls another procedure, so both
+// are safe to reuse directly in vm.c's own exec_send, which cannot
+// reuse do_send/call_ast_procedure themselves (those run a resolved
+// procedure's body via the tree-walker's exec_block; the VM instead
+// has to push a VmFrame and jump into that procedure's own *compiled*
+// body, an entirely different calling mechanism -- see vm.c's own
+// exec_send comment).
+int eval_resolve_method(LogoApp *app, AstPool *pool, const char *objname, const char *message);
+int eval_send_unpack_args(LogoApp *app, const char *obj_text, EvalValue arglist_val, EvalValue *arg_vals, int max_args);
+
 // ERASE -- a special form (like MAKE/LOCAL), not an ordinary builtin:
 // its argument is a raw procedure name (ARG_QUOTED_WORD), never an
 // evaluated expression, and it directly mutates `pool` (see eval.c's

@@ -1609,3 +1609,81 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
     resolved-suppression shape, deferred twice now), `THROW`/`CATCH`'s
     unwind design, `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates, or
     whatever the user picks next.
+- **`SEND`: done** (fourth batch off Stage 2's instruction-coverage
+  checklist item, 2026-08-09, user said "do next -- SEND"). The piece
+  deferred twice already, for a real reason confirmed both times: its
+  callee isn't known until compile time at all -- `SEND obj "message
+  arglist` resolves `message` through `obj`'s own prototype chain
+  against *live* `app->plist_entries` state, which doesn't exist yet
+  during compilation. Every other call construct in this VM (ordinary
+  builtins, procedures, even `ERASE`'s own runtime `find_proc_def` re-
+  lookup) either has a statically known target or resolves a *name* the
+  compiler already knows; `SEND` resolves an entirely dynamic *value*.
+  - **The actual fix: give `BytecodeChunk` a persistent name->address
+    table.** `compiler.c`'s own backpatching was already computing
+    exactly the `{name, start_pc}` data `SEND` needs (see the vertical
+    slice's own Progress entry) -- it just discarded it once
+    `compile_program` returned. Moved that table onto `BytecodeChunk`
+    itself (`bytecode.h`'s new `ProcAddr`/`MAX_CHUNK_PROCS`, populated
+    by `compile_program`'s own pass 1, looked up via
+    `bytecode_find_proc`) so it survives into `vm.c`'s own runtime --
+    `compiler.c`'s `Compiler` struct lost its own local copy entirely
+    (no more duplication, `find_proc_addr` is gone, every call site now
+    reads `chunk->procs[]` directly), and `OP_CALL_PROC`'s own
+    backpatching is completely unaffected (still resolved at compile
+    time, still just as fast -- this table is *additional* infrastructure,
+    not a replacement for what already worked).
+  - **Two new opcodes**, added to `compile_call`'s own special-form list
+    (`SEND`'s three arguments are ordinary expressions, unlike
+    `MAKE`/`LOCAL`/`ERASE`'s raw-name argument, but the *call mechanism*
+    itself needed its own opcode, not the generic `OP_CALL_BUILTIN`/
+    `OP_CALL_PROC` path):
+    - `OP_SEND` -- pops obj/message/arglist, resolves via
+      `eval_resolve_method` (now exposed, shared verbatim with
+      `do_send` -- it never called another procedure, so it's safe to
+      reuse directly), unpacks arguments via a new shared
+      `eval_send_unpack_args` (extracted from `do_send`'s own
+      `:self`-prepending logic, same reasoning), then either pushes a
+      `VmFrame` + scope and jumps into the resolved procedure's
+      compiled body exactly like `OP_CALL_PROC`'s own success path
+      (looking up that address via `bytecode_find_proc`, since it's
+      only known now, not at compile time), or -- on any of `SEND`'s
+      own resolution/arity/recursion failures -- prints the exact
+      message `do_send` itself would and pushes `word_val("")`
+      directly, no frame involved. **A real fidelity detail confirmed
+      by re-reading `do_send`'s own code, not assumed**: `do_send`
+      clears its own `resolved` flag on *every* "didn't produce a
+      value" outcome, including recursion-too-deep -- unlike an
+      ordinary call (`do_user_procedure_call`), which only clears it
+      for a genuinely unknown name and leaves it set (so a recursion-
+      too-deep ordinary call still gets the generic "didn't output a
+      value" message on top of "Recursion too deep, call ignored").
+      `exec_send` reproduces this exact asymmetry, not a simplified
+      version of it.
+    - `OP_CHECK_SEND_OUTPUT` -- `OP_CHECK_OUTPUT`'s own job (report
+      "<name>: didn't output a value" if a call in expression position
+      didn't produce one), but reading the name from a new
+      `Vm.last_send_message` runtime field (set by `OP_SEND` itself)
+      instead of a compile-time `.text`, since `compile_call` has no
+      way to know `SEND`'s own target message ahead of time the way it
+      does for every other call's own name.
+  - 11 new `tests/test_vm.c` cases, ported directly from
+    `test_eval.c`'s own already-confirmed `SEND` corpus: direct method
+    call, prototype-chain lookup, inherited methods vs. non-inherited
+    data fields (`GETPROP` never chain-walks), extra message arguments
+    after `:self`, operator-form output capture (both the success case
+    and the "never outputs" diagnostic), every one of `do_send`'s own
+    distinct error messages (unknown message, a data property used as
+    a method, a method missing its own `:self` parameter, wrong
+    argument count), and a cyclic prototype chain staying bounded
+    rather than looping forever. All 11 passed on the very first run --
+    no bug this time, a sign the earlier batches' groundwork (shared
+    `eval_push_scope_for_call`, the `last_call_resolved`/
+    `last_call_produced_output` machinery `ERASE`'s own batch had
+    already generalized) was doing its job. Confirmed clean under
+    AddressSanitizer; all 6 test suites pass via `make test`.
+  - **Next**: continue `docs/ROADMAP.md`'s Stage 2 instruction-coverage
+    checklist -- `THROW`/`CATCH`'s own unwind design (the other
+    genuinely hard piece, alongside suspend/resume) or `MAP`/`FILTER`/
+    `REDUCE`/`FOREACH` templates are the remaining named items, or
+    whatever the user picks next.

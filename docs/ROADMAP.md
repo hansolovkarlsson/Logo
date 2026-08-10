@@ -222,6 +222,42 @@ instruction-set/frame-layout detail behind each of these.
     state the way `test_shadow_diff.c` does), and the three `ERASE`
     cases above. Confirmed clean under AddressSanitizer; all 6 test
     suites pass via `make test`.
+  - [x] **`SEND`** (2026-08-09): the piece deferred twice before this
+    for a real reason — `SEND`'s own callee isn't known until runtime
+    (resolved through the object's prototype chain against live
+    `app->plist_entries` state), so it can't be backpatched into a
+    static `OP_CALL_PROC` target the way every other call in this VM
+    is. Solved by giving `BytecodeChunk` itself a small persistent
+    `{name, start_pc}` table (`bytecode_find_proc`) — the same data
+    `compiler.c`'s own backpatching already computes while compiling,
+    just kept around afterward instead of discarded — so a new
+    `OP_SEND` can resolve the message *at runtime* and look up its
+    target's compiled address the same way. Two new opcodes:
+    `OP_SEND` (pops obj/message/arglist, resolves, pushes a `VmFrame`
+    on success exactly like `OP_CALL_PROC`'s own success path, or
+    prints its own specific error and `word_val("")` on any failure —
+    every case ported directly from `do_send`'s own exact wording and
+    control flow, including the one place its error-suppression
+    genuinely differs from an ordinary call: `do_send` clears its own
+    `resolved` flag on *any* "didn't produce a value" outcome,
+    including recursion-too-deep, unlike an ordinary call which only
+    clears it for a truly unknown name) and `OP_CHECK_SEND_OUTPUT`
+    (`OP_CHECK_OUTPUT`'s own job, but reading the message name to
+    report from a new `Vm.last_send_message` runtime field instead of
+    a compile-time `.text`, since `compile_call` can't know `SEND`'s
+    own callee name ahead of time). `eval_resolve_method` and a new
+    `eval_send_unpack_args` (extracted from `do_send`'s own argument-
+    unpacking, since the VM's call mechanism differs from
+    `call_ast_procedure`'s tree-walking one but the unpacking itself
+    doesn't) are shared between both engines. 11 new `tests/test_vm.c`
+    cases, ported directly from `test_eval.c`'s own already-confirmed
+    `SEND` corpus — direct method call, prototype-chain lookup,
+    inherited methods vs. non-inherited data fields, extra message
+    arguments, operator-form output capture (including the "never
+    outputs" diagnostic), every one of `do_send`'s own error messages
+    (unknown message, data property, missing `:self`, wrong arg
+    count), and a cyclic prototype chain staying bounded. All passed
+    on the first run; confirmed clean under AddressSanitizer.
 - [ ] `THROW`/`CATCH` as a real unwind mechanism, not just another
   opcode — non-local exit to an arbitrary ancestor frame needs its own
   design (an explicit unwind-target stack the VM consults), flagged

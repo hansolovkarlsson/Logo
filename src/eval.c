@@ -753,7 +753,7 @@ static PlistEntry *eval_resolve_message(LogoApp *app, const char *objname, const
 // whichever of SEND's error cases applies -- mirrors interpreter.c's
 // own resolve_method, just returning an AST node index (this engine's
 // own procedure representation) instead of a Procedure*.
-static int eval_resolve_method(LogoApp *app, AstPool *pool, const char *objname, const char *message) {
+int eval_resolve_method(LogoApp *app, AstPool *pool, const char *objname, const char *message) {
     PlistEntry *e = eval_resolve_message(app, objname, message);
     if (e == NULL) {
         append_output(app, "SEND: ");
@@ -2306,6 +2306,28 @@ static void do_new(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // "didn't output a value" wrapper doesn't ALSO fire after one of these
 // already-specific messages -- mirrors do_user_procedure_call's own
 // use of *resolved for the same reason.
+// Unpacks arglist_val into arg_vals, with obj_text's own value as
+// arg_vals[0] (:self) followed by arglist_val's own elements (a
+// non-list arglist counts as one element, same convention APPLY
+// already uses). Shared between do_send (which then calls
+// call_ast_procedure, a synchronous tree-walking call) and vm.c's own
+// exec_send (which instead pushes a VmFrame and jumps into the
+// resolved procedure's compiled body -- SEND's target isn't known
+// until runtime either way, but once resolved, the argument-unpacking
+// itself is identical). Returns how many arg_vals were filled (capped
+// at max_args).
+int eval_send_unpack_args(LogoApp *app, const char *obj_text, EvalValue arglist_val, EvalValue *arg_vals, int max_args) {
+    arg_vals[0] = word_val(obj_text);
+    int n = 1;
+    if (arglist_val.type == VALUE_LIST) {
+        for (int idx = arglist_val.list_head; idx != -1 && n < max_args; idx = app->list_pool[idx].next) {
+            arg_vals[n++] = node_to_value(&app->list_pool[idx]);
+        }
+    } else if (n < max_args) {
+        arg_vals[n++] = arglist_val;
+    }
+    return n;
+}
 static EvalValue do_send(LogoApp *app, AstPool *pool, const int *arg_idx, int *resolved, int *produced) {
     EvalValue obj_val = eval_expr(app, pool, arg_idx[0]);
     EvalValue msg_val = eval_expr(app, pool, arg_idx[1]);
@@ -2321,15 +2343,7 @@ static EvalValue do_send(LogoApp *app, AstPool *pool, const int *arg_idx, int *r
 
     EvalValue arglist = eval_expr(app, pool, arg_idx[2]);
     EvalValue arg_vals[AST_MAX_PARAMS];
-    arg_vals[0] = word_val(obj_text);
-    int n = 1;
-    if (arglist.type == VALUE_LIST) {
-        for (int idx = arglist.list_head; idx != -1 && n < AST_MAX_PARAMS; idx = app->list_pool[idx].next) {
-            arg_vals[n++] = node_to_value(&app->list_pool[idx]);
-        }
-    } else if (n < AST_MAX_PARAMS) {
-        arg_vals[n++] = arglist;
-    }
+    int n = eval_send_unpack_args(app, obj_text, arglist, arg_vals, AST_MAX_PARAMS);
 
     AstNode *def = &pool->nodes[def_node];
     if (n != def->param_count) {

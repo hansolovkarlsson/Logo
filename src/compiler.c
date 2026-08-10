@@ -21,11 +21,15 @@
 // parser.c's own try_parse_call/BUILTIN_SIGNATURES), and vm.c's own
 // call_builtin dispatch (which growing instruction coverage now only
 // needs to touch there and in eval.c, never here) is responsible for
-// recognizing it. Only OUTPUT/STOP/WHILE/MAKE/LOCAL stay special-cased
-// by name in compile_call itself, since their argument shapes are
-// irregular (a variable name instead of a value expression, a block
-// argument, control transfer) in ways the uniform "compile every child
-// as an expression, then call" path can't express.
+// recognizing it. Only OUTPUT/STOP/WHILE/MAKE/LOCAL/ERASE stay
+// special-cased by name in compile_call itself, since their argument
+// shapes are irregular (a variable name instead of a value expression,
+// a block argument, control transfer) in ways the uniform "compile
+// every child as an expression, then call" path can't express. SEND is
+// also special-cased, for a different reason: see its own comment in
+// compile_call below and exec_send in vm.c -- its callee isn't known
+// until runtime, so it can't be compiled as an ordinary OP_CALL_PROC/
+// OP_CALL_BUILTIN at all.
 //
 // Procedure calls need genuine backpatching, not just "compile
 // procedures before top-level code": one procedure's own body can
@@ -35,22 +39,29 @@
 // call is compiled. Every OP_CALL_PROC emitted for a not-yet-resolved
 // name gets a placeholder target (-1) and a pending-patch entry
 // instead; once every procedure has been compiled (so every name in
-// c.procs[] is final), a second pass fills in every placeholder. Top-
-// level calls never need this: procedures are always compiled before
-// the top-level code that might call them, so a top-level call's own
-// target is already known the moment it's compiled.
+// chunk->procs[] is final), a second pass fills in every placeholder.
+// Top-level calls never need this: procedures are always compiled
+// before the top-level code that might call them, so a top-level
+// call's own target is already known the moment it's compiled.
+// chunk->procs[] itself (not a Compiler-local table) is what makes
+// this resolvable at all -- see bytecode.h's own comment on why it's
+// kept on the chunk instead of discarded after compile_program
+// returns (vm.c's own OP_SEND needs the same table at runtime).
 
 #include "compiler.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
-#define MAX_COMPILED_PROCS 50 // matches MAX_PROCEDURES in logo_types.h
-
-typedef struct {
-    char name[32];
-    int start_pc;
-} ProcAddr;
+// Proc addresses (name -> start_pc) now live on BytecodeChunk itself
+// (see bytecode.h's own ProcAddr/MAX_CHUNK_PROCS) rather than a
+// Compiler-local table discarded after compile_program returns --
+// vm.c's own OP_SEND needs that same table at RUNTIME (a message's
+// target procedure isn't known until its prototype chain is resolved
+// against live app state, so it can't be backpatched the way an
+// ordinary call's target can). Backpatching itself is unaffected:
+// bytecode_find_proc(chunk, name) is just where find_proc_addr used to
+// look.
 
 #define MAX_PENDING_PATCHES 256
 
@@ -60,21 +71,12 @@ typedef struct {
 } PendingPatch;
 
 typedef struct {
-    ProcAddr procs[MAX_COMPILED_PROCS];
-    int proc_count;
     PendingPatch patches[MAX_PENDING_PATCHES];
     int patch_count;
 } Compiler;
 
 static int emit(BytecodeChunk *chunk, Instr instr) {
     return bytecode_emit(chunk, instr);
-}
-
-static int find_proc_addr(Compiler *c, const char *name) {
-    for (int i = 0; i < c->proc_count; i++) {
-        if (strcasecmp(c->procs[i].name, name) == 0) return c->procs[i].start_pc;
-    }
-    return -1;
 }
 
 static void add_pending_patch(Compiler *c, int instr_index, const char *name) {
@@ -191,12 +193,31 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "ERASE", want_value);
         return;
     }
+    if (strcasecmp(name, "SEND") == 0) {
+        // Unlike every other call form, SEND's own callee isn't known
+        // until runtime (resolved through obj's prototype chain --
+        // see exec_send in vm.c), so it can't use finish_call's own
+        // OP_CHECK_OUTPUT (which needs a compile-time-known name for
+        // its "didn't output a value" message; SEND's message is a
+        // runtime value). All 3 arguments (obj, message, arglist) are
+        // still ordinary expressions, though -- only the call
+        // mechanism itself differs.
+        int send_argc = collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        for (int i = 0; i < send_argc; i++) compile_expr(c, pool, args[i], chunk);
+        emit(chunk, (Instr){.op = OP_SEND});
+        if (want_value) {
+            emit(chunk, (Instr){.op = OP_CHECK_SEND_OUTPUT});
+        } else {
+            emit(chunk, (Instr){.op = OP_POP});
+        }
+        return;
+    }
 
     int argc = collect_children(pool, node_idx, args, AST_MAX_PARAMS);
     for (int i = 0; i < argc; i++) compile_expr(c, pool, args[i], chunk);
 
     if (find_proc_def(pool, name) >= 0) {
-        int target = find_proc_addr(c, name);
+        int target = bytecode_find_proc(chunk, name);
         Instr instr = {0};
         instr.op = OP_CALL_PROC;
         instr.a = target;
@@ -384,8 +405,8 @@ int compile_program(AstPool *pool, int program_node, BytecodeChunk *chunk) {
     // target was known (see this file's own top comment).
     for (int i = 0; i < pool->node_count; i++) {
         if (pool->nodes[i].type != AST_PROC_DEF) continue;
-        if (c.proc_count < MAX_COMPILED_PROCS) {
-            ProcAddr *pa = &c.procs[c.proc_count++];
+        if (chunk->proc_count < MAX_CHUNK_PROCS) {
+            ProcAddr *pa = &chunk->procs[chunk->proc_count++];
             snprintf(pa->name, sizeof(pa->name), "%s", pool->nodes[i].text);
             pa->start_pc = chunk->count;
         }
@@ -397,14 +418,14 @@ int compile_program(AstPool *pool, int program_node, BytecodeChunk *chunk) {
     }
 
     // Pass 2: resolve every pending patch, now that every procedure's
-    // own name is final in c.procs[]. A target that's still
+    // own name is final in chunk->procs[]. A target that's still
     // unresolved here can't happen -- the parser already guarantees
     // every AST_CALL name it built resolves to either a builtin or a
     // hoisted procedure (see parser.c's own try_parse_call), the same
     // guarantee eval.c's own do_user_procedure_call/find_proc_def rely
     // on.
     for (int i = 0; i < c.patch_count; i++) {
-        int target = find_proc_addr(&c, c.patches[i].name);
+        int target = bytecode_find_proc(chunk, c.patches[i].name);
         if (target >= 0) chunk->code[c.patches[i].instr_index].a = target;
     }
 
