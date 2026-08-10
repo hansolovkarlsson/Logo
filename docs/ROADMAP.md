@@ -933,6 +933,40 @@ instruction-set/frame-layout detail behind each of these.
   **This closes the 35-name audit entirely — a scripted re-run confirms
   zero `parser.c`-declared builtins remain unreachable from `vm.c`.**
 
+### Phase 6 — MultiLogo-style concurrent turtle agents
+
+Scoped 2026-08-10 (see `docs/CONCURRENT_AGENTS_DESIGN.md` for the full
+design record — this entry just points at it, same convention Phase 5's
+own bytecode-VM entry used for `docs/BYTECODE_VM_DESIGN.md`). Flagged
+directly in `docs/FEATURE_ATLAS.md`'s own survey as needing "cooperative
+scheduling inside `eval_logo` — a fundamentally different execution
+model" — no longer true now that the bytecode VM's explicit `pc`/frame
+array and real suspend/resume mechanism exist. `TELL` is a different,
+smaller thing (switches which turtle a single sequential program steers,
+one statement at a time); MultiLogo's own agents are genuinely
+interleaved, each with its own independent call stack.
+
+Three resolved decisions: (1) a full rework — per-agent scope storage
+plus fixing the other confirmed shared-state hazards (`current_turtle`,
+`throw_requested`/`throw_tag`, `run_depth`) — rather than a narrower
+"agents can only yield at their own top level" pass, which would have
+made `WAIT`/`PAUSE` effectively unusable inside an agent's own procedure
+calls; (2) a spawned agent auto-gets a fresh turtle at spawn time; (3)
+`PAUSE` inside an agent is refused with a clear message for now (no
+agreed per-agent semantic yet — pause just that agent, or the whole
+swarm?), the same "documented gap, not silent corruption" spirit as
+every other `vm_run_depth`-gated refusal.
+
+- [ ] First slice: `Agent` struct, the save/restore context switch
+  (reuses `find_var` and every existing opcode unchanged — swaps
+  `app->scopes`/`scope_depth`/`throw_requested`/`throw_tag`/`run_depth`
+  around each agent's turn rather than threading a new parameter through
+  everything that touches them), a minimal cooperative round-robin
+  scheduler in `ui.c` (reusing `VmRunResult`/the existing suspend/resume
+  machinery — a voluntary yield is just another suspend reason, resumed
+  on the next scheduling tick instead of a timer), and `LAUNCH`/`AWAIT`.
+  Not started.
+
 ## Robustness
 
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
