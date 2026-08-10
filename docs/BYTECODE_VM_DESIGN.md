@@ -17,8 +17,13 @@ scoped to `WAIT`/`WAITKEY`, then `INPUT`, then `PAUSE`/`CONTINUE`/`CO`
 `ANIMATESPRITE` (plus the sprite subsystem it needed) landed right
 after as its own separate project. `bin/logo` now runs scripts through
 the compiler+VM instead of `eval_logo`, the first real cutover of the
-live app. A separately-found gap remains open: `TEXT`/`SHOW`/file I/O
-were never wired into `vm.c`'s `call_builtin` at all.
+live app. `TEXT`/`SHOW`/`SAVE`/file I/O (12 of 13 originally flagged;
+`LOAD` excluded, its own bigger design question) are wired in now too
+— but that work's own testing surfaced a much larger version of the
+same gap: a scripted audit found 35 `parser.c`-declared builtins total
+never reaching `vm.c` at all (math operators, list/word operators, type
+predicates, `RUN`/`APPLY`, some turtle-command short aliases, and
+`LOAD`), reported in full and not yet scoped/prioritized.
 
 ## Why
 
@@ -2306,9 +2311,40 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   zero hits. They parse fine but silently no-op through the VM today.
   Flagged clearly; the user chose to keep it as its own separate,
   similarly-sized follow-up batch.
-  - **Next**: the file-I/O/`TEXT`/`SHOW` gap just found, `PAUSE`'s own
-    Ctrl+C-based force-unpause (left out, matching the broader
-    interrupt-checking gap), and the still-open `WHILE`/`FOR`
-    iteration-cap gap and `OUTPUT`/`STOP`-inside-a-template limitation
-    all remain smaller, optional follow-ups, or whatever the user picks
-    next.
+- **`TEXT`/`SHOW`/`SAVE`/`DELETEFILE` + general file I/O** (2026-08-10)
+  — the gap flagged above, fixed for 12 of the 13 originally-named
+  commands. Unlike sprites/`PAUSE`, these already existed in `eval.c`
+  for `ast_eval` — the fix was the established `eval_X_value`-core
+  split (same pattern as lists/property-lists/turtle-drawing): each
+  `do_X` split into a thin wrapper (unchanged) plus a new core taking
+  already-evaluated `EvalValue`s, exposed for `vm.c`'s `call_builtin`.
+  Zero new opcodes, zero `compiler.c` changes; confirmed via a full
+  `make test` run that the refactor changed nothing about `ast_eval`'s
+  own behavior. `LOAD` deliberately excluded — `do_load` runs a loaded
+  file's own top-level statements via `exec_block` (the tree-walker),
+  which needs its own dedicated opcode and a runtime nested-compile-
+  and-run mechanism, a real design question of its own.
+  21 new headless `tests/test_vm.c` cases, direct single-engine VM
+  tests rather than `shadow_diff_vm` — real file I/O against `build/`
+  means running the same script through both engines back-to-back
+  would double up non-idempotent side effects (a second `DELETEFILE`/
+  `OPENAPPEND` behaves differently the second time). Confirmed clean
+  under AddressSanitizer (same one pre-existing crash); all 6
+  `make test` suites pass; `bin/logo`/`bin/logi` build and run cleanly.
+  **A much bigger version of the same gap, found via this batch's own
+  testing, not gone looking for**: writing a `DIRECTORY` test hit
+  `LIST?`, also silently broken through the VM. A scripted audit
+  (`parser.c`'s own `BUILTIN_SIGNATURES` names diffed against every
+  name `vm.c`/`compiler.c` actually recognize) found **35** such names
+  total: 15 math operators, 7 list/word operators, the 4 type
+  predicates, `APPLY`/`RUN`, 6 turtle-command short aliases (full names
+  already work, just not `HT`/`ST`/`SETH`/`SETPC`/`SETPW`/`SETBG`), and
+  `LOAD` itself. Reported to the user in full rather than fixed ad hoc;
+  scope/priority for the rest is their own call, not yet decided.
+  - **Next**: the newly-found 34-item remainder of the builtin-coverage
+    audit (see `docs/ROADMAP.md`'s own full breakdown) is the largest
+    concrete item now. `PAUSE`'s own Ctrl+C-based force-unpause (left
+    out, matching the broader interrupt-checking gap), and the
+    still-open `WHILE`/`FOR` iteration-cap gap and
+    `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,
+    optional follow-ups, or whatever the user picks next.

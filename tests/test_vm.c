@@ -1308,6 +1308,202 @@ TEST(test_animatesprite_with_a_non_positive_delay_runs_all_frames_synchronously)
     free(vm); free(chunk); parse_result_destroy(result); free(app);
 }
 
+// TEXT/SHOW/SAVE and general file I/O (see docs/BYTECODE_VM_DESIGN.md's
+// note on the newly-found gap this closes): unlike sprites/PAUSE, these
+// already existed in ast_eval too, but real file I/O against build/
+// means running the same script through BOTH engines back-to-back
+// (shadow_diff_vm's own convention) would double up non-idempotent
+// side effects (a second DELETEFILE/OPENAPPEND on the same real file
+// behaves differently the second time) -- so these are direct,
+// single-engine VM tests instead, matching tests/test_eval.c's own
+// corpus almost verbatim, just pointed at the VM via start_vm_session.
+
+TEST(test_text_on_a_defined_procedure_lists_its_body_words) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO double :x\n  OUTPUT :x * 2\nEND\nPRINT TEXT \"double", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("OUTPUT :x * 2\n");
+    end_vm_session(s);
+}
+
+TEST(test_text_on_an_undefined_procedure_reports_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT TEXT \"nope", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "TEXT: no such procedure \"nope") == NULL) {
+        failures++;
+        printf("FAIL %s: expected \"no such procedure\", got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_show_prints_a_procedures_own_definition) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO double :x\n  OUTPUT :x * 2\nEND\nSHOW \"double", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("TO double :x\nOUTPUT :x * 2\n\nEND\n");
+    end_vm_session(s);
+}
+
+TEST(test_show_of_an_undefined_procedure_reports_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SHOW \"nope", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "SHOW: no such procedure \"nope") == NULL) {
+        failures++;
+        printf("FAIL %s: expected \"no such procedure\", got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_save_writes_every_procedure_to_a_file) {
+    const char *path = "build/test_vm_save.txt";
+    remove(path);
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO double :x\n  OUTPUT :x * 2\nEND\nSAVE \"build/test_vm_save.txt", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    char *contents = NULL;
+    if (!g_file_get_contents(path, &contents, NULL, NULL)) {
+        failures++;
+        printf("FAIL %s: SAVE did not create %s\n", current_test, path);
+    } else {
+        if (strcmp(contents, "TO double :x\nOUTPUT :x * 2\n\nEND\n\n") != 0) {
+            failures++;
+            printf("FAIL %s: unexpected SAVE content: \"%s\"\n", current_test, contents);
+        }
+        g_free(contents);
+    }
+    remove(path);
+    end_vm_session(s);
+}
+
+TEST(test_openwrite_fileprint_close_writes_the_file) {
+    const char *path = "build/test_vm_openwrite.txt";
+    remove(path);
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "MAKE \"ch OPENWRITE \"build/test_vm_openwrite.txt\n"
+        "FILEPRINT :ch \"hello\n"
+        "FILEPRINT :ch \"world\n"
+        "CLOSE :ch", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    char *contents = NULL;
+    if (!g_file_get_contents(path, &contents, NULL, NULL)) {
+        failures++;
+        printf("FAIL %s: OPENWRITE did not create %s\n", current_test, path);
+    } else {
+        if (strcmp(contents, "hello\nworld\n") != 0) {
+            failures++;
+            printf("FAIL %s: unexpected file content: \"%s\"\n", current_test, contents);
+        }
+        g_free(contents);
+    }
+    remove(path);
+    end_vm_session(s);
+}
+
+TEST(test_openread_readline_reads_lines_then_eof) {
+    const char *path = "build/test_vm_openread.txt";
+    remove(path);
+    g_file_set_contents(path, "line one\nline two\n", -1, NULL);
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "MAKE \"ch OPENREAD \"build/test_vm_openread.txt\n"
+        "PRINT READLINE :ch\n"
+        "PRINT READLINE :ch\n"
+        "PRINT EOF? :ch\n"
+        "CLOSE :ch", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("line one\nline two\nTRUE\n");
+    remove(path);
+    end_vm_session(s);
+}
+
+TEST(test_openappend_appends_to_existing_content) {
+    const char *path = "build/test_vm_openappend.txt";
+    remove(path);
+    g_file_set_contents(path, "first\n", -1, NULL);
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "MAKE \"ch OPENAPPEND \"build/test_vm_openappend.txt\n"
+        "FILEPRINT :ch \"second\n"
+        "CLOSE :ch", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    char *contents = NULL;
+    if (!g_file_get_contents(path, &contents, NULL, NULL)) {
+        failures++;
+        printf("FAIL %s: OPENAPPEND did not create %s\n", current_test, path);
+    } else {
+        if (strcmp(contents, "first\nsecond\n") != 0) {
+            failures++;
+            printf("FAIL %s: unexpected file content: \"%s\"\n", current_test, contents);
+        }
+        g_free(contents);
+    }
+    remove(path);
+    end_vm_session(s);
+}
+
+TEST(test_openread_of_missing_file_returns_negative_one) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT OPENREAD \"build/test_vm_does_not_exist.txt", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("-1\n");
+    end_vm_session(s);
+}
+
+TEST(test_close_of_invalid_channel_reports_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("CLOSE 3", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("CLOSE: no such open channel\n");
+    end_vm_session(s);
+}
+
+TEST(test_deletefile_removes_a_file) {
+    const char *path = "build/test_vm_deletefile.txt";
+    g_file_set_contents(path, "x", -1, NULL);
+    VmRunResult status;
+    VmTestSession s = start_vm_session("DELETEFILE \"build/test_vm_deletefile.txt", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (g_file_test(path, G_FILE_TEST_EXISTS)) {
+        failures++;
+        printf("FAIL %s: %s still exists after DELETEFILE\n", current_test, path);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_deletefile_of_missing_file_reports_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("DELETEFILE \"build/test_vm_does_not_exist_either.txt", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "DELETEFILE: could not delete") == NULL) {
+        failures++;
+        printf("FAIL %s: expected \"could not delete\", got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_directory_returns_a_list_without_crashing) {
+    // Not LIST? DIRECTORY -- LIST? turned out to be a separate,
+    // already-known-missing gap (see docs/ROADMAP.md's own note on the
+    // broader audit this batch's testing surfaced), not something this
+    // batch fixes. COUNT already existed in vm.c before this batch. The
+    // exact count is cwd-dependent, so only checked for "a well-formed
+    // non-negative number", not an exact value.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT COUNT DIRECTORY", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    char *end;
+    double count = strtod(captured_output, &end);
+    if (end == captured_output || count < 0) {
+        failures++;
+        printf("FAIL %s: expected a non-negative number, got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -1433,6 +1629,19 @@ int main(void) {
     RUN(test_animatesprite_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
     RUN(test_animatesprite_with_a_positive_delay_advances_one_frame_per_suspend_then_completes);
     RUN(test_animatesprite_with_a_non_positive_delay_runs_all_frames_synchronously);
+    RUN(test_text_on_a_defined_procedure_lists_its_body_words);
+    RUN(test_text_on_an_undefined_procedure_reports_error);
+    RUN(test_show_prints_a_procedures_own_definition);
+    RUN(test_show_of_an_undefined_procedure_reports_error);
+    RUN(test_save_writes_every_procedure_to_a_file);
+    RUN(test_openwrite_fileprint_close_writes_the_file);
+    RUN(test_openread_readline_reads_lines_then_eof);
+    RUN(test_openappend_appends_to_existing_content);
+    RUN(test_openread_of_missing_file_returns_negative_one);
+    RUN(test_close_of_invalid_channel_reports_error);
+    RUN(test_deletefile_removes_a_file);
+    RUN(test_deletefile_of_missing_file_reports_error);
+    RUN(test_directory_returns_a_list_without_crashing);
 
     if (failures == 0) {
         printf("All tests passed.\n");

@@ -258,6 +258,40 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         *produced = 0;
         return num_val(0);
     }
+    // TEXT/SHOW/SAVE and general file I/O (see eval.h's own note --
+    // LOAD is deliberately not here, it has its own dedicated OP_LOAD).
+    if (strcasecmp(name, "TEXT") == 0) return eval_text_value(app, pool, args[0]);
+    if (strcasecmp(name, "SHOW") == 0) {
+        eval_show_value(app, pool, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SAVE") == 0) {
+        eval_save_value(app, pool, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "DELETEFILE") == 0) {
+        eval_deletefile_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "OPENREAD") == 0) return eval_openread_value(app, args[0]);
+    if (strcasecmp(name, "OPENWRITE") == 0) return eval_openwrite_value(app, args[0]);
+    if (strcasecmp(name, "OPENAPPEND") == 0) return eval_openappend_value(app, args[0]);
+    if (strcasecmp(name, "READLINE") == 0) return eval_readline_value(app, args[0]);
+    if (strcasecmp(name, "EOF?") == 0) return eval_eofp_value(app, args[0]);
+    if (strcasecmp(name, "DIRECTORY") == 0) return eval_directory_value(app);
+    if (strcasecmp(name, "CLOSE") == 0) {
+        eval_close_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "FILEPRINT") == 0) {
+        eval_fileprint_value(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
     if (strcasecmp(name, "THING") == 0) return eval_thing_value(app, args[0]);
     if (strcasecmp(name, "FIRST") == 0) return eval_first_value(app, args[0]);
     if (strcasecmp(name, "BUTFIRST") == 0) return eval_butfirst_value(app, args[0]);

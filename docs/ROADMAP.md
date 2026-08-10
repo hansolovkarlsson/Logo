@@ -790,6 +790,58 @@ instruction-set/frame-layout detail behind each of these.
   **This closes out every named suspend/resume item on Stage 2's own
   checklist.** `ANIMATESPRITE` itself was picked up as its own separate
   project right after (see below) — it landed too.
+- [x] **`TEXT`/`SHOW`/`SAVE`/`DELETEFILE` + general file I/O** (2026-08-10)
+  — the gap flagged above, fixed. `OPENREAD`/`OPENWRITE`/`OPENAPPEND`/
+  `READLINE`/`EOF?`/`DIRECTORY`/`CLOSE`/`FILEPRINT`/`DELETEFILE`/
+  `TEXT`/`SHOW`/`SAVE` (12 of the 13 originally flagged; `LOAD` excluded
+  — see below) now all work through the VM. Unlike sprites/`PAUSE`,
+  these already existed in `eval.c` for `ast_eval` — the fix was the
+  established `eval_X_value`-core split (same pattern as lists/
+  property-lists/turtle-drawing): each `do_X` in `eval.c` split into a
+  thin wrapper (unchanged, still evaluates its own arguments from raw
+  AST indices for `ast_eval`'s sake) plus a new `eval_X_value` core
+  taking already-evaluated `EvalValue`s, exposed via `eval.h` for
+  `vm.c`'s `call_builtin` to call directly — zero new opcodes, zero
+  `compiler.c` changes, confirmed via a full `make test` run (all 6
+  suites) that the refactor changed nothing about `ast_eval`'s own
+  existing behavior. 21 new headless `tests/test_vm.c` cases, direct
+  single-engine VM tests rather than `shadow_diff_vm`: real file I/O
+  against `build/` means running the identical script through both
+  engines back-to-back (`shadow_diff_vm`'s own convention) would double
+  up non-idempotent side effects (a second `DELETEFILE`/`OPENAPPEND` on
+  the same real file behaves differently the second time), so these
+  mirror `tests/test_eval.c`'s own file-I/O corpus almost verbatim,
+  just pointed at the VM. Confirmed clean under AddressSanitizer (same
+  one pre-existing, unrelated crash); all 6 `make test` suites pass;
+  `bin/logo`/`bin/logi` build warning-free and run without crashing.
+  **`LOAD` deliberately excluded, a bigger piece than a value-taking-core
+  refactor**: `do_load` runs a loaded file's own top-level statements via
+  `exec_block` (this tree-walker) — the VM has no equivalent hook for
+  that without its own dedicated opcode and a runtime nested-compile-
+  and-run mechanism (mirroring how `MAP`/`FILTER`/`REDUCE`/`FOREACH`
+  templates and the parser's own eager-`LOAD`-following pre-pass each
+  solve a similar problem), a real design question of its own, not
+  implemented as part of this batch.
+  **A much bigger version of the same gap, found via this batch's own
+  testing, not gone looking for**: while writing a test for `DIRECTORY`,
+  `LIST?` turned out to be silently broken through the VM too — a
+  scripted audit (diffing every name in `parser.c`'s own
+  `BUILTIN_SIGNATURES` against every name `vm.c`'s `call_builtin` and
+  `compiler.c`'s special-form branches actually recognize) found **35**
+  such names total, not just the ones already known: math operators
+  (`ABS`/`ACOS`/`ARCTAN`/`ASIN`/`COS`/`EXP`/`LN`/`LOG`/`MOD`/`POWER`/
+  `RANDOM`/`ROUND`/`SIN`/`SQRT`/`TAN`), list/word operators (`CROSS`/
+  `DOT`/`FLATTEN`/`MEMBER?`/`PARSE`/`PICK`/`SUBST`), the type
+  predicates (`ARRAY?`/`LIST?`/`NUMBER?`/`WORD?`), deferred execution
+  (`APPLY`/`RUN`), a handful of turtle-command short aliases whose full
+  names already work (`HT`/`SETBG`/`SETH`/`SETPC`/`SETPW`/`ST` —
+  `HIDETURTLE`/`SETBACKGROUND`/`SETHEADING`/`SETPENCOLOR`/
+  `SETPENWIDTH`/`SHOWTURTLE` are all fine, only their short forms
+  aren't), and `LOAD` itself (already known, see above). All silently
+  no-op through the VM today the same way `TEXT`/`SHOW`/file-I/O did.
+  Reported to the user in full rather than fixed ad hoc as each one
+  happened to surface in a test; scope/priority for the remaining 34 is
+  the user's own call, not yet decided.
 
 ## Robustness
 

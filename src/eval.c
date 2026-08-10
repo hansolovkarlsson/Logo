@@ -1291,8 +1291,8 @@ static void do_erase(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // this engine's TO definitions never had their original source text
 // retained anywhere before this, which is exactly what blocked TEXT
 // (and SAVE, see do_save below) until now.
-static EvalValue do_text(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    const char *name = pool->nodes[arg_idx[0]].text;
+EvalValue eval_text_value(LogoApp *app, AstPool *pool, EvalValue name_val) {
+    const char *name = name_val.word;
     int def_node = find_proc_def(pool, name);
     if (def_node < 0) {
         append_output(app, "TEXT: no such procedure \"");
@@ -1305,6 +1305,9 @@ static EvalValue do_text(LogoApp *app, AstPool *pool, const int *arg_idx) {
     const char *body = def->body_text != NULL ? def->body_text : "";
     if (!eval_list_tokenize_words(app, body, (size_t)def->body_len, &head)) return list_pool_exhausted(app);
     return list_val(head);
+}
+static EvalValue do_text(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_text_value(app, pool, word_val(pool->nodes[arg_idx[0]].text));
 }
 static void do_output(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue val = eval_expr(app, pool, arg_idx[0]);
@@ -2072,8 +2075,19 @@ static void do_catch(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // logo_types.h): a read channel loads everything up front and serves
 // READLINE out of read_buffer/read_pos; a write channel only actually
 // touches disk when CLOSE flushes its write_buffer.
-static EvalValue do_openread(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue path_val = eval_expr(app, pool, arg_idx[0]);
+// Value-taking cores (see eval.h's own note on this pattern): exposed
+// so vm.c's call_builtin can share them directly rather than
+// reimplementing -- these 12 file-I/O/TEXT/SHOW/SAVE builtins were
+// declared in parser.c's own BUILTIN_SIGNATURES from Stage 1 but never
+// wired into the bytecode VM at all until this refactor (confirmed by
+// grep: zero hits in vm.c before this), a real, previously-unnoticed
+// gap found while scoping ANIMATESPRITE/sprites -- they parsed fine
+// but silently no-op'd through the VM. LOAD is deliberately NOT among
+// them: its own do_load below runs a loaded file's top-level
+// statements via exec_block (this tree-walker), which the VM has no
+// equivalent hook for without its own dedicated opcode -- a separate,
+// bigger piece, not a value-taking-core refactor.
+EvalValue eval_openread_value(LogoApp *app, EvalValue path_val) {
     char path_text[512];
     eval_value_to_text(app, path_val, path_text, sizeof(path_text));
     int idx = find_free_file_channel(app);
@@ -2090,8 +2104,11 @@ static EvalValue do_openread(LogoApp *app, AstPool *pool, const int *arg_idx) {
     fc->read_pos = 0;
     return num_val(idx);
 }
-static EvalValue do_openwrite(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue path_val = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_openread(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_openread_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+
+EvalValue eval_openwrite_value(LogoApp *app, EvalValue path_val) {
     char path_text[512];
     eval_value_to_text(app, path_val, path_text, sizeof(path_text));
     int idx = find_free_file_channel(app);
@@ -2102,8 +2119,11 @@ static EvalValue do_openwrite(LogoApp *app, AstPool *pool, const int *arg_idx) {
     snprintf(fc->path, sizeof(fc->path), "%s", path_text);
     return num_val(idx);
 }
-static EvalValue do_openappend(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue path_val = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_openwrite(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_openwrite_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+
+EvalValue eval_openappend_value(LogoApp *app, EvalValue path_val) {
     char path_text[512];
     eval_value_to_text(app, path_val, path_text, sizeof(path_text));
     int idx = find_free_file_channel(app);
@@ -2120,8 +2140,12 @@ static EvalValue do_openappend(LogoApp *app, AstPool *pool, const int *arg_idx) 
     snprintf(fc->path, sizeof(fc->path), "%s", path_text);
     return num_val(idx);
 }
-static EvalValue do_readline(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+static EvalValue do_openappend(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_openappend_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+
+EvalValue eval_readline_value(LogoApp *app, EvalValue idx_val) {
+    int idx = (int)eval_to_number(idx_val);
     if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
         return word_val("");
     }
@@ -2140,15 +2164,23 @@ static EvalValue do_readline(LogoApp *app, AstPool *pool, const int *arg_idx) {
     fc->read_pos = newline != NULL ? end + 1 : len;
     return word_val(line);
 }
-static EvalValue do_eofp(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+static EvalValue do_readline(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_readline_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+
+EvalValue eval_eofp_value(LogoApp *app, EvalValue idx_val) {
+    int idx = (int)eval_to_number(idx_val);
     if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
         return word_val("TRUE");
     }
     FileChannel *fc = &app->file_channels[idx];
     return word_val(fc->read_pos >= strlen(fc->read_buffer) ? "TRUE" : "FALSE");
 }
-static EvalValue do_directory(LogoApp *app) {
+static EvalValue do_eofp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_eofp_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+
+EvalValue eval_directory_value(LogoApp *app) {
     int head = -1;
     int *next_slot = &head;
     GDir *dir = g_dir_open(".", 0, NULL);
@@ -2164,8 +2196,12 @@ static EvalValue do_directory(LogoApp *app) {
     }
     return list_val(head);
 }
-static void do_close(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+static EvalValue do_directory(LogoApp *app) {
+    return eval_directory_value(app);
+}
+
+void eval_close_value(LogoApp *app, EvalValue idx_val) {
+    int idx = (int)eval_to_number(idx_val);
     if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode == FILE_CHANNEL_CLOSED) {
         append_output(app, "CLOSE: no such open channel\n");
         return;
@@ -2185,17 +2221,29 @@ static void do_close(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     fc->mode = FILE_CHANNEL_CLOSED;
 }
-static void do_fileprint(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int idx = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    EvalValue val = eval_expr(app, pool, arg_idx[1]);
+static void do_close(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_close_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+
+void eval_fileprint_value(LogoApp *app, EvalValue idx_val, EvalValue text_val) {
+    int idx = (int)eval_to_number(idx_val);
     if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_WRITE) {
         append_output(app, "FILEPRINT: channel not open for writing\n");
         return;
     }
     char line[512];
-    eval_value_to_text(app, val, line, sizeof(line));
+    eval_value_to_text(app, text_val, line, sizeof(line));
     g_string_append(app->file_channels[idx].write_buffer, line);
     g_string_append_c(app->file_channels[idx].write_buffer, '\n');
+}
+static void do_fileprint(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    // Evaluated as two separate statements, not nested into one call,
+    // to preserve the exact original left-to-right evaluation order --
+    // C doesn't guarantee an order between two eval_expr calls made as
+    // sibling arguments to the same outer call.
+    EvalValue idx_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue text_val = eval_expr(app, pool, arg_idx[1]);
+    eval_fileprint_value(app, idx_val, text_val);
 }
 // DELETEFILE/LOAD's own path argument is ARG_QUOTED_WORD, not ARG_EXPR
 // -- matching interpreter.c's own raw sscanf("%s")-plus-leading-quote-
@@ -2204,13 +2252,16 @@ static void do_fileprint(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // parser.c's own file comment on ARG_QUOTED_WORD): DELETEFILE WORD "a
 // ".txt isn't a computed expression here, it's a syntax error, same as
 // in interpreter.c.
-static void do_deletefile(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    const char *path = pool->nodes[arg_idx[0]].text;
+void eval_deletefile_value(LogoApp *app, EvalValue path_val) {
+    const char *path = path_val.word;
     if (g_remove(path) != 0) {
         append_output(app, "DELETEFILE: could not delete \"");
         append_output(app, path);
         append_output(app, "\n");
     }
+}
+static void do_deletefile(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_deletefile_value(app, word_val(pool->nodes[arg_idx[0]].text));
 }
 // LOAD "path -- reads a file and runs it as Logo source, the same
 // re-entrant lex/parse-into-a-scratch-ParseResult machinery RUN/
@@ -2276,8 +2327,8 @@ static void eval_append_procedure_text(GString *out, AstNode *n) {
 // AST_PROC_DEF nodes (the same reach do_procedures already uses,
 // including its own skip-a-blank-.text-entry rule for an ERASE'd
 // procedure) instead of interpreter.c's own app->procedures[] table.
-static void do_save(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    const char *path = pool->nodes[arg_idx[0]].text;
+void eval_save_value(LogoApp *app, AstPool *pool, EvalValue path_val) {
+    const char *path = path_val.word;
     GString *out = g_string_new(NULL);
     for (int i = 0; i < pool->node_count; i++) {
         AstNode *n = &pool->nodes[i];
@@ -2303,12 +2354,15 @@ static void do_save(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     g_string_free(out, TRUE);
 }
+static void do_save(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_save_value(app, pool, word_val(pool->nodes[arg_idx[0]].text));
+}
 // SHOW "name -- prints one procedure's own TO...END definition back to
 // the history pane, reusing eval_append_procedure_text directly (the
 // same rendering SAVE writes to a file for every procedure, just this
 // one and without SAVE's own extra per-procedure trailing blank line).
-static void do_show(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    const char *name = pool->nodes[arg_idx[0]].text;
+void eval_show_value(LogoApp *app, AstPool *pool, EvalValue name_val) {
+    const char *name = name_val.word;
     int def_node = find_proc_def(pool, name);
     if (def_node < 0) {
         append_output(app, "SHOW: no such procedure \"");
@@ -2320,6 +2374,9 @@ static void do_show(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_append_procedure_text(out, &pool->nodes[def_node]);
     append_output(app, out->str);
     g_string_free(out, TRUE);
+}
+static void do_show(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_show_value(app, pool, word_val(pool->nodes[arg_idx[0]].text));
 }
 static void do_setprop(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_setprop(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));

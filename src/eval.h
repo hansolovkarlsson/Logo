@@ -297,4 +297,24 @@ void ast_eval(LogoApp *app, AstPool *pool, int program_node);
 // full accumulated source. `-1` runs nothing, matching an empty block.
 void ast_eval_from(LogoApp *app, AstPool *pool, int start_node);
 
+// TEXT/SHOW/SAVE and general file I/O -- same eval_X_value-core split
+// as every batch above, exposed for vm.c's call_builtin (added
+// 2026-08-10, found never wired into the VM at all despite being in
+// parser.c's own BUILTIN_SIGNATURES since Stage 1). LOAD is
+// deliberately not here: it runs a loaded file's own top-level
+// statements via exec_block, which needs its own dedicated opcode in
+// the VM, not just a value-taking core -- see vm.c's own OP_LOAD.
+EvalValue eval_text_value(LogoApp *app, AstPool *pool, EvalValue name_val);
+void eval_show_value(LogoApp *app, AstPool *pool, EvalValue name_val);
+void eval_save_value(LogoApp *app, AstPool *pool, EvalValue path_val);
+void eval_deletefile_value(LogoApp *app, EvalValue path_val);
+EvalValue eval_openread_value(LogoApp *app, EvalValue path_val);
+EvalValue eval_openwrite_value(LogoApp *app, EvalValue path_val);
+EvalValue eval_openappend_value(LogoApp *app, EvalValue path_val);
+EvalValue eval_readline_value(LogoApp *app, EvalValue idx_val);
+EvalValue eval_eofp_value(LogoApp *app, EvalValue idx_val);
+EvalValue eval_directory_value(LogoApp *app);
+void eval_close_value(LogoApp *app, EvalValue idx_val);
+void eval_fileprint_value(LogoApp *app, EvalValue idx_val, EvalValue text_val);
+
 #endif
