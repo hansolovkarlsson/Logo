@@ -43,48 +43,9 @@
 #include <string.h>
 #include <strings.h>
 
-// A value produced by evaluating an expression subtree. Mirrors
-// interpreter.c's own private Value type (same fields ValueType/
-// Variable already expose the shape of in logo_types.h) -- given its
-// own name here since that struct itself is private to interpreter.c,
-// and there's no need to expose it just for this.
-typedef struct {
-    ValueType type;
-    double number;
-    char word[512];
-    int list_head; // type == VALUE_LIST: index into app->list_pool, -1 = empty -- the SAME pool eval_logo's own list operators use
-} EvalValue;
-
-static EvalValue num_val(double n) {
-    EvalValue v = {0};
-    v.type = VALUE_NUMBER;
-    v.number = n;
-    v.list_head = -1;
-    return v;
-}
-
-static EvalValue word_val(const char *w) {
-    EvalValue v = {0};
-    v.type = VALUE_WORD;
-    snprintf(v.word, sizeof(v.word), "%s", w);
-    v.list_head = -1;
-    return v;
-}
-
-static EvalValue list_val(int head) {
-    EvalValue v = {0};
-    v.type = VALUE_LIST;
-    v.list_head = head;
-    return v;
-}
-
-static EvalValue array_val(int start, int length) {
-    EvalValue v = {0};
-    v.type = VALUE_ARRAY;
-    v.list_head = start;
-    v.number = length; // an array's `number` field holds its length, not a value -- matches interpreter.c's own array_value
-    return v;
-}
+// EvalValue and its num_val/word_val/list_val/array_val constructors
+// now live in eval.h (see that file's own comment) -- exposed so
+// vm.c/compiler.c share the exact same value representation.
 
 // A "list storage full" report shared by every list-construction
 // operator below -- same wording and "loud, not silent" policy as
@@ -176,7 +137,7 @@ static void array_elements_to_text(LogoApp *app, int start, int length, char *ou
 // Render any value as text -- mirrors interpreter.c's own
 // value_to_text (a word as-is, a number %g-formatted, a list via
 // list_elements_to_text, an array via array_elements_to_text).
-static void eval_value_to_text(LogoApp *app, EvalValue v, char *out, size_t out_size) {
+void eval_value_to_text(LogoApp *app, EvalValue v, char *out, size_t out_size) {
     if (v.type == VALUE_WORD) snprintf(out, out_size, "%s", v.word);
     else if (v.type == VALUE_LIST) list_elements_to_text(app, v.list_head, out, out_size);
     else if (v.type == VALUE_ARRAY) array_elements_to_text(app, v.list_head, (int)v.number, out, out_size);
@@ -189,14 +150,14 @@ static void eval_value_to_text(LogoApp *app, EvalValue v, char *out, size_t out_
 // no need for the "did it actually parse anything" check
 // value_to_number makes, just to arrive at the same answer); a list
 // has no meaningful numeric reading either way.
-static double eval_to_number(EvalValue v) {
+double eval_to_number(EvalValue v) {
     if (v.type == VALUE_NUMBER) return v.number;
     if (v.type == VALUE_LIST) return 0;
     return strtod(v.word, NULL);
 }
 
 // A value's truthiness -- mirrors interpreter.c's is_truthy.
-static int eval_is_truthy(EvalValue v) {
+int eval_is_truthy(EvalValue v) {
     if (v.type == VALUE_LIST) return v.list_head != -1;
     if (v.type == VALUE_WORD) return v.word[0] != '\0' && strcasecmp(v.word, "FALSE") != 0;
     return v.number != 0;
@@ -206,7 +167,7 @@ static int eval_is_truthy(EvalValue v) {
 // mirrors interpreter.c's values_equal (text comparison,
 // case-insensitive; a list renders through eval_value_to_text same as
 // anything else).
-static int eval_values_equal(LogoApp *app, EvalValue a, EvalValue b) {
+int eval_values_equal(LogoApp *app, EvalValue a, EvalValue b) {
     if (a.type == VALUE_NUMBER && b.type == VALUE_NUMBER) return a.number == b.number;
     char a_text[512], b_text[512];
     eval_value_to_text(app, a, a_text, sizeof(a_text));
@@ -674,7 +635,7 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
 // "small program, linear scan is fine" precedent as interpreter.c's
 // own Procedure/Variable/PlistEntry tables) matches that same reach
 // rather than only searching the top level.
-static int find_proc_def(AstPool *pool, const char *name) {
+int find_proc_def(AstPool *pool, const char *name) {
     for (int i = 0; i < pool->node_count; i++) {
         if (pool->nodes[i].type == AST_PROC_DEF && strcasecmp(pool->nodes[i].text, name) == 0) {
             return i;
@@ -683,24 +644,22 @@ static int find_proc_def(AstPool *pool, const char *name) {
     return -1;
 }
 
-// Calls the AST_PROC_DEF at def_node with arg_vals bound as its
-// parameters. Reimplements interpreter.c's own call_procedure logic
-// (push a scope, bind params, run the body, catch OUTPUT/STOP, pop the
-// scope) rather than calling that function directly -- it's hardwired
-// to a text-based Procedure.body run through eval_logo, while an
-// AST_PROC_DEF's body is already a parsed AST_BLOCK run through
-// exec_block instead. Shares the exact same scope-stack fields
-// (app->scopes/app->scope_depth) and OUTPUT/STOP fields find_var and
-// interpreter.c's own call_procedure both already read/write, so the
-// two engines can't drift on scoping semantics even though procedure
-// *storage* differs.
-static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, EvalValue *arg_vals, int arg_count, int *produced) {
+// The scope-push half of a procedure call (bind arg_vals as def's own
+// parameters, push app->scopes/scope_depth) -- split out of
+// call_ast_procedure so vm.c's OP_CALL_PROC handler can share it too.
+// vm.c's own frames don't run exec_block (a compiled procedure body
+// runs through the VM's own instruction loop instead), so it has no
+// use for the rest of call_ast_procedure (the exec_block call and the
+// OUTPUT/STOP-catching afterward -- the VM's OP_OUTPUT/OP_STOP opcodes
+// do that job directly against its own frame stack), only this setup
+// half. Returns 0 (and leaves scope_depth/app output untouched beyond
+// the message) if already at MAX_SCOPE_DEPTH, matching
+// call_ast_procedure's own prior behavior exactly.
+int eval_push_scope_for_call(LogoApp *app, AstNode *def, EvalValue *arg_vals, int arg_count) {
     if (app->scope_depth >= MAX_SCOPE_DEPTH) {
         append_output(app, "Recursion too deep, call ignored\n");
-        *produced = 0;
-        return num_val(0);
+        return 0;
     }
-    AstNode *def = &pool->nodes[def_node];
     Scope *scope = &app->scopes[app->scope_depth];
     scope->count = def->param_count;
     snprintf(scope->proc_name, sizeof(scope->proc_name), "%s", def->text);
@@ -725,6 +684,26 @@ static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, E
         }
     }
     app->scope_depth++;
+    return 1;
+}
+
+// Calls the AST_PROC_DEF at def_node with arg_vals bound as its
+// parameters. Reimplements interpreter.c's own call_procedure logic
+// (push a scope, bind params, run the body, catch OUTPUT/STOP, pop the
+// scope) rather than calling that function directly -- it's hardwired
+// to a text-based Procedure.body run through eval_logo, while an
+// AST_PROC_DEF's body is already a parsed AST_BLOCK run through
+// exec_block instead. Shares the exact same scope-stack fields
+// (app->scopes/app->scope_depth) and OUTPUT/STOP fields find_var and
+// interpreter.c's own call_procedure both already read/write, so the
+// two engines can't drift on scoping semantics even though procedure
+// *storage* differs.
+static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, EvalValue *arg_vals, int arg_count, int *produced) {
+    AstNode *def = &pool->nodes[def_node];
+    if (!eval_push_scope_for_call(app, def, arg_vals, arg_count)) {
+        *produced = 0;
+        return num_val(0);
+    }
 
     int body = def->first_child;
     if (body >= 0) exec_block(app, pool, body);
@@ -1107,13 +1086,15 @@ static void do_eraserect(LogoApp *app, AstPool *pool, const int *arg_idx) {
     op->h = h;
     op->line_count_at_call = app->line_count;
 }
-static void do_print(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue v = eval_expr(app, pool, arg_idx[0]);
+void eval_print_value(LogoApp *app, EvalValue v) {
     char text[2048];
     eval_value_to_text(app, v, text, sizeof(text));
     char buf[2100];
     snprintf(buf, sizeof(buf), "%s\n", text);
     append_output(app, buf);
+}
+static void do_print(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_print_value(app, eval_expr(app, pool, arg_idx[0]));
 }
 static void do_make(LogoApp *app, AstPool *pool, const int *arg_idx) {
     // arg_idx[0] is an AST_WORD -- the parser's ARG_QUOTED_WORD kind

@@ -110,19 +110,27 @@ which were mostly independent of each other). See
 `docs/BYTECODE_VM_DESIGN.md`'s own "Stage 2 sketch" section for the
 instruction-set/frame-layout detail behind each of these.
 
-- [ ] **A small, real, end-to-end vertical slice first** — not full
-  `BUILTIN_SIGNATURES` parity. Just enough instruction set (literals,
-  arithmetic, `PRINT`, `IF`/`WHILE`, procedure calls with
-  `OUTPUT`/`STOP`) to prove the compiler + explicit-frame-array VM
-  mechanism actually works, shadow-diffed against `ast_eval` itself
-  (not `eval_logo` directly — Stage 1's frontend is already proven
-  byte-identical to that, so this isolates "does the compiler+VM match
-  the tree-walker's semantics" as its own mechanically-checkable
-  question). Frame-array sizing (how large a fixed cap replaces
-  `MAX_SCOPE_DEPTH`'s 200) gets decided here, once, not revisited per
-  batch — each frame's cost is small and uniform now, unlike
-  `eval_logo`'s own variable per-branch C-stack usage, so this can
-  likely afford a much larger cap.
+- [x] **A small, real, end-to-end vertical slice first** — not full
+  `BUILTIN_SIGNATURES` parity. Literals, arithmetic, comparisons/
+  `AND`/`OR`/`NOT`, `PRINT`, `MAKE`, `IF`/`IFELSE`/`WHILE`, and
+  procedure calls (including recursive/mutually-recursive/forward-
+  referenced) with `OUTPUT`/`STOP` — `bytecode.h`/`bytecode.c`
+  (instruction format), `compiler.h`/`compiler.c` (AST → bytecode, one
+  pass + backpatch list for forward-referenced procedure calls),
+  `vm.h`/`vm.c` (the explicit-pc/explicit-frame-stack dispatch loop),
+  shadow-diffed against `ast_eval` in `tests/test_vm.c` (`make
+  test-vm`). Confirmed the mechanism itself works: Logo-level
+  recursion (`test_recursive_procedure`,
+  `test_mutually_recursive_procedures`) runs as VM-frame pushes/pops
+  and `pc` jumps, not new C stack frames.
+  **Frame-array sizing was deliberately deferred, not decided here**:
+  variable *bindings* still go through the unchanged
+  `app->scopes[]`/`MAX_SCOPE_DEPTH` (200) mechanism via a new shared
+  `eval_push_scope_for_call` (factored out of `call_ast_procedure`,
+  used by both engines) — only the VM's own value stack and call
+  frames (`{return_pc, value_stack_base}`) are new, VM-owned arrays.
+  Real recursion-depth independence from `MAX_SCOPE_DEPTH` needs
+  VM-owned scope storage, its own deliberate follow-up (not started).
 - [ ] Grow instruction coverage the same way Stage 1 grew
   `BUILTIN_SIGNATURES` — incremental batches (lists/arrays, `MAKE`,
   property lists, turtle/drawing commands, ...), each shadow-diffed

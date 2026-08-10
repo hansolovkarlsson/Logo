@@ -71,6 +71,17 @@ TEST_SHADOW_DIFF_SRC = tests/test_shadow_diff.c src/eval.c src/parser.c src/ast.
 TEST_SHADOW_DIFF_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
+# test_vm.c (Stage 2's own shadow-diff corpus, docs/BYTECODE_VM_DESIGN.md)
+# needs the compiler+VM (compiler.c/bytecode.c/vm.c) alongside the same
+# eval.c/parser.c/ast.c/lexer.c/interpreter.c stack TEST_SHADOW_DIFF_TARGET
+# already links -- vm.c depends on interpreter.h/eval.h the same way
+# eval.c itself does (see vm.h's own comment), so GTK_LIBS is needed here
+# too.
+TEST_VM_TARGET = build/test_vm
+TEST_VM_SRC = tests/test_vm.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
+TEST_VM_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+
 # tools/logi_cli.c -- a standalone command-line driver for Stage 1's new
 # evaluator (see docs/BYTECODE_VM_DESIGN.md), letting a script be run
 # against it directly (or an interactive REPL started with no
@@ -87,7 +98,7 @@ LOGI_SRC = tools/logi_cli.c src/eval.c src/parser.c src/ast.c src/lexer.c src/in
 LOGI_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
-.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff logi
+.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm logi
 
 all: $(TARGET)
 
@@ -109,12 +120,13 @@ run: $(TARGET)
 # lexer.c's, parser.c's, eval.c's, and the shadow-diff corpus's own
 # tests, so `make test` remains the one command that verifies
 # everything still works.
-test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET) $(TEST_SHADOW_DIFF_TARGET)
+test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET) $(TEST_SHADOW_DIFF_TARGET) $(TEST_VM_TARGET)
 	./$(TEST_TARGET)
 	./$(TEST_LEXER_TARGET)
 	./$(TEST_PARSER_TARGET)
 	./$(TEST_EVAL_TARGET)
 	./$(TEST_SHADOW_DIFF_TARGET)
+	./$(TEST_VM_TARGET)
 
 $(TEST_TARGET): $(TEST_SRC) $(HEADERS)
 	@mkdir -p build
@@ -147,6 +159,13 @@ test-shadow-diff: $(TEST_SHADOW_DIFF_TARGET)
 $(TEST_SHADOW_DIFF_TARGET): $(TEST_SHADOW_DIFF_SRC) $(HEADERS)
 	@mkdir -p build
 	$(CC) $(TEST_SHADOW_DIFF_CFLAGS) $(TEST_SHADOW_DIFF_SRC) -o $(TEST_SHADOW_DIFF_TARGET) $(TEST_SHADOW_DIFF_LDFLAGS)
+
+test-vm: $(TEST_VM_TARGET)
+	./$(TEST_VM_TARGET)
+
+$(TEST_VM_TARGET): $(TEST_VM_SRC) $(HEADERS)
+	@mkdir -p build
+	$(CC) $(TEST_VM_CFLAGS) $(TEST_VM_SRC) -o $(TEST_VM_TARGET) $(TEST_VM_LDFLAGS)
 
 logi: $(LOGI_TARGET)
 

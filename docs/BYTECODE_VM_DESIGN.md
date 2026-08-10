@@ -3,12 +3,14 @@
 Status: **Stage 1 shipped in full** (real lexer/parser/AST/tree-walking
 evaluator, every `docs/ROADMAP.md` coverage batch landed, `LOAD`
 cross-boundary-call gap fixed for real — see the Progress log below).
-**Stage 2 (this document's own bytecode VM) is prioritized into a
-sequenced checklist in `docs/ROADMAP.md`'s own "Phase 5, Stage 2"
-section (resolved 2026-08-09) but not yet started** — the "Stage 2
-sketch" section below is still real design discussion, not yet
-implementation, and stays open to revision as each checklist item is
-actually tackled.
+**Stage 2 (this document's own bytecode VM) is underway**: the
+vertical slice (`docs/ROADMAP.md`'s "Phase 5, Stage 2" checklist, item
+1) shipped 2026-08-09 — `bytecode.h`/`bytecode.c`,
+`compiler.h`/`compiler.c`, `vm.h`/`vm.c`, shadow-diffed against
+`ast_eval` in `tests/test_vm.c`. Remaining checklist items (growing
+instruction coverage, `THROW`/`CATCH`'s unwind design,
+`MAP`/`FILTER`/`REDUCE`/`FOREACH` templates, suspend/resume) not yet
+started.
 
 ## Why
 
@@ -1334,3 +1336,89 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   be the one open item is fixed for real. Ask the user what to tackle
   next — Stage 2 (the bytecode VM itself) is the next genuinely large
   bet on `docs/ROADMAP.md`, but nothing here assumes that's the choice.
+- **Stage 2 vertical slice: done** (`docs/ROADMAP.md`'s "Phase 5, Stage
+  2" checklist, item 1). Three new source pairs, no dependency changes
+  to Stage 1's own files beyond a couple of exposed helpers:
+  - `src/bytecode.h`/`src/bytecode.c` — the instruction format (a flat
+    array of tagged `Instr` structs, not packed bytes — same "flat
+    struct, some unused space per node, in exchange for simplicity"
+    convention `ast.h`'s own `AstNode` already established; none of
+    this project's own four VM motivations depend on compact byte
+    encoding). Conditions are ordinary values on the same stack as
+    everything else (`OP_CMP_*`/`OP_AND`/`OP_OR`/`OP_NOT` all push
+    `num_val(0)`/`num_val(1)`, consumed by `OP_JUMP_IF_FALSE` via
+    `eval_is_truthy`) — confirmed directly in `eval_condition`'s own
+    code that `AND`/`OR` never short-circuit here, so no fused
+    compare-and-jump instructions are needed. Every call (builtin or
+    procedure) always leaves exactly one value on the stack, mirroring
+    `exec_call`'s own `*result`-defaults-to-`num_val(0)` convention —
+    a statement-position call just gets a trailing `OP_POP`.
+  - `src/compiler.h`/`src/compiler.c` — `compile_program`, structured
+    almost node-for-node like `eval.c`'s own tree-walking functions
+    (`compile_expr`/`compile_condition`/`compile_statement`/
+    `compile_block` parallel `eval_expr`/`eval_condition`/
+    `exec_statement`/`exec_block`). Procedure calls need genuine
+    backpatching, not just "compile procedures before top-level code":
+    one procedure's body can call another not yet compiled (pass 1
+    walks the AST pool in array order, not call order), so an
+    `OP_CALL_PROC` to an unresolved name gets a placeholder target and
+    a pending-patch entry, resolved once every procedure's own address
+    is known — the same shape as the `LOAD` fix's own hoist-then-build
+    split, one layer down (addresses instead of names/arities).
+    `compile_call` only recognizes `PRINT`/`OUTPUT`/`STOP`/`WHILE`/
+    `MAKE` by name; everything else is assumed a user procedure — safe
+    for this slice (the parser itself already guarantees any other
+    resolved call name is a hoisted procedure), but `compile_call`'s
+    own builtin dispatch needs to become a real lookup, not an
+    if-chain, once instruction coverage grows past this batch.
+  - `src/vm.h`/`src/vm.c` — `vm_run`'s dispatch loop is a flat `switch`
+    over an explicit `pc`, not recursive C calls: a Logo-level call
+    becomes a `VmFrame` push (`{return_pc, value_stack_base}`) and a
+    `pc` jump, not a new C stack frame, decoupling Logo-level recursion
+    depth from C stack depth for the first time in this project.
+    **Variable *bindings* still reuse `app->scopes[]`/`scope_depth`/
+    `MAX_SCOPE_DEPTH` (200) completely unchanged**, via a new shared
+    `eval_push_scope_for_call` (the scope-push half of
+    `call_ast_procedure`'s own setup, factored out so both engines call
+    the same code) — a deliberate, explicitly-flagged scope narrowing
+    for this slice: real recursion-depth independence needs VM-owned
+    scope storage, not done here. Every opcode handler is a checked
+    replica of the matching `eval.c` logic, including
+    `eval_condition`'s own `AST_COMPARE` non-numeric fallback
+    (`eval_values_equal` for `EQ`/`NE`, 0 otherwise) and `eval_expr`'s
+    own `AST_CALL`-in-expression-position "didn't output a value"
+    diagnostic (`OP_CHECK_OUTPUT`, driven by a `last_call_produced_output`
+    flag `OP_OUTPUT`/`OP_STOP` set on every return).
+  - `do_print` in `eval.c` split into a value-taking core
+    (`eval_print_value`, exposed via `eval.h`) so `vm.c`'s
+    `OP_CALL_BUILTIN "PRINT"` handler shares it instead of a parallel
+    reimplementation — the template every future builtin port will
+    follow, since every existing `do_*` function is tree-walker-shaped
+    (calls `eval_expr` on its own AST argument internally) and doesn't
+    fit a stack machine's "argument already evaluated, sitting on the
+    stack" calling convention.
+  - **A real bug caught by the shadow-diff corpus, not by inspection**:
+    `exec_call_proc`'s failure paths (recursion too deep, unknown
+    procedure, VM frame-stack overflow) pushed a placeholder result but
+    never advanced `pc` — so a failing `OP_CALL_PROC` re-executed
+    itself forever. Invisible on every test that only calls procedures
+    successfully; `test_recursion_depth_cap_reports_error_not_a_crash`
+    (deliberately unbounded recursion, ported from `test_eval.c`'s own
+    case of the same name) hung the test binary at 100% CPU until
+    caught. Fixed by advancing `pc` past the failed call on every
+    failure path, same as the success path's own jump.
+  - `tests/test_vm.c` (`make test-vm`, part of `make test`): 15 cases,
+    shadow-diffed against `ast_eval` (not `eval_logo` directly, per
+    this document's own migration strategy) — literals/arithmetic/
+    grouping, `MAKE`/varref, `IF`/`IFELSE`, `AND`/`OR`/`NOT`,
+    case-insensitive word equality, `WHILE`, procedures with `OUTPUT`
+    (including forward-referenced and mutually-recursive, exercising
+    the backpatcher directly), ordinary recursion, the recursion-depth
+    cap, and a procedure that never calls `OUTPUT` used in expression
+    position. Confirmed clean under AddressSanitizer. All 6 test
+    suites (`test_interpreter`/`test_lexer`/`test_parser`/`test_eval`/
+    `test_shadow_diff`/`test_vm`) pass via `make test`.
+  - **Next**: `docs/ROADMAP.md`'s Stage 2 checklist item 2 — grow
+    instruction coverage the same incremental way Stage 1 grew
+    `BUILTIN_SIGNATURES`, each batch shadow-diffed against `ast_eval`
+    before moving on.
