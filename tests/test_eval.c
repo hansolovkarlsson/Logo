@@ -83,11 +83,11 @@ static void run_source(LogoApp *app, const char *source) {
     if (result->error_count > 0) {
         failures++;
         printf("FAIL %s: %d parse error(s), first: %s\n", current_test, result->error_count, result->errors[0].message);
-        free(result);
+        parse_result_destroy(result);
         return;
     }
     ast_eval(app, &result->pool, result->program);
-    free(result);
+    parse_result_destroy(result);
 }
 
 TEST(test_print_a_number_and_a_word) {
@@ -420,7 +420,7 @@ TEST(test_text_without_a_quoted_word_is_a_parse_error_not_runtime) {
     ParseResult *result = calloc(1, sizeof(ParseResult));
     logo_parse(tokens, n, result);
     CHECK(result->error_count > 0);
-    free(result);
+    parse_result_destroy(result);
 }
 
 TEST(test_show_prints_a_procedures_definition) {
@@ -453,7 +453,7 @@ TEST(test_show_without_a_quoted_word_is_a_parse_error_not_runtime) {
     ParseResult *result = calloc(1, sizeof(ParseResult));
     logo_parse(tokens, n, result);
     CHECK(result->error_count > 0);
-    free(result);
+    parse_result_destroy(result);
 }
 
 TEST(test_save_and_load_round_trip_within_a_load_files_own_scope) {
@@ -532,7 +532,7 @@ TEST(test_save_without_a_quoted_word_is_a_parse_error_not_runtime) {
     ParseResult *result = calloc(1, sizeof(ParseResult));
     logo_parse(tokens, n, result);
     CHECK(result->error_count > 0);
-    free(result);
+    parse_result_destroy(result);
 }
 
 TEST(test_procedure_with_output) {
@@ -1568,7 +1568,7 @@ TEST(test_deletefile_without_a_quoted_word_is_a_parse_error_not_runtime) {
     ParseResult *result = calloc(1, sizeof(ParseResult));
     logo_parse(tokens, n, result);
     CHECK(result->error_count > 0);
-    free(result);
+    parse_result_destroy(result);
     (void)app;
 }
 
@@ -1603,35 +1603,102 @@ TEST(test_load_of_missing_file_reports_error) {
     CHECK_CONTAINS(captured_output, "LOAD: could not read file");
 }
 
-TEST(test_load_defined_procedure_is_not_callable_from_the_loading_script) {
-    // A genuine, documented architectural limitation, not a bug to fix
-    // in this batch -- see docs/BYTECODE_VM_DESIGN.md's LOAD/SAVE
-    // milestone. interpreter.c parses and executes one statement at a
-    // time (eval_logo's own cursor), so by the time LOAD's own eval_logo
-    // call registers `greet` into app->procedures[], a later `greet
-    // "world` in the SAME top-level script finds it immediately. This
-    // engine parses the WHOLE top-level script once, up front, before
-    // running anything -- so `greet` isn't a known hoisted procedure
-    // yet when *this* script's own parse reaches its call, regardless
-    // of what LOAD will later do at runtime. The result is a parse
-    // error (not a runtime "I don't know how to greet"), and per this
-    // engine's own error-collection design, the whole script simply
-    // doesn't run at all -- confirmed directly against interpreter.c,
-    // which runs this exact script successfully, before writing this
-    // test the other way around.
-    const char *path = "build/test_eval_load_uncallable.logo";
+TEST(test_load_defined_procedure_is_callable_from_the_loading_script) {
+    // Previously a documented architectural limitation (see
+    // docs/BYTECODE_VM_DESIGN.md's LOAD/SAVE milestone) -- fixed for
+    // real by eager LOAD-following (see the same file's LOAD-cross-
+    // boundary-call-fix milestone): logo_parse's own hoisting pre-pass
+    // now recognizes a LOAD "literal-path call, reads that file, and
+    // hoists/builds its own top-level TO...END definitions directly
+    // into this parse's own pool before the main script's own body is
+    // parsed at all -- so `greet` is already a known, callable
+    // procedure by the time this script's own `greet "world` statement
+    // gets parsed, exactly matching what interpreter.c already does
+    // (registering it into app->procedures[] the moment its own nested
+    // eval_logo call reaches the LOAD, before any later top-level
+    // statement in the same script has even been looked at).
+    const char *path = "build/test_eval_load_callable.logo";
     remove(path);
     g_file_set_contents(path, "TO greet :name\n  PRINT WORD \"hello- :name\nEND", -1, NULL);
 
     LogoApp *app = new_app();
-    LogoToken tokens[MAX_TEST_TOKENS];
-    int n = logo_lex("LOAD \"build/test_eval_load_uncallable.logo\nPRINT greet \"world", tokens, MAX_TEST_TOKENS);
-    CHECK(n >= 0);
-    ParseResult *result = calloc(1, sizeof(ParseResult));
-    logo_parse(tokens, n, result);
-    CHECK(result->error_count > 0);
-    free(result);
-    (void)app;
+    run_source(app, "LOAD \"build/test_eval_load_callable.logo\ngreet \"world");
+    CHECK_STREQ(captured_output, "hello-world\n");
+    remove(path);
+}
+
+TEST(test_load_recursively_follows_a_loaded_files_own_load) {
+    // A LOAD'd file calling LOAD itself is exactly as valid as the
+    // top-level script doing so -- eager_follow_load recurses.
+    const char *inner_path = "build/test_eval_load_recursive_inner.logo";
+    const char *outer_path = "build/test_eval_load_recursive_outer.logo";
+    remove(inner_path);
+    remove(outer_path);
+    g_file_set_contents(inner_path, "TO inner\n  PRINT \"inner-ran\nEND", -1, NULL);
+    g_file_set_contents(outer_path,
+        "LOAD \"build/test_eval_load_recursive_inner.logo\n"
+        "TO outer\n"
+        "  inner\n"
+        "  PRINT \"outer-ran\n"
+        "END", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app, "LOAD \"build/test_eval_load_recursive_outer.logo\nouter\ninner");
+    CHECK_STREQ(captured_output, "inner-ran\nouter-ran\ninner-ran\n");
+    remove(inner_path);
+    remove(outer_path);
+}
+
+TEST(test_load_forward_reference_within_a_loaded_file_resolves) {
+    // A real bug caught before it ever shipped: an early one-pass
+    // design built a loaded file's own AST_PROC_DEF nodes *during* the
+    // hoisting pre-pass itself, at a point where p->hoisted[] wasn't
+    // complete yet -- so a loaded file's procedure calling another one
+    // defined *later in the same file* would spuriously fail to parse
+    // ("unknown word"), even though the callee genuinely does get
+    // hoisted eventually, just not yet at the moment the caller's own
+    // body was being parsed. Fixed by genuinely splitting hoisting
+    // (pass 1: names/arities and reading every reachable LOAD'd file's
+    // content only) from AST-building (pass 2: real AST_PROC_DEF
+    // nodes, only after pass 1 has finished everywhere) -- see
+    // build_eager_procedures's own comment in parser.c. `a` (defined
+    // first) calling `b` (defined after it, in the same loaded file)
+    // is exactly the shape that would have broken before this fix.
+    const char *path = "build/test_eval_load_forward_ref.logo";
+    remove(path);
+    g_file_set_contents(path,
+        "TO a\n"
+        "  b\n"
+        "  PRINT \"a-ran\n"
+        "END\n"
+        "TO b\n"
+        "  PRINT \"b-ran\n"
+        "END", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app, "LOAD \"build/test_eval_load_forward_ref.logo\na");
+    CHECK_STREQ(captured_output, "b-ran\na-ran\n");
+    remove(path);
+}
+
+TEST(test_load_forward_reference_to_the_outer_scripts_own_procedure) {
+    // Same forward-reference freedom, the other direction: a loaded
+    // file's own procedure calling one the *outer* script defines --
+    // hoisting covers both, regardless of which file textually defines
+    // which name, or in what order LOAD appears relative to the outer
+    // script's own TO.
+    const char *path = "build/test_eval_load_forward_ref_outer.logo";
+    remove(path);
+    g_file_set_contents(path, "TO helper\n  outer_only\nEND", -1, NULL);
+
+    LogoApp *app = new_app();
+    run_source(app,
+        "LOAD \"build/test_eval_load_forward_ref_outer.logo\n"
+        "helper\n"
+        "TO outer_only\n"
+        "  PRINT \"outer-only-ran\n"
+        "END");
+    CHECK_STREQ(captured_output, "outer-only-ran\n");
     remove(path);
 }
 
@@ -1809,7 +1876,10 @@ int main(void) {
     RUN(test_directory_lists_the_current_working_directory);
     RUN(test_load_runs_a_files_contents_as_logo_source);
     RUN(test_load_of_missing_file_reports_error);
-    RUN(test_load_defined_procedure_is_not_callable_from_the_loading_script);
+    RUN(test_load_defined_procedure_is_callable_from_the_loading_script);
+    RUN(test_load_recursively_follows_a_loaded_files_own_load);
+    RUN(test_load_forward_reference_within_a_loaded_file_resolves);
+    RUN(test_load_forward_reference_to_the_outer_scripts_own_procedure);
 
     if (failures == 0) {
         printf("All tests passed.\n");

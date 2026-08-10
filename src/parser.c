@@ -353,26 +353,128 @@ static const HoistedProc *find_hoisted(Parser *p, const LogoToken *tok) {
     return NULL;
 }
 
-// --- Hoisting pre-pass ---------------------------------------------
+// Defined much later in this file (needs parse_statement/parse_block,
+// which need the whole expression/condition grammar first) -- forward-
+// declared here so hoist_from_tokens below (needed much earlier, since
+// logo_parse's own hoisting pre-pass runs before any of that) can
+// reuse it directly for a LOAD'd file's own TO...END spans, rather
+// than duplicating its logic.
+static int parse_proc_def(Parser *p);
+
+// --- Hoisting pre-pass, and eager LOAD-following ---------------------
 //
-// Scans the whole token stream for top-level "TO name :p1 :p2 ...
-// ... END" spans, recording each name's parameter count, without
-// parsing any body. Matches interpreter.c's own TO handling (body
+// Scans a token stream for top-level "TO name :p1 :p2 ... END" spans,
+// recording each name's parameter count into p->hoisted[] (without
+// parsing any body). Matches interpreter.c's own TO handling (body
 // extends to the very next END token, no nesting logic at all --
 // confirmed directly: TO...END isn't nesting-aware today, so this
 // pre-pass doesn't need to be either) so that resolving a call site's
 // arity later doesn't depend on whether that TO appears earlier or
 // later in the file (docs/BYTECODE_VM_DESIGN.md's forward-references
 // decision).
-static void hoist_procedures(Parser *p) {
+//
+// Also follows a LOAD "literal-path call found along the way -- the
+// fix for a real, documented architectural gap (see
+// docs/BYTECODE_VM_DESIGN.md's own LOAD milestone): interpreter.c's
+// eval_logo parses and executes one statement at a time, so a LOAD'd
+// file's own TO is registered into app->procedures[] the moment
+// LOAD's own nested eval_logo call reaches it, and any later top-level
+// statement in the SAME calling script (parsed afterward, in sequence)
+// can already find it. This engine parses its entire top-level script
+// once, up front, before executing anything at all -- so without this,
+// a call to a LOAD'd procedure could never resolve, no matter what
+// LOAD does at runtime: the caller's own parse would already be
+// finished (and would have already reported "unknown word") long
+// before do_load ever ran. Only ever needs to handle a literal
+// quoted-word path -- LOAD's own ARG_QUOTED_WORD grammar (matching
+// interpreter.c's own raw sscanf("%s") restriction) means that's the
+// only argument shape LOAD can *ever* syntactically take in valid
+// Logo, in either engine; there's no "computed path" case to eagerly
+// resolve or fall back on. This is parse-time procedure *visibility*
+// only, not early execution: a LOAD'd file's own non-TO top-level
+// statements are never run here, only for real at LOAD's own actual
+// position in the script, via do_load's own independent runtime
+// reparse (eval.c).
+//
+// Genuinely two passes, not one, and not simply for tidiness: a LOAD'd
+// file's own procedure body can itself forward-reference another
+// procedure -- one hoisted later in the SAME file, from a *different*
+// loaded file, or from the outer script itself -- exactly the same
+// forward-reference freedom an ordinary top-level TO already has. That
+// only works if p->hoisted[] is COMPLETE before any AST_PROC_DEF node
+// gets built from it (parse_proc_def's own body-statement parsing
+// resolves calls via find_hoisted(p, ...) as it goes). So pass 1
+// (hoist_from_tokens/eager_follow_load) only ever discovers names/
+// arities and reads+stores file content, recursing through every
+// reachable LOAD -- never building a real node. Pass 2
+// (build_eager_procedures) runs only after pass 1 has finished
+// completely, re-lexing each stored buffer and building its own real
+// AST_PROC_DEF nodes then, with p->hoisted[] finally whole. This does
+// mean each eagerly-loaded file's content gets lexed twice (once
+// transiently in pass 1 just to walk it for hoisting/nested LOADs,
+// again in pass 2 to actually build nodes) and its own TO...END spans
+// get parsed a third time, redundantly, when do_load reparses the
+// whole file again at its own runtime position -- a deliberate,
+// accepted tradeoff for correctness over speed (LOAD isn't a hot
+// path).
+#define MAX_EAGER_LOAD_DEPTH 8 // recursion cap against a self- or mutually-referential LOAD chain, same reasoning as MAX_RUN_DEPTH -- a real limit, not a soft guess
+#define MAX_EAGER_LOAD_TOKENS 8192 // matches eval.c's own MAX_LOAD_TOKENS
+
+static void hoist_from_tokens(Parser *p, const LogoToken *tokens, int depth);
+
+// Pass 1's other half: reads, lexes, and hoists one LOAD'd file's own
+// top-level TO...END spans (name/arity only) and recurses into any
+// LOAD found within it -- heap-allocates its own transient token
+// buffer (never a stack local: this recurses, and
+// MAX_EAGER_LOAD_TOKENS-many LogoTokens is large enough to be a real
+// per-frame stack-overflow risk at any nontrivial depth, the same
+// class of mistake this project has been bitten by before -- see the
+// eval_logo_recursion_margin memory). Silently does nothing if the
+// file can't be read/is too large to eagerly hoist, or the depth cap
+// is hit -- do_load's own independent runtime attempt is what reports
+// the real error in that case, exactly as it already did before this
+// feature existed.
+static void eager_follow_load(Parser *p, const char *path, int depth) {
+    if (depth >= MAX_EAGER_LOAD_DEPTH) return;
+    if (p->result->eager_loaded_count >= MAX_EAGER_LOADS) return;
+
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return; }
+    long size = ftell(f);
+    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return; }
+    char *contents = malloc((size_t)size + 1);
+    size_t read_bytes = fread(contents, 1, (size_t)size, f);
+    fclose(f);
+    contents[read_bytes] = '\0';
+
+    // Owned for as long as `p->pool` is -- pass 2 (build_eager_procedures)
+    // re-lexes this exact buffer to build real AST_PROC_DEF nodes whose
+    // own .text/.param_names/body_text point directly into it (see
+    // ParseResult's own comment on eager_loaded_sources).
+    p->result->eager_loaded_sources[p->result->eager_loaded_count++] = contents;
+
+    LogoToken *tokens = malloc(sizeof(LogoToken) * MAX_EAGER_LOAD_TOKENS);
+    int n = logo_lex(contents, tokens, MAX_EAGER_LOAD_TOKENS);
+    if (n >= 0) hoist_from_tokens(p, tokens, depth + 1);
+    free(tokens);
+}
+
+// Pass 1: scans `tokens` for top-level TO...END spans, recording each
+// one's name/arity into p->hoisted[] (see MAX_HOISTED_PROCS above --
+// same table an ordinary top-level TO already hoists into), and
+// recurses into any LOAD "literal-path found along the way via
+// eager_follow_load. Never builds an AST_PROC_DEF node -- see this
+// section's own file comment for why that has to wait for pass 2.
+static void hoist_from_tokens(Parser *p, const LogoToken *tokens, int depth) {
     int i = 0;
-    while (p->tokens[i].type != LOGO_TOK_EOF && p->tokens[i].type != LOGO_TOK_ERROR) {
-        if (token_is_bareword_ci(&p->tokens[i], "TO") && p->tokens[i + 1].type == LOGO_TOK_BAREWORD) {
+    while (tokens[i].type != LOGO_TOK_EOF && tokens[i].type != LOGO_TOK_ERROR) {
+        if (token_is_bareword_ci(&tokens[i], "TO") && tokens[i + 1].type == LOGO_TOK_BAREWORD) {
             char name[32];
-            token_text_copy(&p->tokens[i + 1], name, sizeof(name));
+            token_text_copy(&tokens[i + 1], name, sizeof(name));
             int param_count = 0;
             int j = i + 2;
-            while (p->tokens[j].type == LOGO_TOK_VARREF) {
+            while (tokens[j].type == LOGO_TOK_VARREF) {
                 param_count++;
                 j++;
             }
@@ -383,15 +485,61 @@ static void hoist_procedures(Parser *p) {
             }
             // Skip ahead to (and past) the next END, same "no nesting"
             // assumption interpreter.c's own strcasestr(ptr, "END") makes.
-            while (p->tokens[j].type != LOGO_TOK_EOF && p->tokens[j].type != LOGO_TOK_ERROR &&
-                   !token_is_bareword_ci(&p->tokens[j], "END")) {
+            while (tokens[j].type != LOGO_TOK_EOF && tokens[j].type != LOGO_TOK_ERROR &&
+                   !token_is_bareword_ci(&tokens[j], "END")) {
                 j++;
             }
-            i = (p->tokens[j].type == LOGO_TOK_EOF || p->tokens[j].type == LOGO_TOK_ERROR) ? j : j + 1;
+            i = (tokens[j].type == LOGO_TOK_EOF || tokens[j].type == LOGO_TOK_ERROR) ? j : j + 1;
+        } else if (token_is_bareword_ci(&tokens[i], "LOAD") && tokens[i + 1].type == LOGO_TOK_QUOTED_WORD) {
+            char path[512];
+            token_text_copy(&tokens[i + 1], path, sizeof(path));
+            eager_follow_load(p, path, depth);
+            i += 2;
         } else {
             i++;
         }
     }
+}
+
+// Pass 2: for every file pass 1 eagerly loaded (a flat list by now,
+// p->result->eager_loaded_sources -- regardless of how deeply nested
+// the original LOAD chain that discovered each one was), re-lexes its
+// stored content and builds a real AST_PROC_DEF node for each of its
+// own top-level TO...END spans directly into p->pool, via a nested
+// Parser sharing p->pool/p->result but pointed at this buffer's own
+// fresh tokens (reusing parse_proc_def directly rather than
+// duplicating its body-parsing logic). Only ever called after
+// hoist_from_tokens (pass 1) has finished completely -- across every
+// eagerly-loaded file, however nested -- so p->hoisted[] is whole by
+// the time any of these bodies get parsed, and a forward reference
+// inside one resolves correctly regardless of which file (or the
+// outer script) actually hoisted the name it's calling.
+static void build_eager_procedures(Parser *p) {
+    for (int f = 0; f < p->result->eager_loaded_count; f++) {
+        const char *contents = p->result->eager_loaded_sources[f];
+        LogoToken *tokens = malloc(sizeof(LogoToken) * MAX_EAGER_LOAD_TOKENS);
+        int n = logo_lex(contents, tokens, MAX_EAGER_LOAD_TOKENS);
+        if (n >= 0) {
+            int j = 0;
+            while (tokens[j].type != LOGO_TOK_EOF && tokens[j].type != LOGO_TOK_ERROR) {
+                if (token_is_bareword_ci(&tokens[j], "TO") && tokens[j + 1].type == LOGO_TOK_BAREWORD) {
+                    Parser nested = *p;
+                    nested.tokens = tokens;
+                    nested.pos = j;
+                    parse_proc_def(&nested); // discards the returned node index -- reachable via find_proc_def by name afterward, nothing else needs it here
+                    j = nested.pos; // parse_proc_def already advanced past this span's own END
+                } else {
+                    j++;
+                }
+            }
+        }
+        free(tokens);
+    }
+}
+
+static void hoist_procedures(Parser *p) {
+    hoist_from_tokens(p, p->tokens, 0);
+    build_eager_procedures(p);
 }
 
 // --- Expression grammar ---------------------------------------------
@@ -957,7 +1105,28 @@ static int parse_statement(Parser *p) {
     return parse_call_statement(p);
 }
 
+// Frees any eagerly-loaded source buffers a PREVIOUS logo_parse call
+// on this exact ParseResult left behind, before either reusing it (a
+// caller like eval.c's do_foreach calls logo_parse repeatedly on one
+// long-lived scratch ParseResult across a whole list iteration) or
+// discarding it for good (parse_result_destroy, below) -- shared by
+// both so there's exactly one place this bookkeeping lives.
+static void reset_eager_loaded(ParseResult *result) {
+    for (int i = 0; i < result->eager_loaded_count; i++) {
+        free(result->eager_loaded_sources[i]);
+        result->eager_loaded_sources[i] = NULL;
+    }
+    result->eager_loaded_count = 0;
+}
+
+void parse_result_destroy(ParseResult *result) {
+    if (result == NULL) return;
+    reset_eager_loaded(result);
+    free(result);
+}
+
 void logo_parse(const LogoToken *tokens, int token_count, ParseResult *result) {
+    reset_eager_loaded(result);
     result->pool.node_count = 0;
     result->error_count = 0;
 
@@ -988,6 +1157,7 @@ void logo_parse(const LogoToken *tokens, int token_count, ParseResult *result) {
 // (a template snippet never defines one) -- then hands off to
 // whichever grammar entry point the caller wants.
 static int parse_snippet(const LogoToken *tokens, int token_count, ParseResult *result, int (*entry)(Parser *)) {
+    reset_eager_loaded(result); // a snippet never itself contains LOAD, but a reused ParseResult might carry this over from an earlier logo_parse call on the same object
     result->pool.node_count = 0;
     result->error_count = 0;
 

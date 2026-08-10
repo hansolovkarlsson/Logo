@@ -191,11 +191,11 @@ static void shadow_diff_pair(const char *old_source, const char *new_source) {
         failures++;
         printf("FAIL %s: new engine reported %d parse error(s), first: %s\n",
                current_test, result->error_count, result->errors[0].message);
-        free(result);
+        parse_result_destroy(result);
         return;
     }
     ast_eval(new_app_instance, &result->pool, result->program);
-    free(result);
+    parse_result_destroy(result);
     char new_output[4096];
     snprintf(new_output, sizeof(new_output), "%s", captured_output);
     TurtleSnapshot new_turtle = snapshot_turtle(new_app_instance);
@@ -364,15 +364,8 @@ TEST(test_file_io_write_read_append_and_delete) {
         "DELETEFILE \"build/test_shadow_diff_does_not_exist.txt");
 }
 
-// LOAD is only shadow-diffed for the case confirmed to actually agree
-// between the two engines: a loaded file's own statements running,
-// including defining and calling ITS OWN procedure from within itself.
-// Calling a LOAD'd procedure from the *loading* script is a genuine,
-// documented architectural gap this engine doesn't share with
-// interpreter.c yet (see test_eval.c's
-// test_load_defined_procedure_is_not_callable_from_the_loading_script
-// and docs/BYTECODE_VM_DESIGN.md) -- deliberately not exercised here,
-// since it's known NOT to agree, not an oversight.
+// A loaded file's own statements running, including defining and
+// calling ITS OWN procedure from within itself.
 TEST(test_load_runs_a_files_own_statements) {
     const char *path = "build/test_shadow_diff_load.logo";
     g_file_set_contents(path,
@@ -382,6 +375,54 @@ TEST(test_load_runs_a_files_own_statements) {
         "greet \"world\n"
         "PRINT 1 + 1", -1, NULL);
     shadow_diff("PRINT \"before\nLOAD \"build/test_shadow_diff_load.logo\nPRINT \"after");
+    remove(path);
+}
+
+// The LOAD-cross-boundary-call fix itself: a procedure a LOAD'd file
+// defines, called from the loading script's own top-level code -- see
+// docs/BYTECODE_VM_DESIGN.md's LOAD-cross-boundary-call-fix milestone
+// and test_eval.c's own test_load_defined_procedure_is_callable_from_
+// the_loading_script for the full "why this now works" explanation.
+TEST(test_load_defined_procedure_is_callable_from_the_loading_script) {
+    const char *path = "build/test_shadow_diff_load_callable.logo";
+    g_file_set_contents(path, "TO greet :name\n  PRINT WORD \"hello- :name\nEND", -1, NULL);
+    shadow_diff("LOAD \"build/test_shadow_diff_load_callable.logo\ngreet \"world");
+    remove(path);
+}
+
+TEST(test_load_recursively_follows_a_loaded_files_own_load) {
+    const char *inner_path = "build/test_shadow_diff_load_recursive_inner.logo";
+    const char *outer_path = "build/test_shadow_diff_load_recursive_outer.logo";
+    g_file_set_contents(inner_path, "TO inner\n  PRINT \"inner-ran\nEND", -1, NULL);
+    g_file_set_contents(outer_path,
+        "LOAD \"build/test_shadow_diff_load_recursive_inner.logo\n"
+        "TO outer\n"
+        "  inner\n"
+        "  PRINT \"outer-ran\n"
+        "END", -1, NULL);
+    shadow_diff("LOAD \"build/test_shadow_diff_load_recursive_outer.logo\nouter\ninner");
+    remove(inner_path);
+    remove(outer_path);
+}
+
+// `a` (defined first, in a loaded file) calling `b` (defined after it,
+// in the SAME loaded file) -- old engine doesn't care about hoisting
+// order at all (both TO's have already run by the time `a` is actually
+// called), but this exact shape is what caught a real one-pass-design
+// bug in this engine's own eager LOAD-following before it ever shipped
+// (see build_eager_procedures's own comment in parser.c and
+// test_eval.c's test_load_forward_reference_within_a_loaded_file_resolves).
+TEST(test_load_forward_reference_within_a_loaded_file_resolves) {
+    const char *path = "build/test_shadow_diff_load_forward_ref.logo";
+    g_file_set_contents(path,
+        "TO a\n"
+        "  b\n"
+        "  PRINT \"a-ran\n"
+        "END\n"
+        "TO b\n"
+        "  PRINT \"b-ran\n"
+        "END", -1, NULL);
+    shadow_diff("LOAD \"build/test_shadow_diff_load_forward_ref.logo\na");
     remove(path);
 }
 
@@ -509,7 +550,7 @@ TEST(test_save_writes_byte_identical_output_to_interpreterc) {
     logo_parse(tokens, n, result);
     CHECK(result->error_count == 0);
     ast_eval(new_app_instance, &result->pool, result->program);
-    free(result);
+    parse_result_destroy(result);
 
     char *old_contents = NULL, *new_contents = NULL;
     CHECK(g_file_get_contents(old_path, &old_contents, NULL, NULL));
@@ -735,7 +776,7 @@ TEST(test_boolean_grouping_with_parens) {
     logo_parse(tokens, n, result);
     CHECK(result->error_count == 0);
     ast_eval(app, &result->pool, result->program);
-    free(result);
+    parse_result_destroy(result);
     CHECK(strcmp(captured_output, "b\n") == 0);
 }
 
@@ -1198,6 +1239,9 @@ int main(void) {
     RUN(test_tell_and_who_multiple_turtles);
     RUN(test_file_io_write_read_append_and_delete);
     RUN(test_load_runs_a_files_own_statements);
+    RUN(test_load_defined_procedure_is_callable_from_the_loading_script);
+    RUN(test_load_recursively_follows_a_loaded_files_own_load);
+    RUN(test_load_forward_reference_within_a_loaded_file_resolves);
     RUN(test_drawing_and_canvas_primitives);
     RUN(test_erase_deletes_a_procedure);
     RUN(test_text_returns_a_procedures_body_as_a_flat_word_list);

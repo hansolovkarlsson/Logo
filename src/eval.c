@@ -1721,13 +1721,13 @@ static EvalValue do_map(LogoApp *app, AstPool *pool, const int *arg_idx) {
         EvalValue result = eval_apply_template_expr(app, template_text, node_to_value(&app->list_pool[idx]), scratch);
         int node = value_to_node(app, result);
         if (node < 0) {
-            free(scratch);
+            parse_result_destroy(scratch);
             return list_pool_exhausted(app);
         }
         *next_slot = node;
         next_slot = &app->list_pool[node].next;
     }
-    free(scratch);
+    parse_result_destroy(scratch);
     return list_val(new_head);
 }
 // FILTER template list -- keeps each element of `list` whose template
@@ -1749,14 +1749,14 @@ static EvalValue do_filter(LogoApp *app, AstPool *pool, const int *arg_idx) {
         if (eval_apply_template_condition(app, template_text, node_to_value(&app->list_pool[idx]), scratch)) {
             int node = list_node_copy(app, idx);
             if (node < 0) {
-                free(scratch);
+                parse_result_destroy(scratch);
                 return list_pool_exhausted(app);
             }
             *next_slot = node;
             next_slot = &app->list_pool[node].next;
         }
     }
-    free(scratch);
+    parse_result_destroy(scratch);
     return list_val(new_head);
 }
 // REDUCE template list -- folds left-to-right, seeding the accumulator
@@ -1789,7 +1789,7 @@ static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
         int node = (n < 0) ? -1 : logo_parse_expr(tokens, n, scratch);
         if (node >= 0) acc = eval_expr(app, &scratch->pool, node);
     }
-    free(scratch);
+    parse_result_destroy(scratch);
     return acc;
 }
 // FOREACH template list -- runs `template` (with "?" substituted for
@@ -1827,7 +1827,7 @@ static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
         }
         if (app->stop_requested || app->throw_requested) break;
     }
-    free(scratch);
+    parse_result_destroy(scratch);
 }
 // RUN thing -- executes a stored word/list as Logo source, exactly as
 // if it had been typed directly (RUN'd code shares the caller's scope,
@@ -1856,7 +1856,7 @@ static void do_run(LogoApp *app, AstPool *pool, const int *arg_idx) {
         ParseResult *scratch = calloc(1, sizeof(ParseResult));
         logo_parse(tokens, n, scratch);
         if (scratch->error_count == 0) exec_block(app, &scratch->pool, scratch->program);
-        free(scratch);
+        parse_result_destroy(scratch);
     }
     app->run_depth--;
 }
@@ -2108,7 +2108,7 @@ static void do_load(LogoApp *app, AstPool *pool, const int *arg_idx) {
         ParseResult *scratch = calloc(1, sizeof(ParseResult));
         logo_parse(tokens, n, scratch);
         if (scratch->error_count == 0) exec_block(app, &scratch->pool, scratch->program);
-        free(scratch);
+        parse_result_destroy(scratch);
     }
     free(tokens);
     g_free(contents);

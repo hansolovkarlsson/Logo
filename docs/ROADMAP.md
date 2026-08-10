@@ -65,15 +65,11 @@ lands and delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has
 the detail, per this file's usual convention.
 
 Every batch on this checklist has now landed (see
-`docs/BYTECODE_VM_DESIGN.md`'s Progress log for the full history) —
-what remains isn't queued work, just the one documented gap below.
-
-Also worth knowing about, though not a checklist item: `LOAD` itself
-shipped, but calling a procedure it defines from the *loading* script
-doesn't work — a real, documented architectural gap (this engine parses
-its whole top-level script once, up front, unlike `eval_logo`'s one-
-statement-at-a-time model), not scoped to fix here — see
-`docs/BYTECODE_VM_DESIGN.md`'s File I/O milestone.
+`docs/BYTECODE_VM_DESIGN.md`'s Progress log for the full history),
+including the `LOAD` cross-boundary-call gap this section used to flag
+here — fixed for real (eager parse-time `LOAD` following), not worked
+around; see `docs/BYTECODE_VM_DESIGN.md`'s own LOAD-cross-boundary-
+call-fix milestone.
 
 Deliberately **not** planned for Stage 1, and not just "not done yet":
 - `WAITKEY`/`INPUT`/`PAUSE`/`WAIT`/`BUTTON?`/`JOYSTICK?`/`JOYSTICKAXIS`/

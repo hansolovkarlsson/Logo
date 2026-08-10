@@ -89,7 +89,7 @@ static int run_file(const char *prog, const char *path) {
         for (int i = 0; i < result->error_count; i++) {
             fprintf(stderr, "%s:%d:%d: %s\n", path, result->errors[i].line, result->errors[i].col, result->errors[i].message);
         }
-        free(result);
+        parse_result_destroy(result);
         free(tokens);
         free(source);
         return 1;
@@ -99,7 +99,7 @@ static int run_file(const char *prog, const char *path) {
     ast_eval(app, &result->pool, result->program);
 
     free(app);
-    free(result);
+    parse_result_destroy(result);
     free(tokens);
     free(source);
     return 0;
@@ -282,7 +282,7 @@ static void run_repl(void) {
                 session = candidate;
                 candidate.data = NULL; // ownership moved into session; don't double-free below
             }
-            free(result);
+            parse_result_destroy(result);
         }
         free(tokens);
         dynstr_free(&candidate); // no-op if ownership was moved above

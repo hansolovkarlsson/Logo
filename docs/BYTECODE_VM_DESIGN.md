@@ -1215,9 +1215,88 @@ footprint.
     output/turtle state/drawn data, never arbitrary file content).
     Confirmed clean under AddressSanitizer on both `test_eval` and
     `test_shadow_diff`.
+- **`LOAD` cross-boundary-call gap: fixed for real** (not a Stage 1
+  coverage batch — a genuine architectural fix to the one real
+  limitation the File I/O milestone above left open, at the user's
+  explicit request after discussing the tradeoffs). The root cause was
+  real, not superficial: this engine's `logo_parse` parses and hoists
+  the entire top-level script once, up front, before executing
+  anything — so a call to a procedure a `LOAD`'d file defines could
+  never resolve, no matter what `do_load` does at runtime, because the
+  caller's own parse (and its own "unknown word" error) would already
+  be finished long before `do_load` ever ran. interpreter.c never had
+  this problem because `eval_logo` parses and executes one statement at
+  a time, registering a `LOAD`'d procedure into `app->procedures[]` the
+  moment its own nested `eval_logo` call reaches it — any later
+  top-level statement in the same script, parsed afterward in sequence,
+  already finds it.
+  - **The fix: teach the hoisting pre-pass to eagerly follow a `LOAD
+    "literal-path` call** (a real, if narrow, `#include`-shaped
+    feature — LOAD's own `ARG_QUOTED_WORD` grammar means a literal
+    quoted-word path is the *only* argument shape `LOAD` can ever
+    syntactically take in valid Logo, in either engine, so there's no
+    "computed path" case left over to worry about). `ast.h`'s
+    `AstNode` gained `body_text`/`body_len` in the previous milestone
+    for `TEXT`/`SAVE`; this fix needed the analogous move for the
+    *parser* itself: `ParseResult` gained `eager_loaded_sources[]`
+    (`MAX_EAGER_LOADS`, a fixed cap, same "loud stop, not silent
+    unbounded growth" policy as every other fixed table here) — owned
+    source-text buffers, read via plain `fopen`/`fread` (not
+    `g_file_get_contents`, keeping parser.c's own "no GTK/GLib
+    dependency" promise intact) so a `LOAD`'d file's own `AstNode`
+    pointers have something stable to point into for as long as the
+    pool referencing them is alive. This meant every one of the 18
+    call sites across this codebase that used to `free()` a
+    `ParseResult` directly now has to release those buffers too — a new
+    `parse_result_destroy` (parser.h/parser.c) replaces every bare
+    `free(result)`/`free(scratch)`, eval.c's own scratch-`ParseResult`
+    reuse (`do_map`/`do_filter`/`do_reduce`/`do_foreach`/`do_run`/
+    `do_load`) included.
+  - **A real forward-reference bug, caught before it ever shipped, not
+    guessed**: the first draft built a `LOAD`'d file's own real
+    `AST_PROC_DEF` nodes *during* the hoisting pre-pass itself, the
+    moment its own `TO` was found — but at that point `p->hoisted[]`
+    isn't complete yet, so a loaded file's procedure calling *another*
+    one defined later in the same file (or in a different loaded file,
+    or in the outer script) would spuriously fail to parse as "unknown
+    word," even though the callee genuinely does get hoisted
+    eventually — just not yet. The forward-reference freedom an
+    ordinary top-level `TO` already has (confirmed
+    `test_procedure_forward_reference`'s own precedent) has to extend
+    to a `LOAD`'d one too, or this fix would be trading one broken case
+    for another. Fixed by genuinely splitting the work into two passes:
+    pass 1 (`hoist_from_tokens`/`eager_follow_load`) only ever
+    discovers names/arities and reads+stores every reachable `LOAD`'d
+    file's content, recursing through nested `LOAD`s; pass 2
+    (`build_eager_procedures`) runs only once pass 1 has finished
+    *everywhere*, re-lexing each stored buffer and building its own
+    real `AST_PROC_DEF` nodes then, with `p->hoisted[]` finally whole.
+    Caught by deliberately writing a forward-reference test
+    (`a` calling `b`, `b` defined later in the same loaded file) before
+    considering the feature done, not by accident.
+  - **Recursion, bounded the same way `MAX_RUN_DEPTH` already is**: a
+    `LOAD`'d file calling `LOAD` itself is exactly as valid as the
+    top-level script doing so, capped by `MAX_EAGER_LOAD_DEPTH` (8)
+    against a self- or mutually-referential chain — a real limit, not a
+    soft guess, same reasoning as every other depth cap in this
+    codebase. The token buffer eager-following needs is heap-allocated,
+    never a stack local, specifically *because* this recurs — the same
+    class of mistake already on record in the
+    `eval_logo_recursion_margin` memory.
+  - Ground-truth verified directly against a standalone probe linked to
+    `interpreter.c` before writing anything permanent — byte-for-byte
+    identical, including the forward-reference case and a two-level
+    recursive `LOAD` chain. 5 new `tests/test_eval.c` cases (the old
+    `test_load_defined_procedure_is_not_callable_from_the_loading_script`
+    flipped to confirm the fix instead of the bug, plus recursion and
+    both directions of forward-reference) and 3 new shadow-diff scripts
+    (one updated comment removing the old "deliberately not exercised"
+    caveat that's no longer true). Confirmed clean under
+    AddressSanitizer on `test_eval`, `test_shadow_diff`, *and*
+    `test_parser` (the binary that most directly exercises the new
+    parse-time file I/O and recursion).
 - **Next**: every batch on `docs/ROADMAP.md`'s Phase 5 Stage 1 checklist
-  has now landed. What's left there isn't queued work — just the one
-  documented `LOAD` cross-boundary-call gap (see the File I/O milestone
-  above), a real architectural limitation rather than a missing port.
-  Ask the user what to tackle next rather than assuming there's a
-  further mechanical batch to grind through.
+  has now landed, and the `LOAD` cross-boundary-call gap that used to
+  be the one open item is fixed for real. Ask the user what to tackle
+  next — Stage 2 (the bytecode VM itself) is the next genuinely large
+  bet on `docs/ROADMAP.md`, but nothing here assumes that's the choice.
