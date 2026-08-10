@@ -547,6 +547,12 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "WAITKEY", want_value);
         return;
     }
+    if (strcasecmp(name, "INPUT") == 0) {
+        // Same shape as WAITKEY -- see vm_resume_with_input.
+        emit(chunk, (Instr){.op = OP_INPUT});
+        finish_call(chunk, "INPUT", want_value);
+        return;
+    }
     if (strcasecmp(name, "SEND") == 0) {
         // Unlike every other call form, SEND's own callee isn't known
         // until runtime (resolved through obj's prototype chain --

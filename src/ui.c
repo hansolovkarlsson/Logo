@@ -886,9 +886,10 @@ static gboolean history_recall(LogoApp *app, GtkTextBuffer *buffer, int directio
 // file, not just one typed line).
 #define UI_SCRIPT_MAX_TOKENS 8192
 
-// A script paused on VM_RUN_SUSPENDED_WAIT/VM_RUN_SUSPENDED_WAITKEY:
-// kept alive across however many GTK callbacks it takes to resume (a
-// timer firing, a keypress arriving), instead of the single
+// A script paused on VM_RUN_SUSPENDED_WAIT/VM_RUN_SUSPENDED_WAITKEY/
+// VM_RUN_SUSPENDED_INPUT: kept alive across however many GTK callbacks
+// it takes to resume (a timer firing, a keypress arriving, a line
+// submitted), instead of the single
 // call-scoped locals every other vm_run caller (tests/test_vm.c) uses.
 // This app only ever runs one script "thread" in one window, so a
 // single file-scope pointer -- not anything owned by LogoApp itself --
@@ -933,6 +934,11 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
         case VM_RUN_SUSPENDED_WAITKEY:
             g_suspended_run = run;
             app->waiting_for_key = TRUE;
+            if (app->request_redraw != NULL) app->request_redraw(app);
+            break;
+        case VM_RUN_SUSPENDED_INPUT:
+            g_suspended_run = run;
+            app->waiting_for_input = TRUE;
             if (app->request_redraw != NULL) app->request_redraw(app);
             break;
     }
@@ -1018,23 +1024,29 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
 
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->entry));
 
-    // INPUT is busy-waiting (see interpreter.c) for a submitted line --
-    // unlike WAITKEY, ordinary keys must still type normally here (the
-    // user is composing the line to submit), so only Return/KP_Enter is
+    // INPUT suspended the VM waiting for a submitted line -- unlike
+    // WAITKEY, ordinary keys must still type normally here (the user is
+    // composing the line to submit), so only Return/KP_Enter is
     // special-cased: it captures the whole entry as raw text instead of
     // running it as a command, and (unlike ordinary command submission)
     // does so unconditionally, ignoring Shift and is_input_complete --
     // INPUT reads one line of data, not Logo source that might span
-    // several.
+    // several. (eval_logo's own busy-wait still uses input_ready/
+    // pending_input -- see interpreter.c -- but bin/logo no longer
+    // calls eval_logo, so this branch only ever has a VM run to
+    // resume, same as the waiting_for_key branch above.)
     if (app->waiting_for_input) {
         if (keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) {
             GtkTextIter start, end;
             gtk_text_buffer_get_bounds(buffer, &start, &end);
             char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
-            snprintf(app->pending_input, sizeof(app->pending_input), "%s", text);
-            g_free(text);
             gtk_text_buffer_set_text(buffer, "", -1);
-            app->input_ready = TRUE;
+            app->waiting_for_input = FALSE;
+            SuspendedRun *run = g_suspended_run;
+            g_suspended_run = NULL;
+            VmRunResult result = vm_resume_with_input(run->vm, app, &run->result->pool, run->chunk, text);
+            g_free(text);
+            handle_vm_result(app, run, result);
             return TRUE;
         }
         return FALSE; // every other key behaves normally: typing, backspace, cursor movement

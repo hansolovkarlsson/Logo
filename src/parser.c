@@ -278,17 +278,17 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SETITEM", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
     { "FILLARRAY", 2, { ARG_EXPR, ARG_EXPR } },
 
-    // WAIT/WAITKEY -- the first two of interpreter.c's own suspend-
-    // shaped commands ported into this pipeline (see
-    // docs/BYTECODE_VM_DESIGN.md's suspend/resume design), the other
-    // three (INPUT/PAUSE/ANIMATESPRITE) deliberately left for a later
-    // batch. WAIT is a plain statement, matching interpreter.c's own
-    // parse (its own strcasecmp dispatch, not parse_factor's keyword
-    // chain); WAITKEY takes no arguments but does produce a value (it's
-    // in interpreter.c's own parse_factor keyword chain), same shape as
-    // GETX/POS/HOME above.
+    // WAIT/WAITKEY/INPUT -- interpreter.c's own suspend-shaped commands
+    // ported into this pipeline (see docs/BYTECODE_VM_DESIGN.md's
+    // suspend/resume design); PAUSE/ANIMATESPRITE deliberately left for
+    // a later batch. WAIT is a plain statement, matching interpreter.c's
+    // own parse (its own strcasecmp dispatch, not parse_factor's
+    // keyword chain); WAITKEY/INPUT take no arguments but do produce a
+    // value (both are in interpreter.c's own parse_factor keyword
+    // chain), same shape as GETX/POS/HOME above.
     { "WAIT", 1, { ARG_EXPR } },
     { "WAITKEY", 0, { 0 } },
+    { "INPUT", 0, { 0 } },
 };
 #define BUILTIN_SIGNATURE_COUNT (int)(sizeof(BUILTIN_SIGNATURES) / sizeof(BUILTIN_SIGNATURES[0]))
 

@@ -580,7 +580,39 @@ instruction-set/frame-layout detail behind each of these.
   `WAITKEY` into the running app, confirming the window stays
   responsive during the wait) needs a human — this environment has no
   Accessibility permission for scripted GTK UI control, and full-screen
-  automation isn't an appropriate substitute.
+  automation isn't an appropriate substitute. **Confirmed working by
+  the user directly, both commands.**
+- [x] **`INPUT`** (2026-08-10) — the second of the three commands the
+  `WAIT`/`WAITKEY` batch above deliberately deferred, and the easiest
+  of the three: mechanically identical to `WAITKEY` (suspends
+  unconditionally, produces a value, gated by the same
+  `vm_run_depth`-based template refusal), just resumed with a whole
+  submitted line instead of a single key name. A new
+  `VM_RUN_SUSPENDED_INPUT` (`VmRunResult`) and `OP_INPUT` (`bytecode.h`)
+  mirror `OP_WAITKEY` exactly; a new `vm_resume_with_input` mirrors
+  `vm_resume_with_key`'s own push-then-continue shape — kept as its own
+  function rather than a shared/parameterized one, since `ui.c` gates
+  the two on genuinely different flags/events (`waiting_for_key`, any
+  keypress, vs. `waiting_for_input`, only Return/KP_Enter after
+  ordinary typing) and they're conceptually distinct resumption events,
+  matching this codebase's own convention of dedicated functions per
+  concept (`eval_first_value`/`eval_last_value`, etc.) over one
+  parameterized helper. `ui.c`'s existing `waiting_for_input` branch in
+  `on_entry_key_pressed` (already there for `eval_logo`'s own busy-wait,
+  now unused by the live app) needed the same treatment as `WAITKEY`'s
+  own branch: capture the submitted line, then call
+  `vm_resume_with_input` directly instead of setting `input_ready` for
+  a busy-wait loop to notice. 2 new `tests/test_vm.c` cases (suspend
+  with a submitted line then resume to completion; `INPUT` directly
+  inside a `MAP` template reporting the same documented refusal as
+  `WAIT`/`WAITKEY`), confirmed clean under AddressSanitizer (same one
+  pre-existing, unrelated crash); all 6 `make test` suites pass;
+  `bin/logo` builds warning-free and confirmed to launch/run without
+  crashing. `PAUSE`/`ANIMATESPRITE` remain as the last two follow-up
+  batches — `PAUSE` is the harder of the two, since `eval_logo`'s own
+  version relies on reentrant nested `eval_logo` calls (an ordinary
+  REPL command typed while paused) rather than a single suspend/resume
+  point, and has no VM-level design sketched yet.
 
 ## Robustness
 

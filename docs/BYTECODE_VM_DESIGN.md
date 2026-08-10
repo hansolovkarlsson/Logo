@@ -12,9 +12,9 @@ vertical slice (`docs/ROADMAP.md`'s "Phase 5, Stage 2" checklist, item
 `REPEAT`/`FOREVER`/`FOR`, `MAP`/`FILTER`/`REDUCE`/`FOREACH`) has since
 landed too — see the Progress log below. Suspend/resume's own GTK
 integration (the real point of this whole stage) landed 2026-08-10,
-scoped to `WAIT`/`WAITKEY`; `bin/logo` now runs scripts through the
-compiler+VM instead of `eval_logo`, the first real cutover of the live
-app. `INPUT`/`PAUSE`/`ANIMATESPRITE` remain as smaller follow-up
+scoped to `WAIT`/`WAITKEY` then `INPUT`; `bin/logo` now runs scripts
+through the compiler+VM instead of `eval_logo`, the first real cutover
+of the live app. `PAUSE`/`ANIMATESPRITE` remain as smaller follow-up
 batches to that same mechanism.
 
 ## Why
@@ -2163,11 +2163,29 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   warning-free and was confirmed to launch and run without crashing.
   The interactive click-test itself (typing `WAIT`/`WAITKEY` into the
   running app) needs a human to confirm — this environment had no
-  Accessibility permission for scripted GTK UI control.
-  - **Next**: `INPUT`/`PAUSE`/`ANIMATESPRITE` remain as smaller,
-    optional follow-up batches to this same suspend/resume mechanism
-    (`PAUSE` is the hardest of the three — its reentrant nested-command
-    semantics have no VM-level design yet). The still-open `WHILE`/
-    `FOR` iteration-cap gap and the `OUTPUT`/`STOP`-inside-a-template
-    limitation remain smaller, optional follow-ups too, or whatever the
-    user picks next.
+  Accessibility permission for scripted GTK UI control. **Confirmed
+  working by the user directly, both commands.**
+- **`INPUT`** (2026-08-10) — the easiest of the three commands the
+  batch above deferred: mechanically identical to `WAITKEY`, just
+  resumed with a whole submitted line instead of a single key name. A
+  new `VM_RUN_SUSPENDED_INPUT`/`OP_INPUT` mirror `OP_WAITKEY` exactly
+  (including the same `vm_run_depth`-based template refusal); a new
+  `vm_resume_with_input` mirrors `vm_resume_with_key`'s own
+  push-then-continue shape, kept as its own function rather than a
+  shared one since `ui.c` gates the two on different flags/events
+  (`waiting_for_key` vs. `waiting_for_input`). `ui.c`'s existing
+  `waiting_for_input` branch (already there for `eval_logo`'s own
+  busy-wait, unused by the live app until now) got the same treatment
+  as `WAITKEY`'s own branch: capture the line, call
+  `vm_resume_with_input` directly instead of setting a flag for a
+  busy-wait loop. 2 new headless `tests/test_vm.c` cases, ASan-clean,
+  all 6 `make test` suites pass, `bin/logo` builds warning-free and
+  runs without crashing.
+  - **Next**: `PAUSE`/`ANIMATESPRITE` remain as smaller, optional
+    follow-up batches to this same suspend/resume mechanism (`PAUSE` is
+    the harder of the two — its reentrant nested-command semantics,
+    where an ordinary REPL command typed while paused can see the
+    paused call's own live scope, have no VM-level design yet). The
+    still-open `WHILE`/`FOR` iteration-cap gap and the
+    `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,
+    optional follow-ups too, or whatever the user picks next.

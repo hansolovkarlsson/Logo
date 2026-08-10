@@ -986,6 +986,29 @@ TEST(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_su
     end_vm_session(s);
 }
 
+TEST(test_input_suspends_then_resumes_with_the_submitted_line_and_completes) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("MAKE \"line INPUT\nPRINT :line", &status);
+    expect_status(status, VM_RUN_SUSPENDED_INPUT, "initial run");
+    status = vm_resume_with_input(s.vm, s.app, &s.result->pool, s.chunk, "hello there");
+    expect_status(status, VM_RUN_HALTED, "resume");
+    expect_output("hello there\n");
+    end_vm_session(s);
+}
+
+TEST(test_input_directly_inside_a_map_template_reports_an_error_instead_of_suspending) {
+    // Same documented gap as WAIT/WAITKEY inside a template body -- see
+    // vm_run_depth's own comment in vm.h.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT MAP [INPUT] [1 2]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "INPUT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+        failures++;
+        printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -1095,6 +1118,8 @@ int main(void) {
     RUN(test_waitkey_suspends_and_resumes_correctly_through_several_nested_procedure_calls);
     RUN(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
     RUN(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
+    RUN(test_input_suspends_then_resumes_with_the_submitted_line_and_completes);
+    RUN(test_input_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
 
     if (failures == 0) {
         printf("All tests passed.\n");

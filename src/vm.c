@@ -993,6 +993,19 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 vm->vm_run_depth--;
                 return VM_RUN_SUSPENDED_WAITKEY;
             }
+            case OP_INPUT: {
+                if (vm->vm_run_depth > 1) {
+                    append_output(app, "INPUT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    push(vm, word_val(""));
+                    vm->last_call_produced_output = 1;
+                    vm->last_call_resolved = 1;
+                    pc++;
+                    break;
+                }
+                vm->pc = pc + 1;
+                vm->vm_run_depth--;
+                return VM_RUN_SUSPENDED_INPUT;
+            }
             default:
                 pc++;
                 break;
@@ -1008,6 +1021,13 @@ VmRunResult vm_resume(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk)
 
 VmRunResult vm_resume_with_key(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *key_name) {
     push(vm, word_val(key_name));
+    vm->last_call_produced_output = 1;
+    vm->last_call_resolved = 1;
+    return vm_run(vm, app, pool, chunk, vm->pc);
+}
+
+VmRunResult vm_resume_with_input(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *line) {
+    push(vm, word_val(line));
     vm->last_call_produced_output = 1;
     vm->last_call_resolved = 1;
     return vm_run(vm, app, pool, chunk, vm->pc);

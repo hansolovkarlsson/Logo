@@ -28,16 +28,18 @@
 
 // vm_run's own result: VM_RUN_HALTED means it ran to OP_HALT (or fell
 // off the end of the chunk) exactly like before this existed -- the
-// only outcome possible until WAIT/WAITKEY. The two SUSPENDED values
+// only outcome possible until WAIT/WAITKEY/INPUT. The SUSPENDED values
 // mean vm_run returned *early*, mid-chunk, with `vm` left fully intact
 // (its stack/frames untouched) so it can be resumed later via
-// vm_resume/vm_resume_with_key -- see those functions' own comments,
-// and bytecode.h's own OP_WAIT/OP_WAITKEY comment for why only these
-// two opcodes can ever produce a SUSPENDED result.
+// vm_resume/vm_resume_with_key/vm_resume_with_input -- see those
+// functions' own comments, and bytecode.h's own OP_WAIT/OP_WAITKEY/
+// OP_INPUT comments for why only these three opcodes can ever produce
+// a SUSPENDED result.
 typedef enum {
     VM_RUN_HALTED,
     VM_RUN_SUSPENDED_WAIT,
     VM_RUN_SUSPENDED_WAITKEY,
+    VM_RUN_SUSPENDED_INPUT,
 } VmRunResult;
 
 // One in-flight OP_CALL_PROC: where to resume in `code` when this
@@ -119,13 +121,13 @@ typedef struct {
     // How many nested vm_run calls are currently on the C stack for
     // this one Vm -- 1 for an ordinary top-level run, >1 only inside a
     // MAP/FILTER/REDUCE/FOREACH template's own recursive vm_run call
-    // (see exec_map_compiled and friends). WAIT/WAITKEY check this
-    // because a SUSPENDED return from an inner, recursive vm_run call
-    // would only unwind that one C frame -- straight back into
+    // (see exec_map_compiled and friends). WAIT/WAITKEY/INPUT check
+    // this because a SUSPENDED return from an inner, recursive vm_run
+    // call would only unwind that one C frame -- straight back into
     // exec_map_compiled's own C loop, not out to whatever's driving the
     // outermost vm_run (ui.c) -- silently losing the suspend instead of
     // delivering it. Rather than attempt that (a real redesign, not a
-    // small fix -- see docs/BYTECODE_VM_DESIGN.md), WAIT/WAITKEY refuse
+    // small fix -- see docs/BYTECODE_VM_DESIGN.md), all three refuse
     // outright with a clear runtime message whenever vm_run_depth > 1,
     // the same "documented gap, not silent corruption" spirit as the
     // template batch's own frame_floor mitigation for OUTPUT/STOP.
@@ -134,13 +136,14 @@ typedef struct {
 
 // Runs `chunk` (as produced by compile_program) against `app`/`pool`
 // starting at instruction `start_pc`, until OP_HALT (VM_RUN_HALTED) or
-// a WAIT/WAITKEY suspend point (VM_RUN_SUSPENDED_*, see VmRunResult).
-// `vm` must already be zeroed (a fresh `Vm vm = {0};` on the caller's
-// own heap allocation) for a first call -- same "caller owns storage,
-// callee just uses it" convention as ast_eval's own AstPool/LogoApp
-// parameters. On a SUSPENDED result, `vm` (and `pool`/`chunk`) must be
-// kept alive by the caller and handed to vm_resume/vm_resume_with_key
-// later -- do not call vm_run again directly on a suspended `vm`.
+// a WAIT/WAITKEY/INPUT suspend point (VM_RUN_SUSPENDED_*, see
+// VmRunResult). `vm` must already be zeroed (a fresh `Vm vm = {0};` on
+// the caller's own heap allocation) for a first call -- same "caller
+// owns storage, callee just uses it" convention as ast_eval's own
+// AstPool/LogoApp parameters. On a SUSPENDED result, `vm` (and
+// `pool`/`chunk`) must be kept alive by the caller and handed to
+// vm_resume/vm_resume_with_key/vm_resume_with_input later -- do not
+// call vm_run again directly on a suspended `vm`.
 VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start_pc);
 
 // Continues a `vm` most recently suspended with VM_RUN_SUSPENDED_WAIT
@@ -152,5 +155,17 @@ VmRunResult vm_resume(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk)
 // (i.e. by OP_WAITKEY), pushing `key_name` as the value that instruction
 // itself would have produced, then picking up at `vm->pc`.
 VmRunResult vm_resume_with_key(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *key_name);
+
+// Continues a `vm` most recently suspended with VM_RUN_SUSPENDED_INPUT
+// (i.e. by OP_INPUT), pushing `line` (the whole submitted entry-box
+// line) as the value that instruction itself would have produced, then
+// picking up at `vm->pc`. Mechanically identical to
+// vm_resume_with_key's own push-then-continue shape, but kept as its
+// own function (not a shared helper) since INPUT/WAITKEY are gated by
+// different ui.c flags (waiting_for_input vs. waiting_for_key) and are
+// conceptually distinct resumption events, matching this codebase's own
+// convention of dedicated functions per concept over one parameterized
+// one (e.g. eval_first_value/eval_last_value).
+VmRunResult vm_resume_with_input(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *line);
 
 #endif
