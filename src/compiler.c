@@ -49,7 +49,10 @@
 // returns (vm.c's own OP_SEND needs the same table at runtime).
 
 #include "compiler.h"
+#include "lexer.h"
+#include "parser.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -75,6 +78,13 @@ typedef struct {
 typedef struct {
     PendingPatch patches[MAX_PENDING_PATCHES];
     int patch_count;
+    // MAP/FILTER/REDUCE/FOREACH's own compiled-once templates need a
+    // real Logo variable name for their own "?"/"?1"/"?2" placeholder(s)
+    // -- see compile_template_call's own file comment for why it can't
+    // be one fixed shared name. Incremented once per call site (never
+    // reset), so every template ever compiled in one program gets its
+    // own distinct name, safe against both recursion and nesting.
+    int template_counter;
 } Compiler;
 
 static int emit(BytecodeChunk *chunk, Instr instr) {
@@ -104,6 +114,206 @@ static void compile_expr(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
 static void compile_condition(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk *chunk);
 static void compile_statement(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk *chunk);
 static void compile_block(Compiler *c, AstPool *pool, int block_node, BytecodeChunk *chunk, int is_top_level);
+static int compile_template_call(Compiler *c, AstPool *pool, const char *name, int template_node, int list_node, BytecodeChunk *chunk, int want_value);
+static void finish_call(BytecodeChunk *chunk, const char *name, int want_value);
+
+// Deep-copies `src_idx`'s own subtree (in `src`) into `dest`, node for
+// node, returning the new root's index in `dest` -- see
+// compile_template_call's own file comment for why a freshly
+// (re-)parsed template body can't just be compiled directly out of its
+// own scratch AstPool: every AstPool referenced by this compiler's own
+// `pool` parameter, all the way down through compile_program's initial
+// call, is the SAME one pool throughout (never swapped for a
+// procedure body, an IF/WHILE/FOR block, or -- once grafted -- a
+// template body either), which is what lets find_proc_def(pool, name)
+// and OP_PUSH_LIST_LITERAL's own stored node index stay meaningful
+// anywhere in the compiled program. Grafting into that same pool
+// (rather than compiling straight out of the scratch one
+// logo_parse_expr/logo_parse_condition/logo_parse just built) keeps
+// that invariant intact, including for a nested template (whose own
+// grafted body also grafts into the very same pool).
+static int ast_graft(AstPool *dest, AstPool *src, int src_idx) {
+    if (src_idx < 0) return -1;
+    AstNode *s = &src->nodes[src_idx];
+    int dest_idx = ast_alloc(dest, s->type, s->line, s->col);
+    if (dest_idx < 0) return -1; // dest pool exhausted (MAX_AST_NODES) -- extremely unlikely for a real script
+    AstNode *d = &dest->nodes[dest_idx];
+    d->number = s->number;
+    snprintf(d->text, sizeof(d->text), "%s", s->text);
+    d->binop = s->binop;
+    d->cmpop = s->cmpop;
+    d->param_count = s->param_count;
+    memcpy(d->param_names, s->param_names, sizeof(s->param_names));
+    d->body_text = s->body_text;
+    d->body_len = s->body_len;
+    for (int ch = s->first_child; ch >= 0; ch = src->nodes[ch].next_sibling) {
+        int new_ch = ast_graft(dest, src, ch);
+        if (new_ch < 0) return dest_idx; // stop grafting further children on exhaustion; the partial result is discarded by compile_template_call's own caller anyway
+        ast_append_child(dest, dest_idx, new_ch);
+    }
+    return dest_idx;
+}
+
+// Renders `node_idx` (an AST_LIST_LITERAL)'s own contents back into
+// Logo source text -- the same whitespace-joined, bracket-wrapped shape
+// eval.c's own list_elements_to_text/append_node_text build from the
+// equivalent RUNTIME list, just read directly off the AST instead (no
+// runtime list_pool round-trip needed at compile time, since a list
+// literal's own children were never operator-precedence-parsed to
+// begin with -- see ast.h's own AST_LIST_LITERAL comment). Every
+// element whose own raw text exactly equals `ph1` (or `ph2`, if
+// non-NULL) is replaced with `repl1`/`repl2` instead of copied
+// verbatim -- a whole-token comparison, matching eval.c's own
+// eval_substitute_placeholder exactly (so "?2" is correctly left alone
+// when only substituting "?1", and vice versa).
+static void render_list_literal_source(AstPool *pool, int node_idx,
+                                        const char *ph1, const char *repl1,
+                                        const char *ph2, const char *repl2,
+                                        char *out, size_t out_size) {
+    out[0] = '\0';
+    int first = 1;
+    for (int ch = pool->nodes[node_idx].first_child; ch >= 0; ch = pool->nodes[ch].next_sibling) {
+        if (!first) strncat(out, " ", out_size - strlen(out) - 1);
+        first = 0;
+        AstNode *node = &pool->nodes[ch];
+        if (node->type == AST_LIST_LITERAL) {
+            strncat(out, "[", out_size - strlen(out) - 1);
+            char sub[512];
+            render_list_literal_source(pool, ch, ph1, repl1, ph2, repl2, sub, sizeof(sub));
+            strncat(out, sub, out_size - strlen(out) - 1);
+            strncat(out, "]", out_size - strlen(out) - 1);
+        } else {
+            const char *text = node->text;
+            if (ph1 && strcmp(text, ph1) == 0) text = repl1;
+            else if (ph2 && strcmp(text, ph2) == 0) text = repl2;
+            strncat(out, text, out_size - strlen(out) - 1);
+        }
+    }
+}
+
+// MAP/FILTER/REDUCE/FOREACH's own "compiled once" fast path -- only
+// attempted when the template argument is a literal `[...]` visible
+// right here at compile time (checked by compile_call, the only
+// caller); returns 0 (do nothing, emit nothing) if the rendered
+// template text doesn't actually parse cleanly, so compile_call falls
+// through to the ordinary generic dispatch instead -- the exact same
+// OP_CALL_BUILTIN path a runtime-computed template already has to take
+// (see compile_call), which routes through eval_map_value/
+// eval_filter_value/eval_reduce_value/eval_foreach_value: the same
+// text-substitute-and-reparse-every-iteration machinery eval.c's own
+// do_map/do_filter/do_reduce/do_foreach have always used, including
+// their own defensive per-iteration behavior on a parse failure
+// (num_val(0) elements for MAP, no elements kept for FILTER, acc left
+// unchanged for REDUCE, a silent no-op statement for FOREACH). Falling
+// through here reproduces that exactly, rather than this function
+// trying to separately reinvent it for the "known broken at compile
+// time" case.
+//
+// The fast path itself works completely differently from that runtime
+// text-substitution, though: since a list literal's own elements are
+// already bare, never-precedence-parsed AST_WORD/AST_LIST_LITERAL
+// leaves, "?"/"?1"/"?2" placeholders are just ordinary tokens among
+// them -- render_list_literal_source above rewrites every occurrence
+// into a real Logo variable reference (":__tmplN__", a
+// compiler-generated, per-call-site-unique name via
+// Compiler.template_counter) directly in the reconstructed source
+// text, which is then lexed and parsed ONCE, right now, into a real
+// expression/condition/block AST -- never re-substituted-and-reparsed
+// per iteration the way eval.c's own runtime path has to. At runtime
+// (see vm.c's own exec_map_compiled/exec_filter_compiled/
+// exec_reduce_compiled/exec_foreach_compiled), each iteration just
+// binds the placeholder variable(s) to the current element's actual
+// EvalValue and re-executes the SAME already-compiled bytecode -- a
+// real value binding, not a text round-trip, so it handles
+// list-valued elements, recursion, and nesting for free, and doesn't
+// need eval_value_to_source_text's own quote-escaping dance at all.
+//
+// REDUCE gets two placeholder variables instead of one:
+// "<base>_1"/"<base>_2" for "?1"/"?2" (the accumulator and the current
+// element respectively) -- `instr->text` on the opcode itself only
+// ever holds `base`; vm.c's own exec_reduce_compiled derives the same
+// two suffixed names from it independently, so this naming convention
+// must stay in sync between the two files (documented here and again
+// there).
+static int compile_template_call(Compiler *c, AstPool *pool, const char *name, int template_node, int list_node, BytecodeChunk *chunk, int want_value) {
+    int is_filter = strcasecmp(name, "FILTER") == 0;
+    int is_reduce = strcasecmp(name, "REDUCE") == 0;
+    int is_foreach = strcasecmp(name, "FOREACH") == 0;
+
+    char base[24];
+    snprintf(base, sizeof(base), "__tmpl%d__", c->template_counter++);
+    char var1[32], var2[32] = {0};
+    char varref1[40], varref2[40] = {0};
+    if (is_reduce) {
+        snprintf(var1, sizeof(var1), "%s_1", base);
+        snprintf(var2, sizeof(var2), "%s_2", base);
+    } else {
+        snprintf(var1, sizeof(var1), "%s", base);
+    }
+    snprintf(varref1, sizeof(varref1), ":%s", var1);
+    if (is_reduce) snprintf(varref2, sizeof(varref2), ":%s", var2);
+
+    char rendered[1024];
+    render_list_literal_source(pool, template_node,
+                                is_reduce ? "?1" : "?", varref1,
+                                is_reduce ? "?2" : NULL, is_reduce ? varref2 : NULL,
+                                rendered, sizeof(rendered));
+
+    LogoToken tokens[128];
+    int ntok = logo_lex(rendered, tokens, 128);
+    if (ntok < 0) return 0;
+
+    ParseResult *scratch = calloc(1, sizeof(ParseResult));
+    if (!scratch) return 0;
+    int body_node;
+    if (is_filter) {
+        body_node = logo_parse_condition(tokens, ntok, scratch);
+    } else if (is_foreach) {
+        logo_parse(tokens, ntok, scratch);
+        body_node = scratch->program;
+    } else {
+        body_node = logo_parse_expr(tokens, ntok, scratch);
+    }
+    if (body_node < 0 || scratch->error_count > 0) {
+        parse_result_destroy(scratch);
+        return 0;
+    }
+
+    int grafted_node = ast_graft(pool, &scratch->pool, body_node);
+    parse_result_destroy(scratch);
+    if (grafted_node < 0) return 0;
+
+    // The template compiles cleanly -- now actually emit code: the
+    // list argument, a jump around the template's own one-time
+    // compiled body, the body itself (ending in OP_HALT, only ever
+    // reached via the new opcode's own recursive vm_run call -- see
+    // bytecode.h's own comment on these opcodes), then the opcode
+    // itself.
+    compile_expr(c, pool, list_node, chunk);
+
+    int jump_around = emit(chunk, (Instr){.op = OP_JUMP, .a = -1});
+    int template_start = chunk->count;
+    if (is_filter) {
+        compile_condition(c, pool, grafted_node, chunk);
+    } else if (is_foreach) {
+        compile_block(c, pool, grafted_node, chunk, /*is_top_level=*/0);
+    } else {
+        compile_expr(c, pool, grafted_node, chunk);
+    }
+    emit(chunk, (Instr){.op = OP_HALT});
+    if (jump_around >= 0) chunk->code[jump_around].a = chunk->count;
+
+    Instr instr = {0};
+    instr.a = template_start;
+    snprintf(instr.text, sizeof(instr.text), "%s", base);
+    if (strcasecmp(name, "MAP") == 0) instr.op = OP_MAP_COMPILED;
+    else if (is_filter) instr.op = OP_FILTER_COMPILED;
+    else if (is_reduce) instr.op = OP_REDUCE_COMPILED;
+    else instr.op = OP_FOREACH_COMPILED;
+    emit(chunk, instr);
+    finish_call(chunk, name, want_value);
+    return 1;
+}
 
 // The uniform tail every call form ends with, whatever shape it was
 // compiled as (an ordinary builtin/procedure call, or one of the
@@ -329,6 +539,24 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
             emit(chunk, (Instr){.op = OP_POP});
         }
         return;
+    }
+    if (strcasecmp(name, "MAP") == 0 || strcasecmp(name, "FILTER") == 0 ||
+        strcasecmp(name, "REDUCE") == 0 || strcasecmp(name, "FOREACH") == 0) {
+        // Only the "compiled once" fast path is special-cased here --
+        // see compile_template_call's own file comment. When the
+        // template argument isn't a literal `[...]` visible right now
+        // (a runtime-computed template, e.g. `MAP :tmpl [1 2 3]`),
+        // this falls through to the ordinary generic dispatch below
+        // exactly like any other builtin, which emits OP_CALL_BUILTIN
+        // -- vm.c's own call_builtin has a matching dynamic-fallback
+        // branch for all four names.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        if (pool->nodes[args[0]].type == AST_LIST_LITERAL) {
+            if (compile_template_call(c, pool, name, args[0], args[1], chunk, want_value)) return;
+            // Malformed template, known already at compile time -- fall
+            // through to the ordinary generic dispatch below instead
+            // (see compile_template_call's own comment).
+        }
     }
 
     int argc = collect_children(pool, node_idx, args, AST_MAX_PARAMS);

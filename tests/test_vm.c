@@ -718,6 +718,139 @@ TEST(test_for_limit_and_step_survive_a_recursive_call_in_its_own_body) {
         "nested 2");
 }
 
+TEST(test_map_transforms_each_element) {
+    shadow_diff_vm("PRINT MAP [? * 2] [1 2 3]");
+}
+
+TEST(test_map_on_a_bare_number) {
+    shadow_diff_vm("PRINT MAP [? + 1] 5");
+}
+
+TEST(test_map_preserves_nested_list_elements) {
+    // A list-typed element must round-trip through the template with
+    // its own structure intact -- compile_template_call's own fast
+    // path binds the element's REAL EvalValue directly (no text
+    // round-trip at all), so this is a much lower-risk case for the VM
+    // than it was for eval.c's own runtime text substitution, but it's
+    // still worth confirming byte-for-byte against ast_eval.
+    shadow_diff_vm("PRINT MAP [COUNT ?] [[1 2] [3 4 5]]");
+}
+
+TEST(test_map_with_word_elements) {
+    shadow_diff_vm("PRINT MAP [FIRST ?] [foo bar]");
+}
+
+TEST(test_filter_keeps_matching_elements) {
+    shadow_diff_vm("PRINT FILTER [? > 2] [1 2 3 4]");
+}
+
+TEST(test_filter_with_word_elements) {
+    shadow_diff_vm("PRINT FILTER [? = \"b] [a b c b]");
+}
+
+TEST(test_reduce_folds_left_to_right) {
+    shadow_diff_vm("PRINT REDUCE [?1 + ?2] [1 2 3 4]");
+}
+
+TEST(test_reduce_of_single_element_list_is_that_element) {
+    shadow_diff_vm("PRINT REDUCE [?1 + ?2] [5]");
+}
+
+TEST(test_reduce_concatenates_word_elements) {
+    shadow_diff_vm("PRINT REDUCE [WORD ?1 ?2] [a b c]");
+}
+
+TEST(test_foreach_runs_template_for_each_element) {
+    shadow_diff_vm("FOREACH [PRINT WORD ? \"!] [a b c]");
+}
+
+TEST(test_foreach_on_a_bare_number) {
+    shadow_diff_vm("FOREACH [PRINT ?] 5");
+}
+
+TEST(test_foreach_accumulates_via_make) {
+    shadow_diff_vm("MAKE \"sum 0\nFOREACH [MAKE \"sum :sum + ?] [1 2 3 4]\nPRINT :sum");
+}
+
+TEST(test_foreach_with_quoted_word_template) {
+    shadow_diff_vm("FOREACH [IF ? = \"b [PRINT \"match]] [a b c]");
+}
+
+TEST(test_foreach_preserves_nested_list_elements) {
+    shadow_diff_vm("FOREACH [PRINT FIRST ?] [[10 20] [30 40]]");
+}
+
+TEST(test_map_template_calling_a_user_procedure) {
+    // Exercises compile_template_call's own "graft into the main
+    // AstPool" mechanism: the template body's own OP_CALL_PROC has to
+    // resolve `double` against chunk->procs[], which only exists
+    // because the grafted node lives in the same AstPool/chunk as the
+    // rest of the program, not a throwaway scratch one.
+    shadow_diff_vm(
+        "TO double :x\n"
+        "  OUTPUT :x * 2\n"
+        "END\n"
+        "PRINT MAP [double ?] [1 2 3]");
+}
+
+TEST(test_map_with_a_runtime_computed_template_uses_the_dynamic_fallback) {
+    // The template isn't a literal `[...]` visible at compile time (it's
+    // read out of a variable instead), so compile_call's own literal
+    // check fails and this takes the ordinary OP_CALL_BUILTIN path
+    // straight to eval_map_value at runtime -- compile_template_call's
+    // own fast path is never even attempted.
+    shadow_diff_vm("MAKE \"tmpl [? * 10]\nPRINT MAP :tmpl [1 2 3]");
+}
+
+TEST(test_filter_with_a_runtime_computed_template_uses_the_dynamic_fallback) {
+    shadow_diff_vm("MAKE \"tmpl [? > 2]\nPRINT FILTER :tmpl [1 2 3 4]");
+}
+
+TEST(test_map_with_a_malformed_literal_template_falls_back_to_the_dynamic_path) {
+    // "* 2" alone isn't a valid expression (a binary operator with no
+    // left operand) -- compile_template_call discovers this at compile
+    // time (the rendered/lexed/parsed template comes back with a parse
+    // error) and falls through to the generic dispatch instead of
+    // taking its own fast path, landing on exactly the same
+    // eval_map_value runtime path a dynamic template would, which
+    // reproduces ast_eval's own defensive per-element behavior on a
+    // template that's broken.
+    shadow_diff_vm("PRINT MAP [* 2] [1 2 3]");
+}
+
+TEST(test_nested_reduce_inside_map_each_get_their_own_placeholder) {
+    // Exercises compile_template_call's own per-call-site-unique
+    // placeholder naming across nesting: the outer MAP's own "?" must
+    // never be confused with the inner REDUCE's own "?1"/"?2", even
+    // though both compile into the very same chunk. Sums each row.
+    shadow_diff_vm("PRINT MAP [REDUCE [?1 + ?2] ?] [[1 2 3] [4 5]]");
+}
+
+TEST(test_map_template_placeholder_survives_a_recursive_call_in_its_own_body) {
+    // The interesting case this whole design exists for: the SAME
+    // compiled MAP call site (same instr->a, same placeholder variable
+    // name) is reached again, recursively, while the outer activation's
+    // own loop is still mid-iteration (paused inside its own template's
+    // evaluation, about to read "?" AFTER the recursive call returns).
+    // A single shared placeholder slot that's merely written-then-read
+    // isn't enough here -- see vm.c's own save_var/restore_var comment
+    // for why (and for the earlier, wrong version of this code that
+    // unconditionally deleted the placeholder instead of restoring it,
+    // which broke exactly this case).
+    // f(0) = 0 (a plain NUMBER, no MAP at all). f(1) sums
+    // MAP [(f 0) + ?] [1 2 3] = [1 2 3] -> 6. f(2) reuses the exact
+    // same MAP call site again, one level up, over the SAME list, with
+    // f(1)'s own result (6) added to each element before f(1) itself
+    // has returned to f(2)'s own paused iteration -- REDUCE [+]
+    // [7 8 9] = 24.
+    shadow_diff_vm(
+        "TO f :n\n"
+        "  IF :n = 0 [OUTPUT 0]\n"
+        "  OUTPUT REDUCE [?1 + ?2] MAP [(f :n - 1) + ?] [1 2 3]\n"
+        "END\n"
+        "PRINT f 2");
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -801,6 +934,26 @@ int main(void) {
     RUN(test_throw_breaks_a_for_loop_early);
     RUN(test_repeat_count_survives_a_recursive_call_in_its_own_body);
     RUN(test_for_limit_and_step_survive_a_recursive_call_in_its_own_body);
+    RUN(test_map_transforms_each_element);
+    RUN(test_map_on_a_bare_number);
+    RUN(test_map_preserves_nested_list_elements);
+    RUN(test_map_with_word_elements);
+    RUN(test_filter_keeps_matching_elements);
+    RUN(test_filter_with_word_elements);
+    RUN(test_reduce_folds_left_to_right);
+    RUN(test_reduce_of_single_element_list_is_that_element);
+    RUN(test_reduce_concatenates_word_elements);
+    RUN(test_foreach_runs_template_for_each_element);
+    RUN(test_foreach_on_a_bare_number);
+    RUN(test_foreach_accumulates_via_make);
+    RUN(test_foreach_with_quoted_word_template);
+    RUN(test_foreach_preserves_nested_list_elements);
+    RUN(test_map_template_calling_a_user_procedure);
+    RUN(test_map_with_a_runtime_computed_template_uses_the_dynamic_fallback);
+    RUN(test_filter_with_a_runtime_computed_template_uses_the_dynamic_fallback);
+    RUN(test_map_with_a_malformed_literal_template_falls_back_to_the_dynamic_path);
+    RUN(test_nested_reduce_inside_map_each_get_their_own_placeholder);
+    RUN(test_map_template_placeholder_survives_a_recursive_call_in_its_own_body);
 
     if (failures == 0) {
         printf("All tests passed.\n");

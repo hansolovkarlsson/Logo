@@ -20,9 +20,10 @@
 // output to ast_eval, not just "plausible" output.
 
 #include "vm.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <stdio.h>
 
 static void push(Vm *vm, EvalValue v) {
     if (vm->stack_top >= MAX_VM_STACK) return; // can't happen for this vertical slice's own test scripts; see this file's own note on MAX_INSTRUCTIONS overflow handling in compiler.c for the same "not yet robustly reported" tradeoff
@@ -306,6 +307,24 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         return num_val(0);
     }
     if (strcasecmp(name, "INT") == 0) return eval_int_value(args[0]);
+    // MAP/FILTER/REDUCE/FOREACH reach here only when their own
+    // template argument wasn't a literal `[...]` visible at compile
+    // time (a runtime-computed template) or didn't parse cleanly when
+    // compile_template_call tried it -- see compiler.c's own comment.
+    // Either way, this is the exact same eval_map_value/eval_filter_value/
+    // eval_reduce_value/eval_foreach_value ast_eval itself calls (via
+    // do_map/do_filter/do_reduce/do_foreach), so it reproduces every
+    // one of their own per-iteration behaviors (including a broken
+    // template's own defensive per-element fallback) without this file
+    // needing to reimplement any of it.
+    if (strcasecmp(name, "MAP") == 0) return eval_map_value(app, args[0], args[1]);
+    if (strcasecmp(name, "FILTER") == 0) return eval_filter_value(app, args[0], args[1]);
+    if (strcasecmp(name, "REDUCE") == 0) return eval_reduce_value(app, args[0], args[1]);
+    if (strcasecmp(name, "FOREACH") == 0) {
+        eval_foreach_value(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
     // Unreachable for a well-formed compiled program -- compile_call
     // only ever emits OP_CALL_BUILTIN for a name find_proc_def couldn't
     // resolve to a user procedure, and the parser itself already
@@ -508,6 +527,219 @@ static void exec_return(Vm *vm, LogoApp *app, EvalValue value, int produced, int
     *pc = frame->return_pc;
 }
 
+// Binds `name` to `v` as an ordinary Logo variable -- the exact same
+// per-type dispatch OP_SET_VAR's own case in vm_run below uses, pulled
+// out here so all four exec_*_compiled functions can share it.
+static void bind_template_var(LogoApp *app, const char *name, EvalValue v) {
+    if (v.type == VALUE_WORD) set_var_word(app, name, v.word);
+    else if (v.type == VALUE_LIST) set_var_list(app, name, v.list_head);
+    else if (v.type == VALUE_ARRAY) set_var_array(app, name, v.list_head, (int)v.number);
+    else set_var(app, name, v.number);
+}
+
+// A placeholder variable's own name is unique per COMPILE-TIME call
+// site (see compiler.c's own Compiler.template_counter), which rules
+// out two DIFFERENT MAP/FILTER/REDUCE/FOREACH calls ever colliding --
+// but the SAME call site can still be reached twice at once through
+// recursion (a template that, for one element, calls a procedure which
+// itself recurses back into the very same MAP/FILTER/REDUCE/FOREACH
+// call), and unconditionally deleting the placeholder once the whole
+// loop finishes is wrong for that case: the inner (recursive)
+// invocation's own cleanup would delete the variable out from under
+// the OUTER invocation, which is still mid-flight, still holding a
+// pending "?" read for its own current element. SavedVar/save_var/
+// restore_var fix this the same way the FOR loop's own bug was fixed
+// last batch -- state that must survive a recursive reentry of the
+// same compiled construct can't live in a single shared slot that's
+// just written-then-read; it needs real nesting. Here, that nesting
+// comes for free from the C call stack itself: each exec_*_compiled
+// invocation's own `saved` is a C-local, so save/restore naturally
+// nest correctly across however many recursive reentries happen, with
+// no new opcode or stack-depth tracking required (contrast FOR's own
+// fix, which needed OP_PEEK/OP_POKE precisely because ITS persistent
+// state had no equivalent natural C-stack home). Confirmed against a
+// real recursive-template test in test_vm.c, not just reasoned through
+// -- an earlier version of these functions unconditionally called
+// eval_delete_var at the end of the loop instead, which is exactly the
+// bug this replaces.
+typedef struct {
+    int existed;
+    EvalValue value;
+} SavedVar;
+
+static SavedVar save_var(LogoApp *app, const char *name) {
+    SavedVar sv;
+    Variable *v = find_var(app, name);
+    sv.existed = (v != NULL);
+    if (v == NULL) { sv.value = num_val(0); return sv; }
+    if (v->type == VALUE_WORD) sv.value = word_val(v->word);
+    else if (v->type == VALUE_LIST) sv.value = list_val(v->list_head);
+    else if (v->type == VALUE_ARRAY) sv.value = array_val(v->list_head, (int)v->number);
+    else sv.value = num_val(v->number);
+    return sv;
+}
+
+static void restore_var(LogoApp *app, const char *name, SavedVar sv) {
+    if (sv.existed) bind_template_var(app, name, sv.value);
+    else eval_delete_var(app, name);
+}
+
+// A list literal's own elements are always internally VALUE_WORD (see
+// node_to_value/eval_build_list_literal -- a list literal never
+// contains a LIST_ELEM_NUMBER, only LIST_ELEM_WORD, even for a
+// numeric-looking element like "1"). eval.c's own runtime template
+// mechanism (eval_apply_template_expr/eval_apply_template_condition/
+// eval_reduce_value/eval_foreach_value) never notices this, because it
+// substitutes the element's own TEXT into the template and re-lexes
+// the whole thing from scratch -- and the lexer's own number-scanning
+// rule turns a numeric-looking token into a genuine LOGO_TOK_NUMBER
+// (an AST_NUMBER, evaluating to a real VALUE_NUMBER) purely from its
+// own spelling, regardless of what internal type tag the original list
+// element happened to carry. This VM's own placeholder binding has no
+// re-lex step to do that promotion implicitly, so it has to replicate
+// it explicitly here, or every ordering comparison against a
+// placeholder (OP_CMP_GT/LT/LE/GE -- exec_compare's own non-numeric
+// fallback is unconditionally 0 for anything that isn't ALREADY
+// VALUE_NUMBER, unlike arithmetic's own eval_to_number, which coerces
+// any numeric-looking word regardless) silently reads every element as
+// "not a number" and always fails. Confirmed as a real bug, not
+// guessed: test_filter_keeps_matching_elements (`FILTER [? > 2]
+// [1 2 3 4]`) filtered out every element before this fix.
+static EvalValue coerce_template_element(EvalValue v) {
+    if (v.type == VALUE_WORD && v.word[0] != '\0') {
+        char *end;
+        double n = strtod(v.word, &end);
+        if (*end == '\0') return num_val(n);
+    }
+    return v;
+}
+
+// OP_MAP_COMPILED/OP_FILTER_COMPILED/OP_REDUCE_COMPILED/
+// OP_FOREACH_COMPILED -- see compiler.c's own compile_template_call
+// for the full design rationale (why a real per-call-site-unique
+// variable binding instead of eval.c's own runtime
+// text-substitute-and-reparse, why the template's own body had to be
+// grafted into the main AstPool and compiled inline into this same
+// chunk). Each of the four mirrors its own eval_X_value (eval.c)
+// node-for-node, just sourcing each iteration's transformed
+// value/truthiness/effect from a RECURSIVE vm_run call into
+// `instr->a` (the template's own compiled start pc, reached no other
+// way -- ending in OP_HALT, whose own plain C `return;` correctly
+// scopes back to just that one recursive call, since `pc` is a local
+// variable each invocation) instead of eval_apply_template_expr/
+// eval_apply_template_condition/inline substitution.
+//
+// `frame_floor` (recorded before the loop, checked after every
+// recursive vm_run call) is a defensive, deliberately narrow
+// mitigation for OUTPUT/STOP executed DIRECTLY inside a template body
+// (not through a further nested real procedure call): such a call
+// would pop the frame of whichever REAL procedure is enclosing this
+// whole MAP/FILTER/REDUCE/FOREACH call (via exec_return), but C's own
+// call/return means control still returns right here, to this loop,
+// rather than further up where that frame actually belonged -- popping
+// out of the loop early the moment that's detected is a fail-safe, not
+// a real fix (the tree-walker has its own analogous quirk here: e.g.
+// do_map's own loop never checks stop_requested at all).
+static void exec_map_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const Instr *instr) {
+    EvalValue list_arg = pop(vm);
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    SavedVar saved = save_var(app, instr->text);
+    int new_head = -1;
+    int *next_slot = &new_head;
+    int frame_floor = vm->frame_count;
+    for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+        bind_template_var(app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        vm_run(vm, app, pool, chunk, instr->a);
+        if (vm->frame_count < frame_floor) break;
+        EvalValue result = pop(vm);
+        int node = value_to_node(app, result);
+        if (node < 0) {
+            restore_var(app, instr->text, saved);
+            push(vm, list_pool_exhausted(app));
+            return;
+        }
+        *next_slot = node;
+        next_slot = &app->list_pool[node].next;
+    }
+    restore_var(app, instr->text, saved);
+    push(vm, list_val(new_head));
+}
+
+static void exec_filter_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const Instr *instr) {
+    EvalValue list_arg = pop(vm);
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    SavedVar saved = save_var(app, instr->text);
+    int new_head = -1;
+    int *next_slot = &new_head;
+    int frame_floor = vm->frame_count;
+    for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+        bind_template_var(app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        vm_run(vm, app, pool, chunk, instr->a);
+        if (vm->frame_count < frame_floor) break;
+        EvalValue result = pop(vm);
+        if (eval_is_truthy(result)) {
+            int node = list_node_copy(app, idx);
+            if (node < 0) {
+                restore_var(app, instr->text, saved);
+                push(vm, list_pool_exhausted(app));
+                return;
+            }
+            *next_slot = node;
+            next_slot = &app->list_pool[node].next;
+        }
+    }
+    restore_var(app, instr->text, saved);
+    push(vm, list_val(new_head));
+}
+
+// REDUCE gets two placeholder variables ("<base>_1"/"<base>_2" for
+// "?1"/"?2", the accumulator and the current element) derived from
+// `instr->text` (the base name compile_template_call generated) --
+// this suffixing convention must stay in sync with compiler.c's own
+// (documented there too).
+static void exec_reduce_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const Instr *instr) {
+    EvalValue list_arg = pop(vm);
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    if (iter_head == -1) {
+        push(vm, num_val(0)); // nothing to reduce -- matches eval_reduce_value's own early return
+        return;
+    }
+    char var1[40], var2[40];
+    snprintf(var1, sizeof(var1), "%s_1", instr->text);
+    snprintf(var2, sizeof(var2), "%s_2", instr->text);
+    SavedVar saved1 = save_var(app, var1);
+    SavedVar saved2 = save_var(app, var2);
+    EvalValue acc = coerce_template_element(node_to_value(&app->list_pool[iter_head]));
+    int frame_floor = vm->frame_count;
+    for (int idx = app->list_pool[iter_head].next; idx != -1; idx = app->list_pool[idx].next) {
+        bind_template_var(app, var1, acc);
+        bind_template_var(app, var2, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        vm_run(vm, app, pool, chunk, instr->a);
+        if (vm->frame_count < frame_floor) break;
+        acc = pop(vm);
+    }
+    restore_var(app, var1, saved1);
+    restore_var(app, var2, saved2);
+    push(vm, acc);
+}
+
+static void exec_foreach_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const Instr *instr) {
+    EvalValue list_arg = pop(vm);
+    int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
+    SavedVar saved = save_var(app, instr->text);
+    int frame_floor = vm->frame_count;
+    for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
+        bind_template_var(app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        vm_run(vm, app, pool, chunk, instr->a);
+        if (vm->frame_count < frame_floor) break;
+        if (app->stop_requested || app->throw_requested) break; // matches do_foreach's own check
+    }
+    restore_var(app, instr->text, saved);
+    vm->last_call_produced_output = 0;
+    vm->last_call_resolved = 1; // FOREACH never "outputs" a value -- same as OP_VOID_RESULT
+    push(vm, num_val(0));
+}
+
 void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start_pc) {
     int pc = start_pc;
     while (pc >= 0 && pc < chunk->count) {
@@ -706,6 +938,28 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                 break;
             case OP_POKE:
                 poke(vm, instr->a, pop(vm));
+                pc++;
+                break;
+            case OP_MAP_COMPILED:
+                exec_map_compiled(vm, app, pool, chunk, instr);
+                vm->last_call_produced_output = 1;
+                vm->last_call_resolved = 1;
+                pc++;
+                break;
+            case OP_FILTER_COMPILED:
+                exec_filter_compiled(vm, app, pool, chunk, instr);
+                vm->last_call_produced_output = 1;
+                vm->last_call_resolved = 1;
+                pc++;
+                break;
+            case OP_REDUCE_COMPILED:
+                exec_reduce_compiled(vm, app, pool, chunk, instr);
+                vm->last_call_produced_output = 1;
+                vm->last_call_resolved = 1;
+                pc++;
+                break;
+            case OP_FOREACH_COMPILED:
+                exec_foreach_compiled(vm, app, pool, chunk, instr); // sets its own last_call_* fields, same as OP_VOID_RESULT
                 pc++;
                 break;
             default:

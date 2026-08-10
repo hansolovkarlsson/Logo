@@ -218,6 +218,39 @@ void eval_report_uncaught_throw(LogoApp *app);
 // just this one, because REPEAT genuinely needs it.
 EvalValue eval_int_value(EvalValue v);
 
+// Shared list-building primitives, exposed for vm.c's own MAP/FILTER/
+// REDUCE compiled-template loops (see docs/BYTECODE_VM_DESIGN.md's
+// Progress log): the same list_pool bookkeeping do_map/do_filter/
+// do_reduce themselves already use, not a parallel reimplementation.
+EvalValue list_pool_exhausted(LogoApp *app);
+EvalValue node_to_value(const ListNode *node);
+int value_to_node(LogoApp *app, EvalValue v);
+
+// Removes the global variable named `name` (case-insensitive), if one
+// exists -- a swap-with-last removal, same pattern as REMOVEPROP's own
+// property-list removal. Used by vm.c's own MAP/FILTER/REDUCE/FOREACH
+// compiled-template loops to clean up their own internal placeholder
+// variable(s) after the loop finishes, so a script that inspects
+// NAMES afterward sees exactly what it would have with ast_eval's own
+// text-substitution-based templates (which never touch the variable
+// namespace at all). Only ever searches app->variables[] (globals) --
+// the placeholder is never scope-local.
+void eval_delete_var(LogoApp *app, const char *name);
+
+// MAP/FILTER/REDUCE/FOREACH's own dynamic (runtime-computed-template)
+// cores -- the same re-lex/re-parse-per-element machinery do_map/
+// do_filter/do_reduce/do_foreach themselves now call, exposed for
+// vm.c's own call_builtin dispatch to use as its fallback when
+// compiler.c's own compile_template_call couldn't see the template at
+// compile time (e.g. `MAP :tmpl [1 2 3]`, where the template is a
+// computed value, not a literal `[...]`). The VM's own "compiled
+// once" fast path (see docs/BYTECODE_VM_DESIGN.md's Progress log) is
+// a completely separate mechanism in vm.c, not built on these.
+EvalValue eval_map_value(LogoApp *app, EvalValue template_val, EvalValue list_arg);
+EvalValue eval_filter_value(LogoApp *app, EvalValue template_val, EvalValue list_arg);
+EvalValue eval_reduce_value(LogoApp *app, EvalValue template_val, EvalValue list_arg);
+void eval_foreach_value(LogoApp *app, EvalValue template_val, EvalValue list_arg);
+
 // ERASE -- a special form (like MAKE/LOCAL), not an ordinary builtin:
 // its argument is a raw procedure name (ARG_QUOTED_WORD), never an
 // evaluated expression, and it directly mutates `pool` (see eval.c's

@@ -7,10 +7,12 @@ cross-boundary-call gap fixed for real — see the Progress log below).
 vertical slice (`docs/ROADMAP.md`'s "Phase 5, Stage 2" checklist, item
 1) shipped 2026-08-09 — `bytecode.h`/`bytecode.c`,
 `compiler.h`/`compiler.c`, `vm.h`/`vm.c`, shadow-diffed against
-`ast_eval` in `tests/test_vm.c`. Remaining checklist items (growing
-instruction coverage, `THROW`/`CATCH`'s unwind design,
-`MAP`/`FILTER`/`REDUCE`/`FOREACH` templates, suspend/resume) not yet
-started.
+`ast_eval` in `tests/test_vm.c`. Every named instruction-coverage batch
+(lists/arrays, property lists, turtle/drawing, `SEND`, `THROW`/`CATCH`,
+`REPEAT`/`FOREVER`/`FOR`, `MAP`/`FILTER`/`REDUCE`/`FOREACH`) has since
+landed too — see the Progress log below. Only suspend/resume's actual
+GTK integration (the real point of this whole stage, deliberately
+last) remains unstarted.
 
 ## Why
 
@@ -1901,3 +1903,206 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
     suspend/resume's actual GTK integration (the real point of this
     whole stage, deliberately last), the still-open `WHILE`/`FOR`
     iteration-cap gap, or whatever the user picks next.
+- **`MAP`/`FILTER`/`REDUCE`/`FOREACH` templates: done** (seventh batch
+  off Stage 2's own checklist, 2026-08-09, user said "do next —
+  MAP/FILTER/REDUCE/FOREACH" — the last named item on the
+  instruction-coverage checklist). Unlike every earlier batch, this
+  isn't just a port: `eval_logo` and `ast_eval` both re-lex and
+  re-parse the template once *per element*, substituting the current
+  element's own printed text in for `?`/`?1`/`?2` first
+  (`eval_substitute_placeholder`/`eval_apply_template_expr`/
+  `eval_apply_template_condition` in `eval.c`). This VM compiles the
+  template exactly *once*, when a literal `[...]` is visible at compile
+  time, and binds real values at runtime instead of round-tripping
+  through text.
+  - **The mechanism**: `compile_template_call` (new, `compiler.c`)
+    renders the list literal's own children (`AST_WORD`/nested
+    `AST_LIST_LITERAL` — never operator-precedence-parsed to begin
+    with, so this is a direct AST walk, not a runtime
+    `list_pool`-round-trip) back to source text via a new
+    `render_list_literal_source`, rewriting every `?`/`?1`/`?2` token
+    it finds into a real, compiler-generated, per-call-site-unique
+    variable reference (`:__tmplN__`, via a new
+    `Compiler.template_counter` — considered and rejected a single
+    *shared* name across all call sites first: a template that reads
+    the placeholder both before *and* after a nested higher-order call
+    within the same expression would have a real collision risk).
+    That rendered text is lexed and parsed *once*, right then, into a
+    real expression/condition/block AST (which one depends on which of
+    the four builtins it is: `MAP`/`REDUCE` want an expression,
+    `FILTER` a condition, `FOREACH` a full statement block). The parsed
+    result lives in its own throwaway scratch `AstPool`, though, and
+    can't be compiled straight out of that: a template that itself
+    calls a user procedure needs `OP_CALL_PROC`'s own `find_proc_def`
+    lookup to see *every* procedure in the real program, and
+    `OP_PUSH_LIST_LITERAL`'s own stored node index (if the template
+    itself contains a nested list literal) is only meaningful against
+    whichever *one* `AstPool` `vm_run` was actually given for this
+    entire run. A new `ast_graft` (deep-copies a parsed subtree, node
+    for node, into another pool) solves both by grafting the freshly
+    parsed template body into the *same* `AstPool` the rest of the
+    program already uses — which also makes nesting free, since a
+    nested template's own grafted body grafts into that identical pool
+    again, not a fresh scratch one each level. Four new opcodes,
+    `OP_MAP_COMPILED`/`OP_FILTER_COMPILED`/`OP_REDUCE_COMPILED`/
+    `OP_FOREACH_COMPILED` (`.a` = the compiled template's own start pc,
+    `.text` = its placeholder's base name), are reached only via a
+    jump-around at compile time (the template's own compiled bytecode
+    sits inline in the same chunk, ending in `OP_HALT`, never fallen
+    into by ordinary linear execution) and a *recursive* `vm_run` call
+    at runtime, once per list element — `vm_run`'s own `OP_HALT`
+    handler is a plain C `return;`, correctly scoped to just that one
+    recursive invocation since `pc` is a local variable each call, the
+    same trick that already made `THROW`/`CATCH`'s cooperative unwind
+    compose for free. Each iteration just binds the placeholder
+    variable to the current element's real `EvalValue` (an ordinary
+    `set_var`-equivalent) and re-executes the same already-compiled
+    bytecode.
+    A runtime-computed template (not a literal `[...]`), or a literal
+    one that's syntactically broken (discovered right there at compile
+    time, when the rendered text fails to lex/parse), isn't special-
+    cased at all: `compile_call` just falls through to the *exact same*
+    generic `OP_CALL_BUILTIN` dispatch every other builtin already uses,
+    landing on newly exposed `eval_map_value`/`eval_filter_value`/
+    `eval_reduce_value`/`eval_foreach_value` (refactored from
+    `do_map`/`do_filter`/`do_reduce`/`do_foreach`, parameterized by
+    already-evaluated `EvalValue`s instead of raw AST argument indices,
+    same "expose the value-taking core" pattern every earlier batch
+    used) — so a broken template gets `ast_eval`'s own exact defensive
+    per-element behavior (`num_val(0)` elements for `MAP`, nothing kept
+    for `FILTER`, the accumulator left unchanged for `REDUCE`, a silent
+    no-op for `FOREACH`) for free, not a second implementation of it
+    that could drift.
+  - **Two real bugs, both caught directly by `tests/test_vm.c`, neither
+    guessed:**
+    1. **Numeric-looking list elements silently failed every ordering
+       comparison.** `FILTER [? > 2] [1 2 3 4]` kept nothing at all.
+       Root cause, confirmed by reading `node_to_value`/
+       `eval_build_list_literal` directly: a list literal's own
+       elements are *always* internally `VALUE_WORD`, even
+       numeric-looking ones like `"1"` — never `LIST_ELEM_NUMBER`. The
+       *old* engines' own text-substitution approach never noticed this,
+       because substituting the element's own printed text into the
+       template and re-lexing the whole thing from scratch makes a
+       numeric-looking token lex as a genuine `LOGO_TOK_NUMBER` (hence a
+       real `VALUE_NUMBER` once evaluated), regardless of what internal
+       type tag the original list element happened to carry —
+       `exec_compare`'s own non-numeric fallback (mirroring
+       `eval_condition`'s own `AST_COMPARE` case exactly) is
+       unconditionally false for `>`/`<`/`<=`/`>=` on anything that
+       isn't *already* `VALUE_NUMBER`, unlike arithmetic's own
+       `eval_to_number`, which coerces any numeric-looking word
+       regardless of type tag. This VM's direct-value binding has no
+       re-lex step to do that promotion implicitly, so a new
+       `coerce_template_element` (`vm.c`) replicates it explicitly,
+       applied everywhere an element (or `REDUCE`'s own running
+       accumulator) gets bound to a placeholder.
+    2. **The placeholder variable isn't safe against reentrancy of the
+       *same* compiled call site** — the harder one, and a genuine
+       correction to this design's own earlier assumption (see the
+       summary this batch continued from) that a per-call-site-unique
+       name was sufficient protection. It rules out two *different*
+       `MAP`/`FILTER`/`REDUCE`/`FOREACH` call sites ever colliding, but
+       not the *same* call site being reached again through recursion —
+       a template that, for one element, calls a procedure which itself
+       recurses back into the very same `MAP`/`FILTER`/`REDUCE`/
+       `FOREACH` call — while the outer activation's own loop is still
+       mid-iteration, paused inside its own template's evaluation, about
+       to read `?` *after* that recursive call returns. The first
+       working version unconditionally deleted the placeholder once the
+       whole loop finished; the *inner* (recursive) invocation's own
+       cleanup deleted it out from under the still-in-flight *outer*
+       one, so the outer's own delayed `?` read came back unbound
+       (`num_val(0)`) instead of its own current element. Confirmed by
+       hand-tracing a concrete recursive script before fixing, exactly
+       this project's own "confirmed directly, not guessed" bar. Fixed
+       the same general way the `FOR` loop bug from the previous batch
+       was — state that must survive a recursive reentry of the same
+       compiled construct can't be a single shared slot that's merely
+       written then read — but the fix itself needed no new opcode or
+       compile-time stack-depth tracking at all here, unlike `FOR`'s own
+       `OP_PEEK`/`OP_POKE`: a new `save_var`/`restore_var` pair captures
+       whatever the placeholder was bound to (if anything) once, right
+       before the loop starts, and restores exactly that afterward
+       instead of unconditionally deleting. Since each
+       `exec_*_compiled` invocation's own `saved` value is an ordinary
+       C-local, save/restore naturally nest correctly across however
+       many recursive reentries happen, for free, riding on the C call
+       stack's own natural nesting rather than needing any VM-level
+       mechanism for it — `FOR`'s own fix needed `OP_PEEK`/`OP_POKE`
+       specifically because its persistent state had no equivalent
+       natural C-stack home; this state does.
+  - **A separate, narrower limitation, documented rather than fixed**:
+    `OUTPUT`/`STOP` executed *directly* inside a template body (not
+    through a further nested real procedure call) can pop a frame that
+    belongs to whatever real procedure encloses the whole `MAP`/
+    `FILTER`/`REDUCE`/`FOREACH` call — but C's own call/return means
+    control still returns to the `exec_*_compiled` loop function that
+    made the recursive `vm_run` call, not further up to wherever that
+    frame actually belonged. A `frame_count` "floor," recorded before
+    the loop starts and checked after every recursive `vm_run` call,
+    stops the loop early the moment that's detected, as a fail-safe —
+    not a full fix. A narrower sub-case doesn't even get that
+    mitigation: `STOP` with *no* enclosing real procedure at all (e.g. a
+    top-level `FOREACH`) doesn't stop the loop early either, since this
+    VM's `OP_STOP` is a hard, immediate frame-pop (`exec_return`), not
+    the tree-walker's own cooperative `app->stop_requested` flag that
+    every loop construct (including `do_foreach`'s own) checks after
+    each iteration — `exec_return`'s own top-level fallback (no
+    enclosing frame to pop) never touches that flag, so nothing signals
+    the C loop to stop early in that specific case. Both are consequences
+    of the hard-frame-based `OP_STOP` design already established for
+    `WHILE`/`REPEAT`/`FOREVER`/`FOR` (correct *there*, since those
+    compile inline in the same `pc`-space as their enclosing procedure —
+    the jump lands exactly on that procedure's own return, skipping
+    every loop opcode in between by construction), not something new
+    introduced by this batch — just newly exposed by templates being
+    the first construct compiled into a genuinely *separate* recursive
+    `vm_run` invocation. Deliberately left as a known, narrow,
+    documented gap rather than tested as if it worked: fully solving it
+    would mean threading a real stop signal through recursive `vm_run`
+    calls, disproportionate to this one construct. (Confirmed the
+    tree-walker has its own analogous quirk in the opposite direction —
+    `do_map`'s own loop never checks `stop_requested` at all, so `STOP`
+    inside a `MAP` template doesn't stop `MAP` early there either, just
+    gets silently remembered until whatever encloses it next checks the
+    flag.)
+  - `eval_delete_var` (new, `eval.c` — swap-with-last removal from
+    `app->variables[]`, mirroring `REMOVEPROP`'s own pattern) closes one
+    other real, but easy, gap: without it, an internal per-call-site
+    placeholder variable would leak into a later `NAMES` call, unlike
+    `ast_eval`'s own pure-text-substitution mechanism, which never
+    creates a real variable for `?` at all.
+  - 20 new `tests/test_vm.c` cases: 14 ported from `test_eval.c`'s own
+    confirmed corpus — deliberately *not* 15: `STOP` directly inside a
+    `FOREACH` template was left out on purpose, since it exercises
+    exactly the documented gap above and would be asserting the VM
+    matches `ast_eval` on a case it's known not to — plus 6 new,
+    specifically targeting this batch's own new mechanism: a template
+    calling a real user procedure (exercising `ast_graft`'s entire
+    reason for existing), a runtime-computed template and a
+    compile-time-malformed literal one (both confirming the
+    dynamic-fallback path actually gets taken and reproduces
+    `ast_eval`'s own behavior), nested `MAP`/`REDUCE` templates sharing
+    one chunk without their own placeholders colliding, and the
+    recursion-reentrancy case that drove the `save_var`/`restore_var`
+    fix above. Confirmed clean under AddressSanitizer, with one
+    exception: `test_recursion_depth_cap_reports_error_not_a_crash`
+    (an *existing* test, unrelated to this batch, that deliberately
+    recurses without bound to confirm the depth cap reports an error
+    rather than crashing) stack-overflows under AddressSanitizer
+    specifically — confirmed to reproduce *identically* on the
+    pre-batch codebase (stashed this batch's own changes, rebuilt,
+    reran) before concluding it's pre-existing and not a regression;
+    ASan's own larger per-frame stack usage apparently pushes that
+    test's real (uncapped-by-design) recursion past the depth
+    `MAX_SCOPE_DEPTH`'s own check catches under a normal build. Left
+    exactly as found — not this batch's issue to fix. All 6 `make test`
+    suites pass; `bin/logo`/`bin/logi` both still build.
+  - **Next**: suspend/resume's actual GTK integration — the real point
+    of this whole stage, deliberately last, and now the only major item
+    left on Stage 2's own checklist (every named instruction-coverage
+    batch has landed). The still-open `WHILE`/`FOR` iteration-cap gap
+    and the `OUTPUT`/`STOP`-inside-a-template limitation noted above
+    remain smaller, optional follow-ups, or whatever the user picks
+    next.

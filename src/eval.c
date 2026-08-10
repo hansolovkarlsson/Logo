@@ -50,14 +50,14 @@
 // A "list storage full" report shared by every list-construction
 // operator below -- same wording and "loud, not silent" policy as
 // interpreter.c's own list_pool_exhausted_error.
-static EvalValue list_pool_exhausted(LogoApp *app) {
+EvalValue list_pool_exhausted(LogoApp *app) {
     append_output(app, "list storage full, list operation ignored\n");
     return word_val("");
 }
 
 // Map a list element node to an EvalValue -- mirrors interpreter.c's
 // own list_node_to_value.
-static EvalValue node_to_value(const ListNode *node) {
+EvalValue node_to_value(const ListNode *node) {
     if (node->type == LIST_ELEM_NUMBER) return num_val(node->number);
     if (node->type == LIST_ELEM_LIST) return list_val(node->sublist_head);
     return word_val(node->word);
@@ -67,7 +67,7 @@ static EvalValue node_to_value(const ListNode *node) {
 // existing chain by index, no deep copy needed) -- mirrors
 // interpreter.c's own list_node_from_value, built on the now-exposed
 // list_alloc_node. Returns -1 (pool exhausted) same as that function.
-static int value_to_node(LogoApp *app, EvalValue v) {
+int value_to_node(LogoApp *app, EvalValue v) {
     int idx = list_alloc_node(app);
     if (idx < 0) return -1;
     ListNode *node = &app->list_pool[idx];
@@ -1802,9 +1802,13 @@ static void do_fillarray(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // including its handling of a non-list `list` argument (wrapped as a
 // one-element list via value_to_node first, same as
 // list_node_from_value there).
-static EvalValue do_map(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
-    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+// The dynamic (runtime-computed-template) path -- used directly by
+// do_map, and by vm.c's own call_builtin "MAP" branch when
+// compiler.c's own compile_template_call couldn't see the template at
+// compile time (e.g. `MAP :tmpl [1 2 3]`). vm.c's own compiled-once
+// fast path (see docs/BYTECODE_VM_DESIGN.md's Progress log) is a
+// completely separate mechanism, not built on this function at all.
+EvalValue eval_map_value(LogoApp *app, EvalValue template_val, EvalValue list_arg) {
     char template_text[512];
     eval_value_to_text(app, template_val, template_text, sizeof(template_text));
 
@@ -1825,14 +1829,15 @@ static EvalValue do_map(LogoApp *app, AstPool *pool, const int *arg_idx) {
     parse_result_destroy(scratch);
     return list_val(new_head);
 }
+static EvalValue do_map(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_map_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
 // FILTER template list -- keeps each element of `list` whose template
 // (evaluated as a *condition*, e.g. `[? > 2]`) is truthy, in a new
 // list; a kept element is copied as-is (list_node_copy), not replaced
 // by the template's own boolean result. Mirrors interpreter.c's own
 // FILTER exactly.
-static EvalValue do_filter(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
-    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+EvalValue eval_filter_value(LogoApp *app, EvalValue template_val, EvalValue list_arg) {
     char template_text[512];
     eval_value_to_text(app, template_val, template_text, sizeof(template_text));
 
@@ -1854,6 +1859,9 @@ static EvalValue do_filter(LogoApp *app, AstPool *pool, const int *arg_idx) {
     parse_result_destroy(scratch);
     return list_val(new_head);
 }
+static EvalValue do_filter(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_filter_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
 // REDUCE template list -- folds left-to-right, seeding the accumulator
 // with the list's own first element (no separate start-value
 // argument); the template uses ?1 for the accumulator so far and ?2
@@ -1861,9 +1869,7 @@ static EvalValue do_filter(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // Inlines its own two-placeholder substitution rather than reusing
 // eval_apply_template_expr (which only knows "?"), same as
 // interpreter.c's own REDUCE does relative to apply_template_expr.
-static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
-    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+EvalValue eval_reduce_value(LogoApp *app, EvalValue template_val, EvalValue list_arg) {
     char template_text[512];
     eval_value_to_text(app, template_val, template_text, sizeof(template_text));
 
@@ -1887,6 +1893,9 @@ static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
     parse_result_destroy(scratch);
     return acc;
 }
+static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_reduce_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
 // FOREACH template list -- runs `template` (with "?" substituted for
 // each element in turn) as a *statement*, not an expression, mirroring
 // interpreter.c's own FOREACH exactly (a plain eval_logo call per
@@ -1902,9 +1911,7 @@ static EvalValue do_reduce(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // the loop early via app->stop_requested/throw_requested, the same
 // flags REPEAT/WHILE/FOREVER check (no interrupt equivalent exists in
 // this engine, unlike interpreter.c's own three-way condition here).
-static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue template_val = eval_expr(app, pool, arg_idx[0]);
-    EvalValue list_arg = eval_expr(app, pool, arg_idx[1]);
+void eval_foreach_value(LogoApp *app, EvalValue template_val, EvalValue list_arg) {
     char template_text[512];
     eval_value_to_text(app, template_val, template_text, sizeof(template_text));
 
@@ -1923,6 +1930,9 @@ static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
         if (app->stop_requested || app->throw_requested) break;
     }
     parse_result_destroy(scratch);
+}
+static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_foreach_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
 // RUN thing -- executes a stored word/list as Logo source, exactly as
 // if it had been typed directly (RUN'd code shares the caller's scope,
@@ -2028,6 +2038,19 @@ void eval_report_uncaught_throw(LogoApp *app) {
     append_output(app, app->throw_tag);
     append_output(app, "\n");
     app->throw_requested = FALSE;
+}
+// Removes a global variable by name -- swap-with-last, same pattern as
+// REMOVEPROP's own property removal. Only ever searches app->variables
+// (globals), never a scope -- matches its one caller's own use (vm.c's
+// MAP/FILTER/REDUCE/FOREACH compiled-template loops cleaning up their
+// own internal placeholder variable, which is always global).
+void eval_delete_var(LogoApp *app, const char *name) {
+    for (int i = 0; i < app->var_count; i++) {
+        if (strcasecmp(app->variables[i].name, name) == 0) {
+            app->variables[i] = app->variables[--app->var_count];
+            return;
+        }
+    }
 }
 static void do_catch(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue tag_val = eval_expr(app, pool, arg_idx[0]);

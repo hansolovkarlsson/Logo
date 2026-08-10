@@ -81,6 +81,36 @@ typedef enum {
 
     OP_PEEK, // .a = depth below the current top (0 = the top itself); pushes a COPY of the value at that depth, leaving the original completely untouched. Used by REPEAT/FOREVER/FOR (see compiler.c's own compile_call/compile_for) to read a persistent loop-control value -- a remaining count, an iteration counter, a FOR loop's own limit/step/own internal counter -- that has to survive across however many transient values get pushed/popped computing each iteration's own condition, AND across a *recursive* call within the loop body itself. That second requirement is why these live on the value stack at all rather than in a hidden Logo variable: a hidden variable is genuinely global and would collide across nested/recursive invocations of the very same compiled loop (confirmed by direct analogy to CATCH's own tag-clobbering bug, see the THROW/CATCH batch's own notes), whereas a value's own fixed stack position is naturally protected once a recursive call pushes its own VmFrame -- that frame's own value_stack_base always sits strictly above this position, the same way exec_for's own plain C-local `limit`/`step` doubles are naturally protected by the C call stack itself.
     OP_POKE, // .a = depth below the top the value should end up at, AFTER popping; pops 1 value and overwrites the persistent slot at that (post-pop) depth with it -- the write-back half of OP_PEEK, used by FOR's own per-iteration counter update (see compiler.c's own compile_for). FOR needs this one specifically, unlike REPEAT/FOREVER's own single counter: FOR's own internal loop counter sits *underneath* its own persistent limit/step on the stack (not on top), so a plain "push 1; OP_ADD" can't update it in place the way it can for a lone top-of-stack counter -- confirmed necessary the hard way: an earlier version of FOR instead re-read the loop variable back from its own Logo-visible variable for control purposes, which (unlike exec_for's own genuinely separate C-local `i`) is global and got clobbered by a recursive call's own FOR loop over the same variable name, caught by test_vm.c's own recursion test.
+
+    // MAP/FILTER/REDUCE/FOREACH's own "compiled once" fast path (see
+    // docs/BYTECODE_VM_DESIGN.md's Progress log and compiler.c's own
+    // compile_template_call) -- only used when the template argument is
+    // a literal `[...]` visible at compile time; a runtime-computed
+    // template (`MAP :tmpl [1 2 3]`) instead compiles as an ordinary
+    // OP_CALL_BUILTIN, falling back to vm.c's own re-lex/re-parse-per-
+    // element eval_map_value/eval_filter_value/eval_reduce_value/
+    // eval_foreach_value (the same machinery do_map/do_filter/do_reduce/
+    // do_foreach themselves call). For the fast path, the template's own
+    // expression/condition/statement-block is compiled exactly ONCE,
+    // inline in the same chunk (so any OP_CALL_PROC inside it resolves
+    // against the program's own real procedures), ending in OP_HALT and
+    // reached only via a RECURSIVE vm_run call, once per element -- see
+    // vm.c's own exec_map_compiled and friends. `.a` = that compiled
+    // template's own start pc; `.text` = the internal placeholder
+    // variable's own compiler-generated, per-call-site-unique base name
+    // (e.g. "__tmpl3__") that the template's own compiled code reads via
+    // ordinary OP_PUSH_VAR (its "?"/"?1"/"?2" references were rewritten
+    // to real `:name` varrefs at compile time) and that these opcodes'
+    // own runtime handlers bind via ordinary set_var before each
+    // element, then remove via eval_delete_var once the whole loop
+    // finishes (so a script inspecting NAMES afterward sees nothing
+    // extra, matching ast_eval's own template mechanism, which never
+    // touches the variable namespace at all). All four pop 1 value (the
+    // list argument, already evaluated as an ordinary expression).
+    OP_MAP_COMPILED,     // collects the template's own result (an expression) for each element into a new list; pushes it
+    OP_FILTER_COMPILED,  // keeps each element whose template (a condition) is truthy, copied as-is, into a new list; pushes it
+    OP_REDUCE_COMPILED,  // folds left-to-right (".text" is the accumulator's own name; ".text" with "2" appended is the current element's) via the template (an expression); pushes the final accumulator, or num_val(0) if the list was empty
+    OP_FOREACH_COMPILED, // runs the template (a statement block) once per element for side effects only, stopping early on OUTPUT/STOP/THROW exactly like do_foreach; pushes num_val(0) (void, matching do_foreach)
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,
