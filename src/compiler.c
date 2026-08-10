@@ -9,17 +9,23 @@
 // Stage 1's own design doc already drew about retargeting
 // interpreter.c's grammar rather than redesigning it.
 //
-// A deliberate simplification worth knowing up front, not an
-// oversight: compile_call below only recognizes PRINT/OUTPUT/STOP/
-// WHILE/MAKE by name -- every other AST_CALL is assumed to be a user
-// procedure. This is safe for exactly this vertical slice (the parser
-// itself already guarantees any OTHER resolved call name is a hoisted
-// user procedure, never an unrecognized builtin -- see parser.c's own
-// try_parse_call/BUILTIN_SIGNATURES), but it means compile_call's own
-// builtin dispatch has to grow into something more general (a real
-// name lookup, not an if-chain) once instruction coverage grows past
-// this batch -- see docs/ROADMAP.md's own Phase 5 Stage 2 checklist,
-// item 2.
+// compile_call's own builtin-vs-procedure dispatch is a real lookup,
+// not a growing if-chain: `find_proc_def(pool, name)` (ast.h/ast.c --
+// touches nothing but the AST, so compiler.c can call it directly
+// without pulling in eval.h's interpreter.h dependency) tells us
+// whether `name` is a hoisted user procedure anywhere in this program,
+// regardless of whether *this* call's own procedure has been compiled
+// yet (pass 1 may not have reached it -- see the backpatching note
+// below); if not, it must be a builtin (the parser itself already
+// guarantees every AST_CALL name resolves to one or the other -- see
+// parser.c's own try_parse_call/BUILTIN_SIGNATURES), and vm.c's own
+// call_builtin dispatch (which growing instruction coverage now only
+// needs to touch there and in eval.c, never here) is responsible for
+// recognizing it. Only OUTPUT/STOP/WHILE/MAKE/LOCAL stay special-cased
+// by name in compile_call itself, since their argument shapes are
+// irregular (a variable name instead of a value expression, a block
+// argument, control transfer) in ways the uniform "compile every child
+// as an expression, then call" path can't express.
 //
 // Procedure calls need genuine backpatching, not just "compile
 // procedures before top-level code": one procedure's own body can
@@ -95,13 +101,30 @@ static void compile_condition(Compiler *c, AstPool *pool, int node_idx, Bytecode
 static void compile_statement(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk *chunk);
 static void compile_block(Compiler *c, AstPool *pool, int block_node, BytecodeChunk *chunk);
 
-// One AST_CALL node -- PRINT/OUTPUT/STOP/WHILE/MAKE (see this file's
-// own comment on why these are recognized by name) or a user
-// procedure, in either expression position (want_value: leaves exactly
-// one value on the stack) or statement position (an OP_POP right
-// after, discarding whatever the call left -- mirrors eval.c's own
-// exec_call, where *result already defaults to num_val(0) and a
-// statement-position caller simply never reads it).
+// The uniform tail every call form ends with, whatever shape it was
+// compiled as (an ordinary builtin/procedure call, or one of the
+// special forms below that has just emitted its own OP_VOID_RESULT):
+// in expression position, OP_CHECK_OUTPUT (named `name`, for its own
+// "didn't output a value" message) inspects whatever the call form
+// above just pushed; in statement position, a plain OP_POP discards it
+// -- mirrors eval.c's own exec_call, where *result already defaults to
+// num_val(0) and a statement-position caller simply never reads it.
+static void finish_call(BytecodeChunk *chunk, const char *name, int want_value) {
+    if (want_value) {
+        Instr check = {0};
+        check.op = OP_CHECK_OUTPUT;
+        snprintf(check.text, sizeof(check.text), "%s", name);
+        emit(chunk, check);
+    } else {
+        emit(chunk, (Instr){.op = OP_POP});
+    }
+}
+
+// One AST_CALL node -- OUTPUT/STOP/WHILE/MAKE/LOCAL (see this file's
+// own comment on why these are recognized by name) or an ordinary
+// builtin/user-procedure call, in either expression position
+// (want_value: leaves exactly one value on the stack) or statement
+// position (see finish_call above).
 static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk *chunk, int want_value) {
     AstNode *node = &pool->nodes[node_idx];
     const char *name = node->text;
@@ -111,11 +134,11 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         collect_children(pool, node_idx, args, AST_MAX_PARAMS);
         compile_expr(c, pool, args[0], chunk);
         emit(chunk, (Instr){.op = OP_OUTPUT});
-        return;
+        return; // control transfer -- never reaches finish_call, same as eval.c's own OUTPUT never falling through to a "did I produce a value" check of its own
     }
     if (strcasecmp(name, "STOP") == 0) {
         emit(chunk, (Instr){.op = OP_STOP});
-        return;
+        return; // same reasoning as OUTPUT above
     }
     if (strcasecmp(name, "WHILE") == 0) {
         collect_children(pool, node_idx, args, AST_MAX_PARAMS);
@@ -125,6 +148,8 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         compile_block(c, pool, args[1], chunk);
         emit(chunk, (Instr){.op = OP_JUMP, .a = loop_start});
         if (jf >= 0) chunk->code[jf].a = chunk->count;
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "WHILE", want_value);
         return;
     }
     if (strcasecmp(name, "MAKE") == 0) {
@@ -138,19 +163,27 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         instr.op = OP_SET_VAR;
         snprintf(instr.text, sizeof(instr.text), "%s", varname);
         emit(chunk, instr);
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "MAKE", want_value);
+        return;
+    }
+    if (strcasecmp(name, "LOCAL") == 0) {
+        // Same ARG_QUOTED_WORD shape as MAKE's own first argument.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        const char *varname = pool->nodes[args[0]].text;
+        Instr instr = {0};
+        instr.op = OP_LOCAL;
+        snprintf(instr.text, sizeof(instr.text), "%s", varname);
+        emit(chunk, instr);
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "LOCAL", want_value);
         return;
     }
 
     int argc = collect_children(pool, node_idx, args, AST_MAX_PARAMS);
     for (int i = 0; i < argc; i++) compile_expr(c, pool, args[i], chunk);
 
-    if (strcasecmp(name, "PRINT") == 0) {
-        Instr instr = {0};
-        instr.op = OP_CALL_BUILTIN;
-        instr.a = argc;
-        snprintf(instr.text, sizeof(instr.text), "%s", name);
-        emit(chunk, instr);
-    } else {
+    if (find_proc_def(pool, name) >= 0) {
         int target = find_proc_addr(c, name);
         Instr instr = {0};
         instr.op = OP_CALL_PROC;
@@ -159,14 +192,14 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         snprintf(instr.text, sizeof(instr.text), "%s", name);
         int idx = emit(chunk, instr);
         if (target < 0) add_pending_patch(c, idx, name);
-        if (want_value) {
-            Instr check = {0};
-            check.op = OP_CHECK_OUTPUT;
-            snprintf(check.text, sizeof(check.text), "%s", name);
-            emit(chunk, check);
-        }
+    } else {
+        Instr instr = {0};
+        instr.op = OP_CALL_BUILTIN;
+        instr.a = argc;
+        snprintf(instr.text, sizeof(instr.text), "%s", name);
+        emit(chunk, instr);
     }
-    if (!want_value) emit(chunk, (Instr){.op = OP_POP});
+    finish_call(chunk, name, want_value);
 }
 
 // Mirrors eval_expr's own node-type switch exactly.
@@ -212,13 +245,24 @@ static void compile_expr(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         case AST_CALL:
             compile_call(c, pool, node_idx, chunk, /*want_value=*/1);
             return;
+        case AST_LIST_LITERAL: {
+            // The literal's own contents stay in the AST -- see
+            // bytecode.h's own OP_PUSH_LIST_LITERAL comment for why
+            // this is the one opcode whose payload is an AST node
+            // index rather than a self-contained value.
+            Instr instr = {0};
+            instr.op = OP_PUSH_LIST_LITERAL;
+            instr.a = node_idx;
+            emit(chunk, instr);
+            return;
+        }
         default:
             // Not reachable for this vertical slice's own grammar
-            // subset (AST_LIST_LITERAL/AST_IF/AST_BLOCK/AST_PROC_DEF/
-            // AST_FOR/the AST_COMPARE-and-friends condition nodes never
-            // appear in expression position -- see ast.h's own node-
-            // shape comments). A harmless placeholder rather than
-            // reading uninitialized instruction fields, matching this
+            // subset (AST_IF/AST_BLOCK/AST_PROC_DEF/AST_FOR/the
+            // AST_COMPARE-and-friends condition nodes never appear in
+            // expression position -- see ast.h's own node-shape
+            // comments). A harmless placeholder rather than reading
+            // uninitialized instruction fields, matching this
             // codebase's established "quietly inert on a genuinely
             // unreachable path" convention.
             emit(chunk, (Instr){.op = OP_PUSH_NUMBER, .number = 0});

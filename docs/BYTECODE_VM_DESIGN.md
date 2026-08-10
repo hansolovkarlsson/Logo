@@ -1422,3 +1422,88 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
     instruction coverage the same incremental way Stage 1 grew
     `BUILTIN_SIGNATURES`, each batch shadow-diffed against `ast_eval`
     before moving on.
+- **Lists/arrays/`MAKE`-adjacent ops: done** (first batch off Stage 2's
+  own instruction-coverage checklist item, 2026-08-09). Covers list
+  literals, `FIRST`/`BUTFIRST`/`LAST`/`BUTLAST`/`COUNT`/`EMPTY?`/
+  `FPUT`/`LPUT`/`WORD`/`SENTENCE`/`SE`/`LIST`, `ARRAY`/`ITEM`/
+  `SETITEM`/`FILLARRAY`, `THING`/`LOCAL`/`NAMES`.
+  - **`find_proc_def` moved from `eval.c` to `ast.h`/`ast.c`.** It only
+    ever touched `AstPool`, never `LogoApp` — despite `eval.c` being
+    its main caller, it belongs in the AST-only module (same "an X is
+    just data" reasoning as the rest of that file), and the move lets
+    `compiler.c` (deliberately `interpreter.h`-free) call it directly
+    rather than duplicating the scan or pulling in `eval.h`'s whole GTK
+    dependency chain for one pool-only function.
+  - **`compile_call`'s builtin-vs-procedure dispatch is now a real
+    lookup, not a growing if-chain** — exactly the generalization
+    `compiler.h`'s own file comment flagged as necessary once coverage
+    grew past the vertical slice's PRINT-only special case.
+    `find_proc_def(pool, name) >= 0` means a user procedure
+    (`OP_CALL_PROC`, with backpatching as before); everything else is
+    assumed a builtin (`OP_CALL_BUILTIN`, name + argc, no arity
+    checking needed here — the parser already guarantees it). Growing
+    instruction coverage further now only touches `vm.c`'s own
+    `call_builtin` dispatch (one `strcasecmp` branch per builtin,
+    forwarding to `eval.c`'s exposed value-taking core) and `eval.c`
+    itself — `compiler.c` doesn't need to change again for an ordinary
+    value-returning builtin.
+  - **`OP_PUSH_LIST_LITERAL` is a deliberate exception to every other
+    opcode's self-contained-payload shape**: its `.a` holds the
+    `AST_LIST_LITERAL` node's own index in the `AstPool`, not a flat
+    value. A list literal's contents are recursive, variable-arity raw
+    AST data (untyped words, possibly nested literals), not something
+    any `Instr` field could hold — so the compiler leaves it in the
+    AST, and the VM (which already carries a live `AstPool` reference
+    for `OP_CALL_PROC`'s own `find_proc_def` lookups) builds the actual
+    list fresh each time the instruction runs, via a new
+    `eval_build_list_literal` extracted from `eval_expr`'s own
+    `AST_LIST_LITERAL` case (exposed through `eval.h`, called by both).
+  - **A real, unplanned fidelity gap this generalization surfaced, not
+    guessed**: a void builtin or special form (`MAKE`/`LOCAL`/`WHILE`/
+    `SETITEM`/`FILLARRAY`) used in *expression* position needs to
+    report `"<name>: didn't output a value"` too — `eval_expr`'s own
+    generic `AST_CALL` wrapper does this for any `do_*` that leaves
+    `produced` at its default 0, not just a user procedure that never
+    calls `OUTPUT`. The vertical slice's `OP_CHECK_OUTPUT` only ever
+    fired after `OP_CALL_PROC`, so `PRINT PRINT 5`-shaped expressions
+    (any void builtin used for its "value") would have silently
+    diverged from `ast_eval` the first time such a test existed. Fixed
+    generally: `vm->last_call_produced_output` (previously set only by
+    `OP_CALL_PROC`'s own return path) is now also set by
+    `OP_CALL_BUILTIN` (via a `*produced` out-parameter on the new
+    `call_builtin` dispatch — 1 for a real value, 0 for a void one like
+    `SETITEM`/`FILLARRAY`) and by a new `OP_VOID_RESULT` opcode (pushes
+    `num_val(0)` and clears the flag) that `MAKE`/`LOCAL`/`WHILE`'s own
+    compiled shape now ends with — and `compile_call` emits
+    `OP_CHECK_OUTPUT` uniformly after *every* call form in expression
+    position (a shared `finish_call` helper), not just procedure calls.
+    Locked in with a dedicated test
+    (`test_setitem_used_in_expression_position_reports_error`), not
+    left as a documented-but-unverified gap.
+  - **A real, pre-existing bug caught along the way, not introduced by
+    this batch**: `do_butlast`'s own WORD/bare-number cases (strip the
+    last character; empty list) got dropped in an early pass of this
+    refactor when `eval_list_butlast` (the LIST-only helper it already
+    delegated to for lists) was mistaken for `do_butlast`'s *entire*
+    body. Caught immediately by `make test` — `BUTLAST "hello` started
+    returning nothing instead of `"hell"` — fixed by adding the actual
+    missing piece, a new `eval_butlast_value` wrapper with the full
+    three-way type dispatch (mirroring `eval_first_value`/
+    `eval_last_value`'s own shape), with `eval_list_butlast` staying
+    as its LIST-only inner helper. A reminder that "this do_* already
+    delegates to a value-taking helper" has to be checked per branch,
+    not assumed from one matching case.
+  - 18 new `tests/test_vm.c` cases, ported directly from
+    already-confirmed `test_eval.c` scripts (riding on already-verified
+    ground truth rather than fresh guesses) — list literals (flat and
+    nested), FIRST/BUTFIRST/LAST/BUTLAST on both lists and words,
+    COUNT/EMPTY?, FPUT/LPUT, WORD/SENTENCE/LIST, a list passed as a
+    procedure argument and returned via OUTPUT, list equality in a
+    condition, ARRAY/ITEM/SETITEM/FILLARRAY (including array aliasing
+    through MAKE), the SETITEM-in-expression-position diagnostic,
+    THING/LOCAL/NAMES. Confirmed clean under AddressSanitizer; all 6
+    test suites pass via `make test`.
+  - **Next**: continue `docs/ROADMAP.md`'s Stage 2 instruction-coverage
+    checklist — property lists, turtle/drawing commands, or whatever
+    batch the user picks next, each shadow-diffed against `ast_eval`
+    the same way.

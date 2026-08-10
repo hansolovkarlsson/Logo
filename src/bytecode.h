@@ -46,14 +46,19 @@ typedef enum {
     OP_JUMP,           // .a = target instruction index
     OP_JUMP_IF_FALSE,  // pop 1 (via eval_is_truthy); .a = target instruction index if falsy
 
-    OP_CALL_BUILTIN,   // .text = builtin name, .a = argc; pops .a values (in argument order), pushes exactly 1 result
+    OP_CALL_BUILTIN,   // .text = builtin name, .a = argc; pops .a values (in argument order), pushes exactly 1 result (a real value, or a dummy num_val(0) for a void builtin like SETITEM -- vm.c's own call_builtin dispatch tracks which per call, for OP_CHECK_OUTPUT's sake)
     OP_CALL_PROC,      // .a = target pc (this procedure's first instruction, resolved by compiler.c's own backpatching -- see its file comment), .b = argc, .text = procedure name (for OP_CHECK_OUTPUT's own error message); pops .a args, pushes a new VM frame, pushes exactly 1 result once the call returns
-    OP_CHECK_OUTPUT,   // .text = procedure name; only ever emitted right after an OP_CALL_PROC used in *expression* position -- if that call's own body ended via OP_STOP (never called OUTPUT), reports "<name>: didn't output a value" and replaces the top of the value stack with word_val(""), mirroring eval.c's own do_user_procedure_call exactly. A statement-position call gets a plain OP_POP instead, never this.
+    OP_CHECK_OUTPUT,   // .text = the call's own name (builtin or procedure); only ever emitted right after an OP_CALL_BUILTIN/OP_CALL_PROC/OP_VOID_RESULT used in *expression* position -- if that call didn't actually produce a value (vm.c's own last_call_produced_output flag), reports "<name>: didn't output a value" and replaces the top of the value stack with word_val(""), mirroring eval.c's own exec_call/eval_expr wrapper exactly. A statement-position call gets a plain OP_POP instead, never this.
 
     OP_OUTPUT,   // pop 1 -> return from the current procedure with that value (this call's own OP_CHECK_OUTPUT, if any, sees a real output)
     OP_STOP,     // return from the current procedure with num_val(0) and no real output -- also what the compiler appends after every procedure body's own last statement, so falling off the end behaves exactly like interpreter.c's own call_procedure/eval.c's own call_ast_procedure defaulting to "no OUTPUT was ever called"
 
     OP_HALT,     // stop the whole run (the very last instruction of the top-level program)
+
+    OP_PUSH_LIST_LITERAL, // .a = the AST_LIST_LITERAL node's own index in the AstPool vm.c was given; pushes eval_build_list_literal(app, pool, .a). A deliberate exception to every other opcode's "self-contained payload" shape: a list literal's contents are recursive, variable-arity raw AST data (untyped words, possibly nested literals -- see ast.h's own AST_LIST_LITERAL comment), not a flat value any Instr field could hold, so the compiler leaves the literal in the AST and the VM (which already needs `pool` for OP_CALL_PROC's own find_proc_def lookups) builds it fresh each time this instruction runs -- same as eval_expr's own AST_LIST_LITERAL case builds it fresh on every visit, not once.
+
+    OP_LOCAL,        // .text = variable name; declares a same-named scope-local variable in the current call (0 if it's genuinely new, otherwise a no-op) -- no stack effect of its own; compile_call always follows this with OP_VOID_RESULT, same as OP_SET_VAR (MAKE)
+    OP_VOID_RESULT,  // pushes num_val(0) and clears last_call_produced_output -- the special-form equivalent of a void builtin's OP_CALL_BUILTIN return, for MAKE/LOCAL/WHILE (constructs with their own dedicated opcodes/compiled shape that still need to honor the "every call leaves exactly one value, and OP_CHECK_OUTPUT can tell whether it was a real one" convention every ordinary call follows)
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,

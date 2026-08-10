@@ -89,19 +89,46 @@ int eval_values_equal(LogoApp *app, EvalValue a, EvalValue b);
 
 // PRINT's own value-taking core, split out of do_print (which now just
 // calls eval_expr then this) so vm.c's OP_CALL_BUILTIN "PRINT" handler
-// can share it too, instead of a parallel reimplementation -- see
-// compiler.c's own note on why PRINT is the one builtin this vertical
-// slice recognizes by name.
+// can share it too, instead of a parallel reimplementation.
 void eval_print_value(LogoApp *app, EvalValue v);
 
-// Finds the AST_PROC_DEF node named `name` in `pool` (a linear scan --
-// same cost/shape as interpreter.c's own find_procedure), or -1 if
-// there isn't one. Exposed (was eval.c-private) so vm.c's own
-// OP_CALL_PROC handler can look up a called procedure's parameter
-// names/count directly, the same way call_ast_procedure itself does,
-// rather than the compiler encoding that information into bytecode.h's
-// instruction format redundantly.
-int find_proc_def(AstPool *pool, const char *name);
+// The lists/arrays/MAKE-adjacent batch's own value-taking cores (see
+// docs/BYTECODE_VM_DESIGN.md's Progress log) -- same split as
+// eval_print_value above, each corresponding do_* in eval.c now just
+// calls eval_expr on its own AST argument(s) then forwards here, and
+// vm.c's OP_CALL_BUILTIN dispatch (compiler.c no longer special-cases
+// builtin names at all -- see compiler.c's own note -- so growing this
+// list is now the *only* step instruction coverage needs) calls the
+// exact same function directly on its own already-popped stack values.
+// Where a do_* was already this shape internally (FPUT/LPUT/WORD/
+// SENTENCE/LIST/BUTLAST all already delegated to a plain
+// (app, EvalValue...) -> EvalValue helper), this is just removing
+// `static`, not new code.
+EvalValue eval_build_list_literal(LogoApp *app, AstPool *pool, int node_idx);
+EvalValue eval_thing_value(LogoApp *app, EvalValue name_val);
+void eval_local_declare(LogoApp *app, const char *varname);
+EvalValue eval_first_value(LogoApp *app, EvalValue arg);
+EvalValue eval_butfirst_value(LogoApp *app, EvalValue arg);
+EvalValue eval_last_value(LogoApp *app, EvalValue arg);
+EvalValue eval_list_butlast(LogoApp *app, EvalValue arg); // LIST case only -- see eval_butlast_value below for the full WORD/number-aware dispatch
+EvalValue eval_butlast_value(LogoApp *app, EvalValue arg);
+EvalValue eval_count_value(LogoApp *app, EvalValue arg);
+EvalValue eval_empty_value(EvalValue arg);
+EvalValue eval_list_fput(LogoApp *app, EvalValue thing, EvalValue list);
+EvalValue eval_list_lput(LogoApp *app, EvalValue thing, EvalValue list);
+EvalValue eval_word_concat(LogoApp *app, EvalValue a, EvalValue b);
+EvalValue eval_list_sentence(LogoApp *app, EvalValue a, EvalValue b);
+EvalValue eval_list_wrap_pair(LogoApp *app, EvalValue a, EvalValue b);
+EvalValue eval_array_value(LogoApp *app, EvalValue size_val);
+EvalValue eval_item_value(LogoApp *app, EvalValue index_val, EvalValue thing);
+void eval_setitem_value(LogoApp *app, EvalValue index_val, EvalValue array_val_, EvalValue new_val);
+void eval_fillarray_value(LogoApp *app, EvalValue array_val_, EvalValue new_val);
+EvalValue eval_names_value(LogoApp *app);
+
+// find_proc_def itself now lives in ast.h/ast.c (it never touched
+// LogoApp, only AstPool -- see ast.h's own comment); eval.h re-exposes
+// nothing extra for it since ast.h is already transitively included
+// here and by every caller.
 
 // The scope-push half of an ordinary procedure call: binds arg_vals as
 // def's own parameters and pushes app->scopes/scope_depth, exactly as

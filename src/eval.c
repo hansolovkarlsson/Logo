@@ -294,7 +294,7 @@ static int eval_apply_template_condition(LogoApp *app, const char *template_text
 // them out: each is a few lines of real list-splicing logic, not a
 // one-liner.
 
-static EvalValue eval_list_butlast(LogoApp *app, EvalValue arg) {
+EvalValue eval_list_butlast(LogoApp *app, EvalValue arg) {
     int count = 0;
     for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
     if (count <= 1) return list_val(-1);
@@ -311,7 +311,7 @@ static EvalValue eval_list_butlast(LogoApp *app, EvalValue arg) {
     return list_val(new_head);
 }
 
-static EvalValue eval_list_fput(LogoApp *app, EvalValue thing, EvalValue list) {
+EvalValue eval_list_fput(LogoApp *app, EvalValue thing, EvalValue list) {
     if (list.type == VALUE_WORD) {
         if (thing.type == VALUE_LIST) {
             append_output(app, "FPUT: can't add a list to a word\n");
@@ -331,7 +331,7 @@ static EvalValue eval_list_fput(LogoApp *app, EvalValue thing, EvalValue list) {
     return list_val(new_node);
 }
 
-static EvalValue eval_list_lput(LogoApp *app, EvalValue thing, EvalValue list) {
+EvalValue eval_list_lput(LogoApp *app, EvalValue thing, EvalValue list) {
     if (list.type == VALUE_WORD) {
         if (thing.type == VALUE_LIST) {
             append_output(app, "LPUT: can't add a list to a word\n");
@@ -359,7 +359,7 @@ static EvalValue eval_list_lput(LogoApp *app, EvalValue thing, EvalValue list) {
     return list_val(new_head);
 }
 
-static EvalValue eval_list_sentence(LogoApp *app, EvalValue a, EvalValue b) {
+EvalValue eval_list_sentence(LogoApp *app, EvalValue a, EvalValue b) {
     int new_head = -1;
     int *next_slot = &new_head;
     EvalValue parts[2] = {a, b};
@@ -392,7 +392,7 @@ static EvalValue eval_list_sentence(LogoApp *app, EvalValue a, EvalValue b) {
 // not just calls to WORD (confirmed directly: adding this and the other
 // list operators inline pushed the 200-level recursion test over the
 // real stack under AddressSanitizer, where it was clean before).
-static EvalValue eval_word_concat(LogoApp *app, EvalValue a, EvalValue b) {
+EvalValue eval_word_concat(LogoApp *app, EvalValue a, EvalValue b) {
     if (a.type == VALUE_LIST || b.type == VALUE_LIST) {
         append_output(app, "WORD: expected words, not a list\n");
         return word_val("");
@@ -405,7 +405,7 @@ static EvalValue eval_word_concat(LogoApp *app, EvalValue a, EvalValue b) {
     return result;
 }
 
-static EvalValue eval_list_wrap_pair(LogoApp *app, EvalValue a, EvalValue b) {
+EvalValue eval_list_wrap_pair(LogoApp *app, EvalValue a, EvalValue b) {
     int node_a = value_to_node(app, a);
     if (node_a < 0) return list_pool_exhausted(app);
     int node_b = value_to_node(app, b);
@@ -635,14 +635,11 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
 // "small program, linear scan is fine" precedent as interpreter.c's
 // own Procedure/Variable/PlistEntry tables) matches that same reach
 // rather than only searching the top level.
-int find_proc_def(AstPool *pool, const char *name) {
-    for (int i = 0; i < pool->node_count; i++) {
-        if (pool->nodes[i].type == AST_PROC_DEF && strcasecmp(pool->nodes[i].text, name) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
+// find_proc_def now lives in ast.c/ast.h -- it never touched LogoApp,
+// only `pool`, so it belongs with the rest of the AST-only module (see
+// ast.h's own comment on why), and moving it there lets compiler.c
+// call it directly without pulling in this file's interpreter.h
+// dependency.
 
 // The scope-push half of a procedure call (bind arg_vals as def's own
 // parameters, push app->scopes/scope_depth) -- split out of
@@ -1112,8 +1109,7 @@ static void do_make(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // source, while THING takes any expression that evaluates to a word,
 // e.g. THING WORD "item :n). Mirrors interpreter.c's own THING exactly,
 // sharing the same find_var.
-static EvalValue do_thing(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue name_val = eval_expr(app, pool, arg_idx[0]);
+EvalValue eval_thing_value(LogoApp *app, EvalValue name_val) {
     char name_text[512];
     eval_value_to_text(app, name_val, name_text, sizeof(name_text));
     Variable *v = find_var(app, name_text);
@@ -1123,6 +1119,9 @@ static EvalValue do_thing(LogoApp *app, AstPool *pool, const int *arg_idx) {
     if (v->type == VALUE_ARRAY) return array_val(v->list_head, (int)v->number);
     return num_val(v->number);
 }
+static EvalValue do_thing(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_thing_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 // LOCAL "name -- a variable scoped to the current call, without being
 // a parameter. Only valid inside an active procedure call; the scope's
 // vars array shares its fixed capacity (MAX_PARAMS) with real
@@ -1130,8 +1129,7 @@ static EvalValue do_thing(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // same app->scopes/scope_depth call_ast_procedure already reads/writes
 // (see eval.h's own note on why that sharing is safe: both engines'
 // procedure calls push/pop the identical scope stack).
-static void do_local(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    const char *varname = pool->nodes[arg_idx[0]].text;
+void eval_local_declare(LogoApp *app, const char *varname) {
     if (app->scope_depth <= 0) {
         append_output(app, "LOCAL: can only be used inside a procedure\n");
         return;
@@ -1149,10 +1147,18 @@ static void do_local(LogoApp *app, AstPool *pool, const int *arg_idx) {
     v->type = VALUE_NUMBER;
     v->number = 0;
 }
+static void do_local(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_local_declare(app, pool->nodes[arg_idx[0]].text);
+}
 // NAMES -- every currently-defined global variable's name, as a list.
 // Mirrors interpreter.c's own NAMES exactly, sharing the same
-// app->variables/var_count globals table.
-static EvalValue do_names(LogoApp *app) {
+// app->variables/var_count globals table. Takes no AST argument at
+// all, so (unlike every other do_* here) it was already a plain
+// value-taking function before this batch -- just needed `static`
+// removed and a name matching this batch's own eval_X_value
+// convention (every do_* below still forwards to it under its own
+// original name, so exec_call's own dispatch table is untouched).
+EvalValue eval_names_value(LogoApp *app) {
     int head = -1;
     int *next_slot = &head;
     for (int i = 0; i < app->var_count; i++) {
@@ -1345,8 +1351,7 @@ static EvalValue do_log(LogoApp *app, AstPool *pool, const int *arg_idx) {
 static EvalValue do_exp(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return num_val(exp(eval_to_number(eval_expr(app, pool, arg_idx[0]))));
 }
-static EvalValue do_first(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+EvalValue eval_first_value(LogoApp *app, EvalValue arg) {
     if (arg.type == VALUE_LIST) {
         return (arg.list_head < 0) ? word_val("") : node_to_value(&app->list_pool[arg.list_head]);
     }
@@ -1357,14 +1362,18 @@ static EvalValue do_first(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     return arg; // FIRST of a bare number is itself
 }
-static EvalValue do_butfirst(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_first(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_first_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_butfirst_value(LogoApp *app, EvalValue arg) {
     if (arg.type == VALUE_LIST) return list_val(arg.list_head < 0 ? -1 : app->list_pool[arg.list_head].next);
     if (arg.type == VALUE_WORD) return word_val(arg.word[0] == '\0' ? "" : arg.word + 1);
     return list_val(-1); // BUTFIRST of a bare number is empty
 }
-static EvalValue do_last(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_butfirst(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_butfirst_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_last_value(LogoApp *app, EvalValue arg) {
     if (arg.type == VALUE_LIST) {
         if (arg.list_head < 0) return word_val("");
         int idx = arg.list_head;
@@ -1379,8 +1388,17 @@ static EvalValue do_last(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     return arg; // LAST of a bare number is itself
 }
-static EvalValue do_butlast(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_last(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_last_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+// BUTLAST arg -- unlike FIRST/LAST/BUTFIRST above, the LIST case is
+// substantial enough (real list-splicing, not a one-liner) to already
+// live in its own function, eval_list_butlast, shared with
+// interpreter.c's own analogous helper in spirit (see that function's
+// own comment) -- this wrapper just adds the WORD/bare-number cases
+// eval_list_butlast itself doesn't handle, mirroring do_first/
+// do_last's own type-dispatch shape.
+EvalValue eval_butlast_value(LogoApp *app, EvalValue arg) {
     if (arg.type == VALUE_LIST) return eval_list_butlast(app, arg);
     if (arg.type == VALUE_WORD) {
         size_t len = strlen(arg.word);
@@ -1391,8 +1409,10 @@ static EvalValue do_butlast(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     return list_val(-1); // BUTLAST of a bare number is empty
 }
-static EvalValue do_count(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_butlast(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_butlast_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_count_value(LogoApp *app, EvalValue arg) {
     if (arg.type == VALUE_LIST) {
         double count = 0;
         for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
@@ -1402,13 +1422,18 @@ static EvalValue do_count(LogoApp *app, AstPool *pool, const int *arg_idx) {
     if (arg.type == VALUE_ARRAY) return num_val(arg.number); // an array's `number` field holds its length
     return num_val(1); // a bare number counts as a one-element list
 }
-static EvalValue do_empty(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_count(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_count_value(app, eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_empty_value(EvalValue arg) {
     int empty;
     if (arg.type == VALUE_LIST) empty = (arg.list_head == -1);
     else if (arg.type == VALUE_WORD) empty = (arg.word[0] == '\0');
     else empty = 0; // a number is never "empty"
     return word_val(empty ? "TRUE" : "FALSE");
+}
+static EvalValue do_empty(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_empty_value(eval_expr(app, pool, arg_idx[0]));
 }
 // Type predicates -- mirror interpreter.c's own WORD?/LIST?/NUMBER?/
 // ARRAY? exactly: each just checks the evaluated argument's own
@@ -1584,8 +1609,8 @@ static EvalValue do_memberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // ARRAY size -- allocates `size` contiguous list_pool cells (direct
 // index math, not chain-walked -- see array_val's own comment), each
 // starting out an empty list. Mirrors interpreter.c's own ARRAY exactly.
-static EvalValue do_array(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int size = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
+EvalValue eval_array_value(LogoApp *app, EvalValue size_val) {
+    int size = (int)eval_to_number(size_val);
     if (size < 1) {
         append_output(app, "ARRAY: size must be at least 1\n");
         return word_val("");
@@ -1600,12 +1625,14 @@ static EvalValue do_array(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     return array_val(start, size);
 }
+static EvalValue do_array(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_array_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 // ITEM index thing -- 1-indexed lookup into a list (chain walk), word
 // (character extract), array (direct index math), or bare number
 // (only index 1 valid). Mirrors interpreter.c's own ITEM exactly.
-static EvalValue do_item(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int index = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    EvalValue thing = eval_expr(app, pool, arg_idx[1]);
+EvalValue eval_item_value(LogoApp *app, EvalValue index_val, EvalValue thing) {
+    int index = (int)eval_to_number(index_val);
     if (thing.type == VALUE_LIST) {
         int i = 1;
         for (int idx = thing.list_head; idx != -1; idx = app->list_pool[idx].next, i++) {
@@ -1634,6 +1661,9 @@ static EvalValue do_item(LogoApp *app, AstPool *pool, const int *arg_idx) {
     append_output(app, "ITEM: index out of range\n");
     return word_val("");
 }
+static EvalValue do_item(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_item_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
+}
 // Shared by SETITEM/FILLARRAY: overwrite one list_pool cell in place
 // with `new_val`'s payload. Caller has already checked new_val isn't
 // itself an array.
@@ -1652,10 +1682,8 @@ static void eval_array_store_cell(ListNode *node, EvalValue new_val) {
 // SETITEM index array value -- the one in-place mutation in this
 // language (see set_var_array's own comment). Mirrors interpreter.c's
 // own SETITEM exactly.
-static void do_setitem(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    int index = (int)eval_to_number(eval_expr(app, pool, arg_idx[0]));
-    EvalValue array_val_ = eval_expr(app, pool, arg_idx[1]);
-    EvalValue new_val = eval_expr(app, pool, arg_idx[2]);
+void eval_setitem_value(LogoApp *app, EvalValue index_val, EvalValue array_val_, EvalValue new_val) {
+    int index = (int)eval_to_number(index_val);
     if (array_val_.type != VALUE_ARRAY) {
         append_output(app, "SETITEM: expected an array\n");
     } else if (index < 1 || index > (int)array_val_.number) {
@@ -1666,12 +1694,13 @@ static void do_setitem(LogoApp *app, AstPool *pool, const int *arg_idx) {
         eval_array_store_cell(&app->list_pool[array_val_.list_head + (index - 1)], new_val);
     }
 }
+static void do_setitem(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_setitem_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]), eval_expr(app, pool, arg_idx[2]));
+}
 // FILLARRAY array value -- SETITEM's per-cell assignment looped over
 // every index instead of just one. Mirrors interpreter.c's own
 // FILLARRAY exactly.
-static void do_fillarray(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue array_val_ = eval_expr(app, pool, arg_idx[0]);
-    EvalValue new_val = eval_expr(app, pool, arg_idx[1]);
+void eval_fillarray_value(LogoApp *app, EvalValue array_val_, EvalValue new_val) {
     if (array_val_.type != VALUE_ARRAY) {
         append_output(app, "FILLARRAY: expected an array\n");
     } else if (new_val.type == VALUE_ARRAY) {
@@ -1681,6 +1710,9 @@ static void do_fillarray(LogoApp *app, AstPool *pool, const int *arg_idx) {
             eval_array_store_cell(&app->list_pool[array_val_.list_head + i], new_val);
         }
     }
+}
+static void do_fillarray(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_fillarray_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
 // MAP template list -- applies `template` (see the file comment near
 // eval_apply_template_expr) to each element of `list`, collecting the
@@ -2392,7 +2424,7 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     } else if (strcasecmp(name, "LOCAL") == 0) {
         do_local(app, pool, arg_idx);
     } else if (strcasecmp(name, "NAMES") == 0) {
-        if (result != NULL) *result = do_names(app);
+        if (result != NULL) *result = eval_names_value(app);
         if (produced != NULL) *produced = 1;
     } else if (strcasecmp(name, "PROCEDURES") == 0) {
         if (result != NULL) *result = do_procedures(app, pool);
@@ -2604,6 +2636,44 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
     }
 }
 
+// Builds a real list in app->list_pool from an AST_LIST_LITERAL node,
+// mirroring interpreter.c's own parse_list_literal exactly: each leaf
+// is untyped raw text (an AST_WORD child's .text, never number-vs-word
+// typed at construction time), and a nested AST_LIST_LITERAL recurses
+// through this same function directly (not back through eval_expr --
+// functionally identical, since eval_expr's own AST_LIST_LITERAL case
+// just calls this, but avoids a pointless extra dispatch through the
+// whole eval_expr switch for something that can only ever be this one
+// node type). Exposed via eval.h so vm.c's OP_PUSH_LIST_LITERAL can
+// build the exact same structure at runtime: a list literal's contents
+// are recursive, variable-arity raw AST data (see ast.h's own note),
+// not a flat value a single Instr field could encode, so the VM keeps
+// a live AstPool reference and calls back into this rather than the
+// compiler trying to pre-flatten it into bytecode.
+EvalValue eval_build_list_literal(LogoApp *app, AstPool *pool, int node_idx) {
+    AstNode *node = &pool->nodes[node_idx];
+    int head = -1;
+    int *next_slot = &head;
+    for (int c = node->first_child; c >= 0; c = pool->nodes[c].next_sibling) {
+        AstNode *child = &pool->nodes[c];
+        int idx = list_alloc_node(app);
+        if (idx < 0) return list_pool_exhausted(app);
+        ListNode *ln = &app->list_pool[idx];
+        ln->next = -1;
+        if (child->type == AST_LIST_LITERAL) {
+            EvalValue sub = eval_build_list_literal(app, pool, c);
+            ln->type = LIST_ELEM_LIST;
+            ln->sublist_head = sub.list_head;
+        } else {
+            ln->type = LIST_ELEM_WORD;
+            snprintf(ln->word, sizeof(ln->word), "%s", child->text);
+        }
+        *next_slot = idx;
+        next_slot = &app->list_pool[idx].next;
+    }
+    return list_val(head);
+}
+
 static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx) {
     AstNode *node = &pool->nodes[node_idx];
     switch (node->type) {
@@ -2619,34 +2689,8 @@ static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx) {
             if (v->type == VALUE_LIST) return list_val(v->list_head);
             return array_val(v->list_head, (int)v->number);
         }
-        case AST_LIST_LITERAL: {
-            // Builds a real list in app->list_pool, mirroring
-            // interpreter.c's own parse_list_literal exactly: each
-            // leaf is untyped raw text (an AST_WORD child's .text,
-            // never number-vs-word typed at construction time), and a
-            // nested AST_LIST_LITERAL recurses through this same case
-            // via eval_expr.
-            int head = -1;
-            int *next_slot = &head;
-            for (int c = node->first_child; c >= 0; c = pool->nodes[c].next_sibling) {
-                AstNode *child = &pool->nodes[c];
-                int idx = list_alloc_node(app);
-                if (idx < 0) return list_pool_exhausted(app);
-                ListNode *ln = &app->list_pool[idx];
-                ln->next = -1;
-                if (child->type == AST_LIST_LITERAL) {
-                    EvalValue sub = eval_expr(app, pool, c);
-                    ln->type = LIST_ELEM_LIST;
-                    ln->sublist_head = sub.list_head;
-                } else {
-                    ln->type = LIST_ELEM_WORD;
-                    snprintf(ln->word, sizeof(ln->word), "%s", child->text);
-                }
-                *next_slot = idx;
-                next_slot = &app->list_pool[idx].next;
-            }
-            return list_val(head);
-        }
+        case AST_LIST_LITERAL:
+            return eval_build_list_literal(app, pool, node_idx);
         case AST_NEG:
             return num_val(-eval_to_number(eval_expr(app, pool, node->first_child)));
         case AST_BINOP: {

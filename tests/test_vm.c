@@ -205,6 +205,114 @@ TEST(test_procedure_that_never_outputs_reports_error_in_expression_position) {
         "PRINT silent");
 }
 
+// Lists/arrays/MAKE-adjacent batch (docs/ROADMAP.md's Stage 2
+// checklist, item 2) -- scripts ported directly from tests/test_eval.c
+// so this corpus rides on the same already-confirmed-correct ground
+// truth, rather than fresh guesses.
+
+TEST(test_list_literal_prints_space_separated_without_brackets) {
+    shadow_diff_vm("MAKE \"x [1 2 3]\nPRINT :x");
+}
+
+TEST(test_nested_list_literal_prints_with_inner_brackets) {
+    shadow_diff_vm("MAKE \"x [a [b c] d]\nPRINT :x");
+}
+
+TEST(test_first_butfirst_last_butlast_on_a_list) {
+    shadow_diff_vm(
+        "MAKE \"x [10 20 30]\n"
+        "PRINT FIRST :x\n"
+        "PRINT BUTFIRST :x\n"
+        "PRINT LAST :x\n"
+        "PRINT BUTLAST :x");
+}
+
+TEST(test_first_butfirst_last_butlast_on_a_word) {
+    shadow_diff_vm("PRINT FIRST \"hello\nPRINT BUTFIRST \"hello\nPRINT LAST \"hello\nPRINT BUTLAST \"hello");
+}
+
+TEST(test_count_and_empty) {
+    shadow_diff_vm(
+        "MAKE \"x [1 2 3 4]\n"
+        "PRINT COUNT :x\n"
+        "PRINT COUNT \"hello\n"
+        "PRINT EMPTY? []\n"
+        "PRINT EMPTY? :x");
+}
+
+TEST(test_fput_and_lput) {
+    shadow_diff_vm(
+        "MAKE \"x [2 3]\n"
+        "PRINT FPUT 1 :x\n"
+        "PRINT LPUT 4 :x");
+}
+
+TEST(test_word_sentence_list_constructors) {
+    shadow_diff_vm(
+        "PRINT WORD \"hello \"world\n"
+        "PRINT SENTENCE [1 2] [3 4]\n"
+        "PRINT LIST [1 2] [3 4]");
+}
+
+TEST(test_list_passed_as_procedure_argument_and_output) {
+    shadow_diff_vm(
+        "TO firstOf :lst\n"
+        "  OUTPUT FIRST :lst\n"
+        "END\n"
+        "PRINT firstOf [7 8 9]");
+}
+
+TEST(test_list_equality_in_condition) {
+    shadow_diff_vm(
+        "MAKE \"x [1 2 3]\n"
+        "MAKE \"y [1 2 3]\n"
+        "IF :x = :y [PRINT \"same]");
+}
+
+TEST(test_array_creates_cells_defaulting_to_empty_lists) {
+    shadow_diff_vm("MAKE \"a ARRAY 3\nPRINT ITEM 1 :a\nPRINT COUNT :a");
+}
+
+TEST(test_setitem_and_fillarray) {
+    shadow_diff_vm(
+        "MAKE \"a ARRAY 2\nSETITEM 1 :a 10\nSETITEM 2 :a 20\nPRINT :a\n"
+        "MAKE \"b ARRAY 2\nFILLARRAY :b [1 2]\nPRINT ITEM 1 :b\nPRINT ITEM 2 :b");
+}
+
+TEST(test_array_aliasing_through_make_and_procedure_call) {
+    shadow_diff_vm(
+        "MAKE \"a ARRAY 2\nMAKE \"b :a\nSETITEM 1 :b 99\nPRINT ITEM 1 :a");
+}
+
+TEST(test_setitem_used_in_expression_position_reports_error) {
+    // SETITEM is void (like MAKE/LOCAL) -- exercises call_builtin's own
+    // *produced=0 path through OP_CHECK_OUTPUT, the same mechanism a
+    // never-OUTPUTting procedure exercises above, now for a builtin.
+    shadow_diff_vm("MAKE \"a ARRAY 1\nPRINT SETITEM 1 :a 5");
+}
+
+TEST(test_thing_reads_a_variable_by_computed_name) {
+    shadow_diff_vm(
+        "MAKE \"x 5\nMAKE \"greeting \"hi\nMAKE \"nums [1 2 3]\n"
+        "PRINT THING \"x\nPRINT THING WORD \"gree \"ting\nPRINT THING \"nums\nPRINT THING \"nosuch");
+}
+
+TEST(test_local_declares_a_call_scoped_variable) {
+    shadow_diff_vm("TO test\nLOCAL \"x\nMAKE \"x 99\nOUTPUT :x\nEND\nMAKE \"x 1\nPRINT test\nPRINT :x");
+}
+
+TEST(test_local_outside_a_procedure_reports_an_error) {
+    shadow_diff_vm("LOCAL \"y");
+}
+
+TEST(test_local_twice_with_the_same_name_is_a_no_op) {
+    shadow_diff_vm("TO test2\nLOCAL \"z\nLOCAL \"z\nMAKE \"z 7\nOUTPUT :z\nEND\nPRINT test2");
+}
+
+TEST(test_names_lists_every_global_variable) {
+    shadow_diff_vm("MAKE \"a 1\nMAKE \"b 2\nPRINT NAMES\nPRINT COUNT NAMES");
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -221,6 +329,24 @@ int main(void) {
     RUN(test_recursion_depth_cap_reports_error_not_a_crash);
     RUN(test_mutually_recursive_procedures);
     RUN(test_procedure_that_never_outputs_reports_error_in_expression_position);
+    RUN(test_list_literal_prints_space_separated_without_brackets);
+    RUN(test_nested_list_literal_prints_with_inner_brackets);
+    RUN(test_first_butfirst_last_butlast_on_a_list);
+    RUN(test_first_butfirst_last_butlast_on_a_word);
+    RUN(test_count_and_empty);
+    RUN(test_fput_and_lput);
+    RUN(test_word_sentence_list_constructors);
+    RUN(test_list_passed_as_procedure_argument_and_output);
+    RUN(test_list_equality_in_condition);
+    RUN(test_array_creates_cells_defaulting_to_empty_lists);
+    RUN(test_setitem_and_fillarray);
+    RUN(test_array_aliasing_through_make_and_procedure_call);
+    RUN(test_setitem_used_in_expression_position_reports_error);
+    RUN(test_thing_reads_a_variable_by_computed_name);
+    RUN(test_local_declares_a_call_scoped_variable);
+    RUN(test_local_outside_a_procedure_reports_an_error);
+    RUN(test_local_twice_with_the_same_name_is_a_no_op);
+    RUN(test_names_lists_every_global_variable);
 
     if (failures == 0) {
         printf("All tests passed.\n");

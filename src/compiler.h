@@ -11,19 +11,23 @@
 // this independently testable (tests/test_vm.c can compile without
 // ever constructing a LogoApp).
 //
-// A deliberately small first slice (see docs/ROADMAP.md's own Phase 5
-// Stage 2 checklist, item 1): literals, arithmetic, PRINT, IF/WHILE,
-// MAKE, and procedure calls with OUTPUT/STOP. Enough to prove the
-// compiler + explicit-frame-array VM mechanism actually works, shadow-
-// diffed against ast_eval -- not full BUILTIN_SIGNATURES parity yet.
-// Notably absent: every other builtin (compile_call below only
-// recognizes PRINT by name; anything else is assumed to be a user
-// procedure, a real simplification worth knowing about, not an
-// oversight -- see compiler.c's own note), lists/arrays/property
-// lists, THROW/CATCH, TELL, FOR, and MAP/FILTER/REDUCE/FOREACH's own
-// templates. Growing this alongside vm.c's own opcode handling is
-// incremental follow-up work (checklist items 2-4), not part of
-// getting the mechanism itself right.
+// Started small (see docs/ROADMAP.md's own Phase 5 Stage 2 checklist,
+// item 1): literals, arithmetic, PRINT, IF/WHILE, MAKE, and procedure
+// calls with OUTPUT/STOP, enough to prove the compiler +
+// explicit-frame-array VM mechanism actually works, shadow-diffed
+// against ast_eval. Item 2 (grow instruction coverage) has since added
+// lists/arrays/MAKE-adjacent ops (FIRST/BUTFIRST/LAST/BUTLAST/COUNT/
+// EMPTY?/FPUT/LPUT/WORD/SENTENCE/SE/LIST, list literals, ARRAY/ITEM/
+// SETITEM/FILLARRAY, THING/LOCAL/NAMES) -- compile_call below no
+// longer recognizes builtins by an if-chain of names at all; it uses
+// find_proc_def (ast.h) to tell a user procedure from a builtin, so
+// growing coverage further only touches vm.c's own call_builtin
+// dispatch and eval.c's value-taking cores, not this file (see
+// compiler.c's own note). Still not full BUILTIN_SIGNATURES parity:
+// property lists, THROW/CATCH, TELL, FOR, and MAP/FILTER/REDUCE/
+// FOREACH's own templates remain, incremental follow-up work
+// (checklist items 2-4), not part of getting the mechanism itself
+// right.
 
 #include "ast.h"
 #include "bytecode.h"

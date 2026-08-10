@@ -77,6 +77,61 @@ static void exec_compare(LogoApp *app, Vm *vm, OpCode op) {
     push(vm, num_val(result));
 }
 
+// OP_CALL_BUILTIN's own dispatch -- one branch per builtin this batch
+// recognizes, each just forwarding to eval.c's own exposed value-taking
+// core (see eval.h's own note: this is deliberately the same function
+// the corresponding do_* wrapper calls after its own eval_expr, so
+// there's no parallel reimplementation to drift from it). `*produced`
+// is 1 for a real value-returning builtin, 0 for a void one (SETITEM/
+// FILLARRAY) -- read by OP_CHECK_OUTPUT for a call used in expression
+// position, matching eval_expr's own AST_CALL wrapper (`resolved &&
+// !produced` -> "didn't output a value"). `args` already holds exactly
+// this builtin's own arity worth of values, in argument order -- the
+// parser guarantees that arity at parse time, so no argc parameter is
+// needed here.
+static EvalValue call_builtin(LogoApp *app, const char *name, EvalValue *args, int *produced) {
+    *produced = 1;
+    if (strcasecmp(name, "PRINT") == 0) {
+        eval_print_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "THING") == 0) return eval_thing_value(app, args[0]);
+    if (strcasecmp(name, "FIRST") == 0) return eval_first_value(app, args[0]);
+    if (strcasecmp(name, "BUTFIRST") == 0) return eval_butfirst_value(app, args[0]);
+    if (strcasecmp(name, "LAST") == 0) return eval_last_value(app, args[0]);
+    if (strcasecmp(name, "BUTLAST") == 0) return eval_butlast_value(app, args[0]);
+    if (strcasecmp(name, "COUNT") == 0) return eval_count_value(app, args[0]);
+    if (strcasecmp(name, "EMPTY?") == 0) return eval_empty_value(args[0]);
+    if (strcasecmp(name, "FPUT") == 0) return eval_list_fput(app, args[0], args[1]);
+    if (strcasecmp(name, "LPUT") == 0) return eval_list_lput(app, args[0], args[1]);
+    if (strcasecmp(name, "WORD") == 0) return eval_word_concat(app, args[0], args[1]);
+    if (strcasecmp(name, "SENTENCE") == 0 || strcasecmp(name, "SE") == 0) return eval_list_sentence(app, args[0], args[1]);
+    if (strcasecmp(name, "LIST") == 0) return eval_list_wrap_pair(app, args[0], args[1]);
+    if (strcasecmp(name, "ARRAY") == 0) return eval_array_value(app, args[0]);
+    if (strcasecmp(name, "ITEM") == 0) return eval_item_value(app, args[0], args[1]);
+    if (strcasecmp(name, "SETITEM") == 0) {
+        eval_setitem_value(app, args[0], args[1], args[2]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "FILLARRAY") == 0) {
+        eval_fillarray_value(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "NAMES") == 0) return eval_names_value(app);
+    // Unreachable for a well-formed compiled program -- compile_call
+    // only ever emits OP_CALL_BUILTIN for a name find_proc_def couldn't
+    // resolve to a user procedure, and the parser itself already
+    // guarantees every such name is one of parser.c's own
+    // BUILTIN_SIGNATURES entries (see compiler.c's own note). Stay
+    // defensive rather than reading uninitialized args, same as
+    // compile_expr's own default case.
+    *produced = 0;
+    return num_val(0);
+}
+
 // OP_CALL_PROC -- pops instr->b args (in argument order), pushes a new
 // VmFrame + app->scopes[] scope (via eval_push_scope_for_call, the
 // same setup call_ast_procedure itself uses), and jumps `*pc` to the
@@ -221,22 +276,19 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
             case OP_JUMP_IF_FALSE:
                 pc = eval_is_truthy(pop(vm)) ? pc + 1 : instr->a;
                 break;
-            case OP_CALL_BUILTIN:
-                // PRINT is the only builtin this vertical slice
-                // compiles (see compiler.c's own note) -- pop its one
-                // argument, run it through the same value-taking core
-                // do_print itself now calls, then push num_val(0),
-                // matching exec_call's own *result-defaults-to-
-                // num_val(0) convention (do_print never overwrites it
-                // either).
-                if (strcasecmp(instr->text, "PRINT") == 0) {
-                    eval_print_value(app, pop(vm));
-                } else {
-                    for (int i = 0; i < instr->a; i++) pop(vm);
+            case OP_CALL_BUILTIN: {
+                int argc = instr->a;
+                EvalValue args[AST_MAX_PARAMS];
+                for (int i = argc - 1; i >= 0; i--) {
+                    args[i] = (i < AST_MAX_PARAMS) ? pop(vm) : (pop(vm), num_val(0));
                 }
-                push(vm, num_val(0));
+                int produced;
+                EvalValue result = call_builtin(app, instr->text, args, &produced);
+                vm->last_call_produced_output = produced;
+                push(vm, result);
                 pc++;
                 break;
+            }
             case OP_CALL_PROC:
                 exec_call_proc(vm, app, pool, instr, &pc);
                 break;
@@ -266,6 +318,22 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                 break;
             case OP_HALT:
                 return;
+            case OP_PUSH_LIST_LITERAL:
+                // See bytecode.h's own comment: the literal's contents
+                // stay in the AST, built fresh each visit exactly like
+                // eval_expr's own AST_LIST_LITERAL case does.
+                push(vm, eval_build_list_literal(app, pool, instr->a));
+                pc++;
+                break;
+            case OP_LOCAL:
+                eval_local_declare(app, instr->text);
+                pc++;
+                break;
+            case OP_VOID_RESULT:
+                vm->last_call_produced_output = 0;
+                push(vm, num_val(0));
+                pc++;
+                break;
             default:
                 pc++;
                 break;

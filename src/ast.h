@@ -99,4 +99,16 @@ int ast_alloc(AstPool *pool, AstNodeType type, int line, int col);
 // chain).
 void ast_append_child(AstPool *pool, int parent_idx, int child_idx);
 
+// Finds the AST_PROC_DEF node named `name` anywhere in `pool` (a
+// linear scan, not just program_node's own top-level children --
+// matches parser.c's own hoist_procedures reach), or -1 if there isn't
+// one. Lives here rather than eval.c -- despite eval.c being its main
+// caller -- because it touches nothing but `pool` itself: an AST-only
+// operation belongs in the AST-only module, same "an X is just data"
+// reasoning as the rest of this file, and it lets compiler.c (Stage 2,
+// deliberately GTK/GLib/interpreter.h-free) call it directly rather
+// than duplicating the scan or pulling in eval.h's own interpreter.h
+// dependency just for this one pool-only function.
+int find_proc_def(AstPool *pool, const char *name);
+
 #endif

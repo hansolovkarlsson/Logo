@@ -132,9 +132,34 @@ instruction-set/frame-layout detail behind each of these.
   Real recursion-depth independence from `MAX_SCOPE_DEPTH` needs
   VM-owned scope storage, its own deliberate follow-up (not started).
 - [ ] Grow instruction coverage the same way Stage 1 grew
-  `BUILTIN_SIGNATURES` — incremental batches (lists/arrays, `MAKE`,
-  property lists, turtle/drawing commands, ...), each shadow-diffed
+  `BUILTIN_SIGNATURES` — incremental batches, each shadow-diffed
   against `ast_eval` before moving to the next.
+  - [x] **Lists/arrays/`MAKE`-adjacent ops** (2026-08-09): list literals
+    (a new `OP_PUSH_LIST_LITERAL`, since a literal's contents are
+    recursive/variable-arity raw AST data, not a flat value any `Instr`
+    field could hold — the VM keeps a live `AstPool` reference and
+    builds it fresh each visit via a shared `eval_build_list_literal`,
+    same as `eval_expr` already did), `FIRST`/`BUTFIRST`/`LAST`/
+    `BUTLAST`/`COUNT`/`EMPTY?`/`FPUT`/`LPUT`/`WORD`/`SENTENCE`/`SE`/
+    `LIST`, `ARRAY`/`ITEM`/`SETITEM`/`FILLARRAY`, `THING`/`LOCAL`/
+    `NAMES`. **`compile_call`'s builtin dispatch is now a real lookup,
+    not an if-chain**: `find_proc_def` (moved from `eval.c` to
+    `ast.h`/`ast.c` — it never touched `LogoApp`, so it belongs with
+    the AST-only module and lets `compiler.c` call it without pulling
+    in `interpreter.h`) tells `compile_call` whether a name is a user
+    procedure; everything else is assumed a builtin and routed through
+    a generalized `OP_CALL_BUILTIN`, so growing coverage further only
+    touches `vm.c`'s own `call_builtin` dispatch and `eval.c`'s
+    value-taking cores, never `compiler.c` again. Also closed a real
+    fidelity gap this generalization exposed: a void builtin/special
+    form (`MAKE`/`LOCAL`/`WHILE`/`SETITEM`/`FILLARRAY`) used in
+    *expression* position needs to report "didn't output a value" too,
+    not just a procedure that never calls `OUTPUT` — a new
+    `OP_VOID_RESULT` opcode plus generalizing `OP_CHECK_OUTPUT`'s own
+    `last_call_produced_output` flag to every call form (not just
+    `OP_CALL_PROC`) handles it uniformly. 18 new `tests/test_vm.c`
+    cases (ported from already-confirmed `test_eval.c` scripts),
+    confirmed clean under AddressSanitizer.
 - [ ] `THROW`/`CATCH` as a real unwind mechanism, not just another
   opcode — non-local exit to an arbitrary ancestor frame needs its own
   design (an explicit unwind-target stack the VM consults), flagged

@@ -6,6 +6,7 @@
 
 #include "ast.h"
 #include <stddef.h> // NULL
+#include <strings.h> // strcasecmp, used by find_proc_def
 
 int ast_alloc(AstPool *pool, AstNodeType type, int line, int col) {
     if (pool->node_count >= MAX_AST_NODES) return -1;
@@ -36,4 +37,13 @@ void ast_append_child(AstPool *pool, int parent_idx, int child_idx) {
         cursor = pool->nodes[cursor].next_sibling;
     }
     pool->nodes[cursor].next_sibling = child_idx;
+}
+
+int find_proc_def(AstPool *pool, const char *name) {
+    for (int i = 0; i < pool->node_count; i++) {
+        if (pool->nodes[i].type == AST_PROC_DEF && strcasecmp(pool->nodes[i].text, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
 }
