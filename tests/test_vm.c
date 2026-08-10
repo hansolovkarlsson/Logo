@@ -851,6 +851,141 @@ TEST(test_map_template_placeholder_survives_a_recursive_call_in_its_own_body) {
         "PRINT f 2");
 }
 
+// WAIT/WAITKEY (see docs/BYTECODE_VM_DESIGN.md's suspend/resume
+// design) can't shadow-diff against ast_eval -- that engine has no
+// suspend concept at all, and WAIT/WAITKEY don't even exist there
+// (docs/ROADMAP.md explains why: porting a busy-wait shim into a
+// second engine before the real mechanism existed would have been
+// throwaway work). These tests call vm_run/vm_resume/vm_resume_with_key
+// directly instead and assert on the returned VmRunResult plus
+// captured output -- the same headless, no-GTK style every other test
+// in this file already uses, which is exactly the point: vm.c itself
+// never touches a clock or GTK, so all of this is testable without
+// either.
+typedef struct {
+    LogoApp *app;
+    ParseResult *result;
+    BytecodeChunk *chunk;
+    Vm *vm;
+} VmTestSession;
+
+static VmTestSession start_vm_session(const char *source, VmRunResult *out_status) {
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex(source, tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+    *out_status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    VmTestSession s = { app, result, chunk, vm };
+    return s;
+}
+
+static void end_vm_session(VmTestSession s) {
+    free(s.vm);
+    free(s.app);
+    free(s.chunk);
+    parse_result_destroy(s.result);
+}
+
+static void expect_status(VmRunResult got, VmRunResult want, const char *label) {
+    if (got != want) {
+        failures++;
+        printf("FAIL %s: %s -- expected VmRunResult %d, got %d\n", current_test, label, want, got);
+    }
+}
+
+static void expect_output(const char *want) {
+    if (strcmp(captured_output, want) != 0) {
+        failures++;
+        printf("FAIL %s: output -- expected \"%s\", got \"%s\"\n", current_test, want, captured_output);
+    }
+}
+
+TEST(test_wait_suspends_with_the_right_duration_then_resumes_and_completes) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT 1\nWAIT 5\nPRINT 2", &status);
+    expect_status(status, VM_RUN_SUSPENDED_WAIT, "initial run");
+    if (s.vm->suspend_seconds != 5) {
+        failures++;
+        printf("FAIL %s: suspend_seconds -- expected 5, got %g\n", current_test, s.vm->suspend_seconds);
+    }
+    status = vm_resume(s.vm, s.app, &s.result->pool, s.chunk);
+    expect_status(status, VM_RUN_HALTED, "resume");
+    expect_output("1\n2\n");
+    end_vm_session(s);
+}
+
+TEST(test_wait_with_a_non_positive_duration_never_suspends_at_all) {
+    // Matches interpreter.c's own `if (seconds > 0)` guard -- WAIT 0 (or
+    // negative) is a no-op, not a suspend point.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT 1\nWAIT 0\nPRINT 2", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n2\n");
+    end_vm_session(s);
+}
+
+TEST(test_waitkey_suspends_then_resumes_with_the_pressed_key_and_completes) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("MAKE \"k WAITKEY\nPRINT :k", &status);
+    expect_status(status, VM_RUN_SUSPENDED_WAITKEY, "initial run");
+    status = vm_resume_with_key(s.vm, s.app, &s.result->pool, s.chunk, "a");
+    expect_status(status, VM_RUN_HALTED, "resume");
+    expect_output("a\n");
+    end_vm_session(s);
+}
+
+TEST(test_waitkey_suspends_and_resumes_correctly_through_several_nested_procedure_calls) {
+    // The actual payoff of the VmFrame array: WAITKEY suspends 3 real
+    // procedure calls deep, and resuming has to correctly unwind back
+    // through all 3 OUTPUTs to reach PRINT -- vm/pool/chunk are kept
+    // fully intact across the suspend, so this just works.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO f :n\n"
+        "  IF :n = 0 [OUTPUT WAITKEY]\n"
+        "  OUTPUT f :n - 1\n"
+        "END\n"
+        "PRINT f 3", &status);
+    expect_status(status, VM_RUN_SUSPENDED_WAITKEY, "initial run");
+    status = vm_resume_with_key(s.vm, s.app, &s.result->pool, s.chunk, "z");
+    expect_status(status, VM_RUN_HALTED, "resume");
+    expect_output("z\n");
+    end_vm_session(s);
+}
+
+TEST(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_suspending) {
+    // The documented, deliberately-not-fixed gap: a MAP/FILTER/REDUCE/
+    // FOREACH template's own recursive vm_run call (see
+    // exec_map_compiled) can't correctly propagate a suspend out to
+    // this call's own caller, so OP_WAITKEY refuses outright (checked
+    // via vm->vm_run_depth) rather than silently losing the suspend or
+    // corrupting state -- the whole run still completes normally.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT MAP [WAITKEY] [1 2]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "WAITKEY: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+        failures++;
+        printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("FOREACH [WAIT 1] [1 2]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "WAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+        failures++;
+        printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -954,6 +1089,12 @@ int main(void) {
     RUN(test_map_with_a_malformed_literal_template_falls_back_to_the_dynamic_path);
     RUN(test_nested_reduce_inside_map_each_get_their_own_placeholder);
     RUN(test_map_template_placeholder_survives_a_recursive_call_in_its_own_body);
+    RUN(test_wait_suspends_with_the_right_duration_then_resumes_and_completes);
+    RUN(test_wait_with_a_non_positive_duration_never_suspends_at_all);
+    RUN(test_waitkey_suspends_then_resumes_with_the_pressed_key_and_completes);
+    RUN(test_waitkey_suspends_and_resumes_correctly_through_several_nested_procedure_calls);
+    RUN(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
+    RUN(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
 
     if (failures == 0) {
         printf("All tests passed.\n");

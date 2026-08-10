@@ -521,6 +521,32 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "ERASE", want_value);
         return;
     }
+    if (strcasecmp(name, "WAIT") == 0) {
+        // See vm.h's own VmRunResult/bytecode.h's OP_WAIT comments: WAIT
+        // never itself produces a value, just like MAKE/LOCAL/ERASE
+        // above, but unlike those, OP_WAIT can make vm_run *return*
+        // right here mid-chunk (a suspend) -- the OP_VOID_RESULT below
+        // is exactly the instruction vm_resume continues at once the
+        // wait is over, so it must stay immediately after OP_WAIT, not
+        // just conceptually paired with it.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        compile_expr(c, pool, args[0], chunk);
+        emit(chunk, (Instr){.op = OP_WAIT});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "WAIT", want_value);
+        return;
+    }
+    if (strcasecmp(name, "WAITKEY") == 0) {
+        // Unlike WAIT, WAITKEY does produce a value (the pressed key's
+        // name) -- but not from this opcode's own handler; see
+        // vm_resume_with_key. finish_call's own OP_CHECK_OUTPUT/OP_POP
+        // is exactly what vm_resume_with_key continues into after
+        // pushing that value, the same role OP_VOID_RESULT plays for
+        // WAIT above.
+        emit(chunk, (Instr){.op = OP_WAITKEY});
+        finish_call(chunk, "WAITKEY", want_value);
+        return;
+    }
     if (strcasecmp(name, "SEND") == 0) {
         // Unlike every other call form, SEND's own callee isn't known
         // until runtime (resolved through obj's prototype chain --

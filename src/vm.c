@@ -740,8 +740,9 @@ static void exec_foreach_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeC
     push(vm, num_val(0));
 }
 
-void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start_pc) {
+VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start_pc) {
     int pc = start_pc;
+    vm->vm_run_depth++;
     while (pc >= 0 && pc < chunk->count) {
         const Instr *instr = &chunk->code[pc];
         switch (instr->op) {
@@ -863,7 +864,8 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                 exec_return(vm, app, num_val(0), /*produced=*/0, &pc);
                 break;
             case OP_HALT:
-                return;
+                vm->vm_run_depth--;
+                return VM_RUN_HALTED;
             case OP_PUSH_LIST_LITERAL:
                 // See bytecode.h's own comment: the literal's contents
                 // stay in the AST, built fresh each visit exactly like
@@ -962,9 +964,51 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
                 exec_foreach_compiled(vm, app, pool, chunk, instr); // sets its own last_call_* fields, same as OP_VOID_RESULT
                 pc++;
                 break;
+            case OP_WAIT: {
+                double seconds = eval_to_number(pop(vm));
+                if (vm->vm_run_depth > 1) {
+                    append_output(app, "WAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    pc++;
+                    break;
+                }
+                if (seconds > 0) {
+                    vm->pc = pc + 1; // the OP_VOID_RESULT that compile_call always emits right after OP_WAIT
+                    vm->suspend_seconds = seconds;
+                    vm->vm_run_depth--;
+                    return VM_RUN_SUSPENDED_WAIT;
+                }
+                pc++;
+                break;
+            }
+            case OP_WAITKEY: {
+                if (vm->vm_run_depth > 1) {
+                    append_output(app, "WAITKEY: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    push(vm, word_val(""));
+                    vm->last_call_produced_output = 1;
+                    vm->last_call_resolved = 1;
+                    pc++;
+                    break;
+                }
+                vm->pc = pc + 1;
+                vm->vm_run_depth--;
+                return VM_RUN_SUSPENDED_WAITKEY;
+            }
             default:
                 pc++;
                 break;
         }
     }
+    vm->vm_run_depth--;
+    return VM_RUN_HALTED;
+}
+
+VmRunResult vm_resume(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk) {
+    return vm_run(vm, app, pool, chunk, vm->pc);
+}
+
+VmRunResult vm_resume_with_key(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *key_name) {
+    push(vm, word_val(key_name));
+    vm->last_call_produced_output = 1;
+    vm->last_call_resolved = 1;
+    return vm_run(vm, app, pool, chunk, vm->pc);
 }

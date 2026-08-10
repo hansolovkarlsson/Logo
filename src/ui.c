@@ -7,6 +7,10 @@
 
 #include "ui.h"
 #include "interpreter.h"
+#include "lexer.h"
+#include "parser.h"
+#include "compiler.h"
+#include "vm.h"
 #include <SDL2/SDL.h> // JOYSTICK?/JOYSTICKAXIS/JOYSTICKBUTTON?, TONE/PLAYSOUND/STOPSOUND -- see logo_types.h
 
 #include <ctype.h>
@@ -865,6 +869,123 @@ static gboolean history_recall(LogoApp *app, GtkTextBuffer *buffer, int directio
     return TRUE;
 }
 
+// --- Bytecode VM execution (see docs/BYTECODE_VM_DESIGN.md's
+// suspend/resume design) ---
+//
+// bin/logo runs scripts through the Stage 2 compiler+VM now, not
+// eval_logo directly -- eval_logo itself is untouched and still used
+// by tests/test_interpreter.c, just no longer this app's own execution
+// path. The one thing eval_logo's own busy-wait loops did that a
+// single vm_run call can't by itself is WAIT/WAITKEY's real suspend:
+// vm_run returns early, mid-script, and this file is what actually
+// waits (a real GLib timer, or the next keypress) before resuming it,
+// instead of blocking here the way eval_logo used to.
+
+// The most tokens a single REPL submission or LOADed file may lex into
+// -- matches eval.c's own MAX_LOAD_TOKENS (LOAD can pull in a whole
+// file, not just one typed line).
+#define UI_SCRIPT_MAX_TOKENS 8192
+
+// A script paused on VM_RUN_SUSPENDED_WAIT/VM_RUN_SUSPENDED_WAITKEY:
+// kept alive across however many GTK callbacks it takes to resume (a
+// timer firing, a keypress arriving), instead of the single
+// call-scoped locals every other vm_run caller (tests/test_vm.c) uses.
+// This app only ever runs one script "thread" in one window, so a
+// single file-scope pointer -- not anything owned by LogoApp itself --
+// is enough: only ui.c ever drives resumption, the same reasoning
+// request_redraw's own callback-pointer seam already established for
+// interpreter.c reaching back into this file.
+typedef struct {
+    ParseResult *result;
+    BytecodeChunk *chunk;
+    Vm *vm;
+} SuspendedRun;
+
+static SuspendedRun *g_suspended_run = NULL;
+
+static void free_suspended_run(SuspendedRun *run) {
+    free(run->vm);
+    free(run->chunk);
+    parse_result_destroy(run->result);
+    free(run);
+}
+
+static gboolean on_wait_timeout(gpointer user_data);
+
+// Common tail for run_logo_script/on_wait_timeout/on_entry_key_pressed's
+// own WAITKEY-resume branch: acts on whatever vm_run/vm_resume* just
+// returned, either finishing up (freeing `run`) or arranging the next
+// resume. Redrawing unconditionally here (not just on completion)
+// matters: a script can move the turtle before hitting a suspend
+// point, and the old busy-wait design's own mid-wait redraws (via
+// request_redraw) mean users already expect to see that motion right
+// away, not only once the whole script finally finishes.
+static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result) {
+    gtk_widget_queue_draw(app->drawing_area);
+    switch (result) {
+        case VM_RUN_HALTED:
+            free_suspended_run(run);
+            break;
+        case VM_RUN_SUSPENDED_WAIT:
+            g_suspended_run = run;
+            g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
+            break;
+        case VM_RUN_SUSPENDED_WAITKEY:
+            g_suspended_run = run;
+            app->waiting_for_key = TRUE;
+            if (app->request_redraw != NULL) app->request_redraw(app);
+            break;
+    }
+}
+
+// Fires once, exactly as long after WAIT suspended as it asked for --
+// a real GLib timer source, not eval_logo's own g_usleep spin.
+static gboolean on_wait_timeout(gpointer user_data) {
+    LogoApp *app = (LogoApp *)user_data;
+    SuspendedRun *run = g_suspended_run;
+    g_suspended_run = NULL;
+    VmRunResult result = vm_resume(run->vm, app, &run->result->pool, run->chunk);
+    handle_vm_result(app, run, result);
+    return G_SOURCE_REMOVE; // one-shot; a further WAIT gets its own new timer via handle_vm_result
+}
+
+// Lexes/parses/compiles `source` and runs it through the VM -- the
+// REPL/LOAD entry point eval_logo(app, text) used to be. A script that
+// never hits WAIT/WAITKEY just runs to completion here, same as
+// before; one that does returns immediately (control genuinely goes
+// back to GTK's own main loop, not a busy-wait) with the paused run
+// stashed in g_suspended_run.
+static void run_logo_script(LogoApp *app, const char *source) {
+    LogoToken tokens[UI_SCRIPT_MAX_TOKENS];
+    int n = logo_lex(source, tokens, UI_SCRIPT_MAX_TOKENS);
+    if (n < 0) {
+        append_output(app, "Error: script is too large to parse\n");
+        return;
+    }
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    if (result->error_count > 0) {
+        for (int i = 0; i < result->error_count; i++) {
+            char line[320];
+            snprintf(line, sizeof(line), "%d:%d: %s\n", result->errors[i].line, result->errors[i].col, result->errors[i].message);
+            append_output(app, line);
+        }
+        parse_result_destroy(result);
+        return;
+    }
+
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+
+    SuspendedRun *run = calloc(1, sizeof(SuspendedRun));
+    run->result = result;
+    run->chunk = chunk;
+    run->vm = vm;
+    handle_vm_result(app, run, status);
+}
+
 // Handles Enter/Shift+Enter and Up/Down history recall in the command
 // entry. Enter runs the accumulated text once it's syntactically complete
 // (is_input_complete); otherwise lets GTK insert a newline so the box
@@ -878,15 +999,20 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
 
     LogoApp *app = (LogoApp *)user_data;
 
-    // WAITKEY is busy-waiting (see interpreter.c) for exactly this: the
-    // *next* keypress, whatever it is -- captured here instead of its
-    // normal handling (Return submitting, Up/Down navigating history,
-    // an ordinary key being typed), consumed so none of that also
-    // happens.
+    // WAITKEY suspended the VM waiting for exactly this: the *next*
+    // keypress, whatever it is -- captured here instead of its normal
+    // handling (Return submitting, Up/Down navigating history, an
+    // ordinary key being typed), consumed so none of that also
+    // happens. (eval_logo's own busy-wait still uses key_ready/
+    // pending_key -- see interpreter.c -- but bin/logo no longer calls
+    // eval_logo, so this branch only ever has a VM run to resume.)
     if (app->waiting_for_key) {
+        app->waiting_for_key = FALSE;
         const char *name = gdk_keyval_name(keyval);
-        snprintf(app->pending_key, sizeof(app->pending_key), "%s", name != NULL ? name : "");
-        app->key_ready = TRUE;
+        SuspendedRun *run = g_suspended_run;
+        g_suspended_run = NULL;
+        VmRunResult result = vm_resume_with_key(run->vm, app, &run->result->pool, run->chunk, name != NULL ? name : "");
+        handle_vm_result(app, run, result);
         return TRUE;
     }
 
@@ -950,8 +1076,7 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
 
         history_push(app, text);
 
-        eval_logo(app, text);
-        gtk_widget_queue_draw(app->drawing_area);
+        run_logo_script(app, text);
     }
 
     gtk_text_buffer_set_text(buffer, "", -1);
@@ -996,8 +1121,7 @@ static void on_file_open_response(GObject *source, GAsyncResult *result, gpointe
         append_output(app, "\n");
         g_free(path);
 
-        eval_logo(app, contents);
-        gtk_widget_queue_draw(app->drawing_area);
+        run_logo_script(app, contents);
         g_free(contents);
     } else {
         append_output(app, "Could not read file\n");

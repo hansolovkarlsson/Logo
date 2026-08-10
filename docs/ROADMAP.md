@@ -476,12 +476,111 @@ instruction-set/frame-layout detail behind each of these.
   stack-overflow in `test_recursion_depth_cap_reports_error_not_a_crash`,
   confirmed to reproduce identically on the pre-batch codebase too, so
   not a regression from this work); all 6 `make test` suites pass.
-- [ ] Suspend/resume's actual GTK integration — the real point of this
-  whole stage, deliberately last: a VM-internal detail alone doesn't
-  deliver it. Needs its own design for how the VM's "run until suspend
-  point or completion" loop hooks into `ui.c`'s event loop — a keypress
-  triggering resume for `WAITKEY`/`INPUT`, a timer for `WAIT`/`PAUSE` —
-  not assumed to fall out of the frame-array mechanism for free.
+- [x] **Suspend/resume's actual GTK integration** (2026-08-10) — the
+  real point of this whole stage, scoped narrow on purpose: `WAIT`/
+  `WAITKEY` only (real suspend triggers via a timer and a keypress,
+  respectively, the two structurally different cases), with `INPUT`/
+  `PAUSE`/`ANIMATESPRITE` left for later incremental batches, same
+  "grow coverage one group at a time" pattern as every other Stage 2
+  batch. `bin/logo` itself now runs scripts through the compiler+VM,
+  not `eval_logo` — the first real cutover; `eval_logo` stays in the
+  tree, still used by `tests/test_interpreter.c`, just no longer this
+  app's own execution path.
+  **Scoping surfaced two things the checklist's own wording had
+  undersold, confirmed by grep, not assumed**: `WAIT`/`WAITKEY`/
+  `INPUT`/`PAUSE`/`ANIMATESPRITE` existed *only* in `eval_logo` before
+  this batch (a deliberate prior decision, see above — porting a
+  busy-wait shim into `ast_eval` first would have been throwaway), and
+  `vm_run` had *never* been called from `ui.c` at all — `bin/logo` ran
+  exclusively on `eval_logo` until this batch. So this was never just
+  "wire an already-integrated VM into GTK"; it was building the
+  suspend mechanism, porting two commands into the new pipeline, and
+  cutting the live app over, together.
+  **The mechanism** (`vm.h`/`vm.c`): `vm_run`'s return type changed
+  from `void` to a new `VmRunResult` (`VM_RUN_HALTED`/
+  `VM_RUN_SUSPENDED_WAIT`/`VM_RUN_SUSPENDED_WAITKEY`). Two new opcodes,
+  `OP_WAIT`/`OP_WAITKEY` (`bytecode.h`) — `OP_WAIT` pops its own
+  already-evaluated seconds argument and, if positive, stores it in a
+  new `Vm.suspend_seconds` and *returns* `VM_RUN_SUSPENDED_WAIT`
+  mid-chunk instead of running to `OP_HALT`; `OP_WAITKEY` returns
+  `VM_RUN_SUSPENDED_WAITKEY` unconditionally. A new `Vm.pc` field
+  (distinct from every other opcode's plain C-local `pc`, which can't
+  survive a `return`) records exactly where to continue. Two new entry
+  points, `vm_resume`/`vm_resume_with_key`, restart `vm_run` from
+  `vm->pc` — the latter pushing the pressed key's name first, exactly
+  the value `OP_WAITKEY`'s own handler would have pushed had it not
+  suspended, so the immediately-following `OP_CHECK_OUTPUT`/`OP_POP`
+  (whichever `finish_call` emitted) sees the same shape either way.
+  Deliberately **not** a GTK-aware design: `vm.c` never touches a
+  clock or an event loop itself — it just reports "suspended, here's
+  why, here's the payload" (a `double` for `WAIT`, nothing for
+  `WAITKEY`), leaving *how* to actually wait entirely to whichever
+  GTK-aware caller is driving it (`ui.c`), the same seam discipline
+  `request_redraw` already established for `interpreter.c` reaching
+  back into GTK. Because a suspended `Vm`'s `stack[]`/`frames[]`/
+  `frame_count` are left fully intact (nothing freed, nothing
+  truncated), resuming correctly unwinds back through however many
+  *ordinary* nested procedure calls (`VmFrame`-based) were in progress
+  when the suspend happened — the actual payoff of the frame-array
+  design, confirmed directly by a test suspending 3 real procedure
+  calls deep and resuming back out through all 3 `OUTPUT`s correctly,
+  not just asserted.
+  **The one deliberately-NOT-fixed gap, by design decision, not
+  oversight**: `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates already
+  recurse into `vm_run` via plain C recursion (see the batch above,
+  `exec_map_compiled` and friends) — a `SUSPENDED` return from that
+  *inner*, recursive `vm_run` call would only unwind that one C frame,
+  landing back in `exec_map_compiled`'s own C loop, not out to
+  whatever's driving the *outermost* `vm_run` (`ui.c`), silently
+  losing the suspend rather than delivering it. Rather than redesign
+  templates off C recursion first (a real, separate refactor of
+  already-shipped, tested code), a new `Vm.vm_run_depth` counter
+  (incremented/decremented at every `vm_run` entry/exit) lets
+  `OP_WAIT`/`OP_WAITKEY` detect "I'm inside a template body" and
+  refuse outright with a clear runtime message instead of attempting
+  a suspend that can't actually propagate — the same "documented gap,
+  not silent corruption" spirit as the template batch's own
+  `frame_floor` mitigation for `OUTPUT`/`STOP`-inside-a-template.
+  **`ui.c` wiring**: a new `run_logo_script` replaces both of the
+  app's own former `eval_logo(app, text)` call sites (the REPL's
+  Enter-submit and `LOAD`'s file-open completion) — lex/parse/compile/
+  `vm_run`, then a shared `handle_vm_result` acts on the returned
+  status. A file-scope `SuspendedRun{result, chunk, vm}` (not
+  anything owned by `LogoApp` itself — only `ui.c` ever drives
+  resumption, one script "thread" at a time) keeps a paused run alive
+  across however many GTK callbacks it takes to resume. `WAIT` gets a
+  real one-shot `g_timeout_add` (not `eval_logo`'s own `g_usleep`
+  spin); `WAITKEY` reuses the existing `waiting_for_key` gate in
+  `on_entry_key_pressed`, but instead of setting a `key_ready` flag for
+  a busy-wait loop to notice, the handler calls `vm_resume_with_key`
+  directly the moment a key arrives — real event-driven resume, not
+  polling. `eval_logo`'s own `key_ready`/`pending_key`/`waiting_for_input`
+  busy-wait fields are untouched and still used by `eval_logo` itself
+  (`tests/test_interpreter.c`'s own coverage), just no longer read by
+  `ui.c`'s live wiring.
+  **Testing**: can't shadow-diff against `ast_eval` the way every
+  other Stage 2 batch's tests do — that engine has no suspend concept
+  at all, and `WAIT`/`WAITKEY` don't even exist there. 6 new
+  `tests/test_vm.c` cases call `vm_run`/`vm_resume`/`vm_resume_with_key`
+  directly instead, asserting on the returned `VmRunResult` and
+  captured output — entirely headless, no GTK needed, which is exactly
+  the payoff of keeping `vm.c` itself GTK-free: `WAIT` suspending with
+  the right duration then resuming to completion, `WAIT 0` never
+  suspending at all (matches `interpreter.c`'s own `seconds > 0`
+  guard), `WAITKEY` suspending then resuming with a supplied key,
+  `WAITKEY` suspending and resuming correctly through 3 nested real
+  procedure calls, and `WAITKEY`/`WAIT` used directly inside a `MAP`/
+  `FOREACH` template reporting the documented refusal instead of
+  hanging or corrupting state. Confirmed clean under AddressSanitizer
+  (aside from the same pre-existing, unrelated
+  `test_recursion_depth_cap_reports_error_not_a_crash` stack-overflow
+  noted in the batch above); all 6 `make test` suites pass; `bin/logo`
+  builds warning-free and was confirmed to launch and run without
+  crashing. The actual interactive click-test (typing `WAIT 2`/
+  `WAITKEY` into the running app, confirming the window stays
+  responsive during the wait) needs a human — this environment has no
+  Accessibility permission for scripted GTK UI control, and full-screen
+  automation isn't an appropriate substitute.
 
 ## Robustness
 

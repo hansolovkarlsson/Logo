@@ -111,6 +111,21 @@ typedef enum {
     OP_FILTER_COMPILED,  // keeps each element whose template (a condition) is truthy, copied as-is, into a new list; pushes it
     OP_REDUCE_COMPILED,  // folds left-to-right (".text" is the accumulator's own name; ".text" with "2" appended is the current element's) via the template (an expression); pushes the final accumulator, or num_val(0) if the list was empty
     OP_FOREACH_COMPILED, // runs the template (a statement block) once per element for side effects only, stopping early on OUTPUT/STOP/THROW exactly like do_foreach; pushes num_val(0) (void, matching do_foreach)
+
+    // WAIT/WAITKEY -- the first real suspend points this VM has (see
+    // docs/BYTECODE_VM_DESIGN.md's suspend/resume design). Unlike every
+    // opcode above, these can make vm_run *return early*, mid-chunk,
+    // handing control back to whatever's driving it (ui.c's GTK event
+    // loop) instead of running to OP_HALT/completion -- vm_run's own
+    // return type reflects this (see vm.h's VmRunResult). Both pop
+    // nothing themselves at the point they suspend except what their
+    // own argument-compiling already pushed (OP_WAIT's lone numeric
+    // arg, popped by its own handler before it decides whether to
+    // suspend at all); the *value* a suspended call eventually produces
+    // (or doesn't) is supplied by whichever vm_resume* function resumes
+    // it, not by this opcode's own handler.
+    OP_WAIT,    // pops the already-evaluated seconds argument; if > 0, suspends (VM_RUN_SUSPENDED_WAIT, vm->suspend_seconds set) with vm->pc pointing at the OP_VOID_RESULT that always immediately follows (WAIT never itself produces a value); if <= 0, falls through to it immediately, same as interpreter.c's own `if (seconds > 0)` guard
+    OP_WAITKEY, // suspends unconditionally (VM_RUN_SUSPENDED_WAITKEY); the resuming vm_resume_with_key call pushes the pressed key's name as the value this instruction itself would otherwise have pushed, then continues at vm->pc
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,
