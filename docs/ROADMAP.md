@@ -613,6 +613,43 @@ instruction-set/frame-layout detail behind each of these.
   version relies on reentrant nested `eval_logo` calls (an ordinary
   REPL command typed while paused) rather than a single suspend/resume
   point, and has no VM-level design sketched yet.
+  **A real concurrency bug in the suspend mechanism itself, found while
+  scoping `ANIMATESPRITE` (2026-08-10), fixed before going further**:
+  unlike `WAITKEY`/`INPUT`, `WAIT` suspends with neither
+  `waiting_for_key` nor `waiting_for_input` set, so nothing stopped
+  `ui.c`'s ordinary Enter-submit path (or `LOAD`) from starting a
+  *second* script while the first was still counting down — the new
+  run would silently overwrite the single `g_suspended_run` slot the
+  first script's own eventual timer callback depends on, so that timer
+  would go on to resume the wrong `Vm` (or dereference a freed one) once
+  it fired. Fixed by moving the check into `run_logo_script` itself
+  (the single entry point both call sites already share): if
+  `g_suspended_run != NULL`, print `"A script is still running --
+  please wait for it to finish"` and refuse the new submission outright
+  rather than racing it against the first — matches how `WAITKEY`/
+  `INPUT` already behave (one script "thread" at a time), just closing
+  the one case (`WAIT`) that had no dedicated gating flag to piggyback
+  on. Confirmed via `make test`/ASan (unaffected — `ui.c` isn't part of
+  either) and a clean `bin/logo`/`bin/logi` build; the interactive
+  repro itself (start a `WAIT`, try to submit another command before it
+  finishes, confirm it's rejected and the original still resumes
+  correctly) needs the user to confirm directly, same reason as every
+  other interactive check in this stage.
+- [ ] `ANIMATESPRITE` — **blocked, not skipped by oversight**: scoping
+  it (2026-08-10) found it operates on `Turtle.sprite_index`, which
+  only `SETSPRITE` ever sets away from its default `-1` — and
+  `SETSPRITE`/`LOADSPRITE`/`STAMPSPRITE`/`SETSPRITEFRAME` don't exist
+  anywhere in `parser.c`/`eval.c` at all (sprites were deliberately out
+  of Stage 1's own scope entirely, grouped with sound/`WINDOW` as "a
+  large GTK/SDL-state surface disproportionate to a research
+  evaluator's needs"). So `ANIMATESPRITE` can't do anything real
+  through this pipeline yet regardless of its own suspend/resume
+  design — it would always hit the `"no sprite set"` error path, since
+  nothing can set a sprite first. Porting the whole sprite subsystem
+  first would be its own separate, larger scoping question, not a
+  quick add-on to this batch; the user chose to leave it blocked rather
+  than take that on now. `PAUSE` remains the only actual open
+  suspend/resume item.
 
 ## Robustness
 

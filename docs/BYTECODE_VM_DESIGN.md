@@ -14,8 +14,9 @@ landed too — see the Progress log below. Suspend/resume's own GTK
 integration (the real point of this whole stage) landed 2026-08-10,
 scoped to `WAIT`/`WAITKEY` then `INPUT`; `bin/logo` now runs scripts
 through the compiler+VM instead of `eval_logo`, the first real cutover
-of the live app. `PAUSE`/`ANIMATESPRITE` remain as smaller follow-up
-batches to that same mechanism.
+of the live app. `ANIMATESPRITE` turned out to be blocked on a whole
+separate, not-yet-started sprite subsystem, so `PAUSE` is now the only
+actual open suspend/resume item.
 
 ## Why
 
@@ -2181,11 +2182,34 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   busy-wait loop. 2 new headless `tests/test_vm.c` cases, ASan-clean,
   all 6 `make test` suites pass, `bin/logo` builds warning-free and
   runs without crashing.
-  - **Next**: `PAUSE`/`ANIMATESPRITE` remain as smaller, optional
-    follow-up batches to this same suspend/resume mechanism (`PAUSE` is
-    the harder of the two — its reentrant nested-command semantics,
-    where an ordinary REPL command typed while paused can see the
-    paused call's own live scope, have no VM-level design yet). The
-    still-open `WHILE`/`FOR` iteration-cap gap and the
-    `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,
-    optional follow-ups too, or whatever the user picks next.
+- **A real concurrency bug in the suspend mechanism, found and fixed
+  while scoping `ANIMATESPRITE`** (2026-08-10): `WAIT` suspends with
+  neither `waiting_for_key` nor `waiting_for_input` set (unlike
+  `WAITKEY`/`INPUT`), so `ui.c`'s ordinary Enter-submit/`LOAD` paths had
+  no way to know a script was already suspended — a second submission
+  would silently overwrite the single `g_suspended_run` slot the first
+  script's own eventual timer callback depends on, resuming the wrong
+  `Vm` (or a freed one) once it fired. Fixed by checking
+  `g_suspended_run != NULL` at the top of `run_logo_script` itself (the
+  one entry point both call sites share) and refusing a concurrent
+  submission with a short message instead — this app only ever runs one
+  script "thread" at a time, matching how `WAITKEY`/`INPUT` already
+  behaved, just closing the one gap that had no dedicated flag to
+  piggyback on.
+- **`ANIMATESPRITE` scoped, found blocked, not implemented** (same
+  day): it operates on `Turtle.sprite_index`, which only `SETSPRITE`
+  ever sets away from `-1` — and `SETSPRITE`/`LOADSPRITE`/
+  `STAMPSPRITE`/`SETSPRITEFRAME` don't exist anywhere in `parser.c`/
+  `eval.c` at all (sprites were deliberately out of Stage 1's own scope
+  from the start). So `ANIMATESPRITE` can't reach any real behavior
+  through this pipeline yet regardless of its own suspend design — it
+  would always hit the `"no sprite set"` path. Porting the whole sprite
+  subsystem first is its own separate, larger scoping question; left
+  blocked rather than taken on as part of this batch, at the user's own
+  call.
+  - **Next**: `PAUSE` is the only actual open suspend/resume item left
+    — its reentrant nested-command semantics (an ordinary REPL command
+    typed while paused can see the paused call's own live scope) have
+    no VM-level design yet. The still-open `WHILE`/`FOR` iteration-cap
+    gap and the `OUTPUT`/`STOP`-inside-a-template limitation remain
+    smaller, optional follow-ups too, or whatever the user picks next.

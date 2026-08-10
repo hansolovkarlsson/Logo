@@ -962,6 +962,20 @@ static gboolean on_wait_timeout(gpointer user_data) {
 // back to GTK's own main loop, not a busy-wait) with the paused run
 // stashed in g_suspended_run.
 static void run_logo_script(LogoApp *app, const char *source) {
+    // Only one script "thread" at a time -- g_suspended_run is a single
+    // slot, not a queue/stack. WAITKEY/INPUT already can't reach here
+    // while suspended (on_entry_key_pressed's own waiting_for_key/
+    // waiting_for_input branches intercept Enter first and never fall
+    // through to this call site), but WAIT (and ANIMATESPRITE, once it
+    // lands) suspend with neither flag set, so without this check a
+    // second concurrent run_logo_script call here would silently
+    // overwrite g_suspended_run out from under the first one -- its
+    // eventual timer callback would then resume the wrong script (or
+    // dereference a freed one), a real bug, not a hypothetical one.
+    if (g_suspended_run != NULL) {
+        append_output(app, "A script is still running -- please wait for it to finish\n");
+        return;
+    }
     LogoToken tokens[UI_SCRIPT_MAX_TOKENS];
     int n = logo_lex(source, tokens, UI_SCRIPT_MAX_TOKENS);
     if (n < 0) {
