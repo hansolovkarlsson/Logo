@@ -258,12 +258,66 @@ instruction-set/frame-layout detail behind each of these.
     (unknown message, data property, missing `:self`, wrong arg
     count), and a cyclic prototype chain staying bounded. All passed
     on the first run; confirmed clean under AddressSanitizer.
-- [ ] `THROW`/`CATCH` as a real unwind mechanism, not just another
-  opcode — non-local exit to an arbitrary ancestor frame needs its own
-  design (an explicit unwind-target stack the VM consults), flagged
-  separately since it's one of the two genuinely hard pieces (with
-  suspend/resume itself) rather than a mechanical port like most of the
-  rest of this list.
+- [x] **`THROW`/`CATCH`** (2026-08-09) — turned out to need less new
+  machinery than the checklist's own original framing ("an explicit
+  unwind-target stack the VM consults") anticipated, once the
+  tree-walker's own mechanism was actually re-read: `ast_eval` itself
+  doesn't use real stack unwinding either — `THROW` just sets a shared
+  `app->throw_requested`/`throw_tag` flag, and every loop/block
+  construct (`exec_block`, `do_while`, ...) cooperatively checks it
+  after each statement/iteration and breaks early, letting it cascade
+  up through however many nested C calls are on the stack. `STOP`/
+  `OUTPUT` already work identically in `ast_eval` (both just set
+  `stop_requested`, checked the same way) — this VM's own `OP_STOP`/
+  `OP_OUTPUT` already handle that case correctly via a *direct* frame
+  pop + `pc` jump (a more direct implementation of the same semantics,
+  not a different one), so only `THROW`'s own multi-frame cooperative
+  propagation needed new work. Reimplemented as compile-time-inserted
+  forward jumps standing in for the tree-walker's own recursive
+  breaks: `compile_block` now emits a new `OP_CHECK_THROW` after
+  *every* statement (not just loop iterations), patched to jump to
+  that block's own end — composing correctly across nested blocks,
+  `WHILE`'s own loop (one extra check before its loop-back jump, since
+  `OP_STOP` can never fall through to it but `THROW` can), and a
+  procedure body's already-existing auto-appended `OP_STOP` (which
+  turns out to double as the correct "throw propagated to the end of
+  this procedure, return now" landing pad, with no extra code needed).
+  A new `OP_CATCH_CHECK` (after `CATCH`'s own block, itself compiled
+  with the same per-statement checks) absorbs a matching throw exactly
+  like `do_catch`; a new `OP_CHECK_UNCAUGHT_THROW`, used only for
+  `compile_program`'s own top-level statements (via a new
+  `compile_block` parameter, `is_top_level`), reports `"THROW: no
+  CATCH found for ..."` and *keeps running* the rest of the script,
+  mirroring `ast_eval_from`'s own top-level recovery loop exactly
+  (unlike a nested block, which skips to its own end instead).
+  **A real bug caught by the test corpus, not guessed**: `CATCH`'s own
+  evaluated tag was first stashed in a `Vm`-level scratch field
+  (`vm->pending_catch_tag`) between evaluating it and checking it —
+  broke immediately on *nested* `CATCH` (an inner `CATCH`'s own tag
+  overwrote the outer one's before the outer ever got to check it).
+  Fixed by leaving the tag value on the VM's own value stack instead
+  (which naturally supports nesting via ordinary push/pop) and popping
+  it only once, right when `OP_CATCH_CHECK` actually needs it — no
+  scratch field at all. `THROW` itself needed no new opcode (an
+  ordinary `OP_CALL_BUILTIN`, sharing a newly exposed
+  `eval_throw_value` with `do_throw`); `eval_catch_check`/
+  `eval_report_uncaught_throw` are similarly shared with
+  `do_catch`/`ast_eval_from` rather than duplicated. 9 new
+  `tests/test_vm.c` cases (3 ported from `test_eval.c`'s own corpus,
+  6 new — specifically targeting cross-frame/cross-construct
+  propagation the existing tree-walker corpus didn't happen to
+  exercise: a throw through two nested procedure calls, breaking a
+  `WHILE` loop early, an `IF` branch, nested `CATCH` with a
+  non-matching inner tag, and a procedure that throws in expression
+  position — confirming the "didn't output a value" diagnostic and the
+  uncaught-throw report both fire, in the right order). **Not part of
+  this batch, a known pre-existing gap surfaced while working on
+  it, not introduced by it**: `REPEAT`/`FOREVER`/`FOR` were never
+  ported to this VM at all (no special form recognizes their own
+  `ARG_BLOCK` argument shape yet), so they don't participate in this
+  cooperative-unwind mechanism either — only `WHILE` (already ported)
+  does. All 9 new cases passed on the first run after the nested-CATCH
+  fix; confirmed clean under AddressSanitizer.
 - [ ] `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates compiled once instead
   of re-lexed/re-parsed per element (today's real cost, in both
   `eval_logo` and Stage 1's own `ast_eval`) — a genuine semantic

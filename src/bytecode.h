@@ -63,6 +63,21 @@ typedef enum {
 
     OP_SEND,               // pop 3 (obj, message, arglist, in that order); resolves `message` through obj's prototype chain at RUNTIME (unlike every other call, the callee isn't known at compile time -- see vm.c's own exec_send), pushing a VM frame + jumping into the resolved procedure's own compiled body on success, or word_val("") with vm's own last_call_resolved cleared on any of SEND's own resolution/arity failures (each already prints its own specific message, mirroring do_send exactly -- never falls through to OP_CHECK_SEND_OUTPUT's generic one). No operands of its own: all 3 arguments were already compiled as ordinary expressions and are just popped.
     OP_CHECK_SEND_OUTPUT,  // only ever emitted right after OP_SEND used in expression position -- same job as OP_CHECK_OUTPUT, but reads the message name to report from vm->last_send_message (a runtime value OP_SEND itself just resolved) rather than from a compile-time .text field, since compile_call can't know SEND's own callee name ahead of time the way it can for an ordinary call
+
+    // THROW/CATCH's own cooperative unwind (see vm.c's own file comment
+    // and compiler.c's own compile_block for the full mechanism): THROW
+    // itself is an ordinary OP_CALL_BUILTIN (just sets
+    // app->throw_requested/throw_tag, exactly like do_throw -- no
+    // opcode of its own needed). Every OTHER opcode below exists only
+    // to propagate that flag correctly once set, mirroring
+    // ast_eval's own exec_block/do_while's cooperative
+    // "if (stop_requested || throw_requested) break" checks --
+    // reimplemented here as compile-time-inserted forward jumps instead
+    // of a runtime recursive break, since this VM has no C call stack
+    // to unwind through the way the tree-walker does.
+    OP_CHECK_THROW,          // .a = jump target; if app->throw_requested, jump there (skipping every remaining statement in the CURRENT block only -- compile_block emits this after every statement, patching .a to that block's own end) -- otherwise fall through to the next instruction as normal. No stack effect.
+    OP_CATCH_CHECK,          // pop 1 (the tag expression's own value, pushed by compile_call's own CATCH branch BEFORE compiling the block -- left sitting on the value stack, untouched, for the block's own entire duration, since compile_block is always stack-neutral overall; NOT stashed in a VM-level scratch field, since CATCH can nest and a nested CATCH's own tag would clobber an outer one's there); converts it to text and, if app->throw_requested and its own tag matches (case-insensitively, mirroring do_catch exactly), clears app->throw_requested -- absorbing the throw right here. A non-matching or absent throw is left completely untouched, so it keeps propagating via the OP_CHECK_THROW checks in whatever block encloses this CATCH statement. No jump of its own (CATCH's own block already handled its own internal propagation via its own OP_CHECK_THROW instructions before this ever runs).
+    OP_CHECK_UNCAUGHT_THROW, // top-level-only (see compile_program's own top-level compilation, which uses this instead of OP_CHECK_THROW after each top-level statement): if app->throw_requested, reports "THROW: no CATCH found for <tag>" and clears the flag -- mirroring ast_eval_from's own per-top-level-statement recovery exactly, including that execution then CONTINUES to the next top-level statement rather than skipping the rest of the script (unlike an ordinary nested block, which skips to its own end on an uncaught throw). Always falls through; never jumps.
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,

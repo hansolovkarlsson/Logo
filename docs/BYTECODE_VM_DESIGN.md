@@ -1687,3 +1687,123 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
     genuinely hard piece, alongside suspend/resume) or `MAP`/`FILTER`/
     `REDUCE`/`FOREACH` templates are the remaining named items, or
     whatever the user picks next.
+- **`THROW`/`CATCH`: done** (fifth batch off Stage 2's own checklist,
+  2026-08-09, user said "do next -- THROW/CATCH"). Flagged from the
+  start as one of the two genuinely hard pieces, alongside suspend/
+  resume -- turned out easier than the checklist's own original framing
+  ("an explicit unwind-target stack the VM consults") anticipated, once
+  `ast_eval`'s *actual* mechanism was re-read rather than assumed: it
+  doesn't do real stack unwinding either. `THROW` just sets a shared
+  `app->throw_requested`/`throw_tag` flag; every loop/block construct
+  (`exec_block`, `do_while`, ...) cooperatively checks it after each
+  statement/iteration and breaks its own per-statement loop early,
+  letting the flag cascade up through however many nested C calls
+  happen to be on the stack at that moment -- no `longjmp`, no explicit
+  unwind targets, nothing exotic. `STOP`/`OUTPUT` already work
+  identically in `ast_eval` (both just set `stop_requested`, checked
+  the exact same way) -- and this VM's own `OP_STOP`/`OP_OUTPUT`
+  already handle that case correctly, via a direct frame-pop + `pc`
+  jump (confirmed to be a more *direct* implementation of the identical
+  semantics, not a different one, since it can never "fall through" to
+  a later instruction the way a cooperative check would need to) -- so
+  only `THROW`'s own genuinely-multi-frame cooperative propagation
+  needed new design work at all.
+  - **The mechanism: compile-time-inserted forward jumps standing in
+    for the tree-walker's own recursive breaks.** `compile_block` now
+    emits a new `OP_CHECK_THROW` after *every* statement (not just
+    loop iterations) -- `.a` patched, once the whole block is compiled,
+    to jump to that block's own true end if `app->throw_requested`.
+    This composes correctly across every level purely as a consequence
+    of how blocks nest, with zero bespoke "how many frames do I unwind"
+    logic anywhere: a nested block's own checks skip to *its* end;
+    `WHILE`'s own compiled loop gained one extra `OP_CHECK_THROW`
+    (before its loop-back `OP_JUMP`, since `OP_STOP` can never reach
+    that point but `THROW` can) so a still-propagating throw skips the
+    next iteration's condition re-check entirely, landing exactly where
+    a false condition would; and a procedure body's own already-
+    existing auto-appended `OP_STOP` (there since the vertical slice,
+    for "fell off the end without OUTPUT") turned out to double
+    *exactly* as the correct "throw propagated all the way to the end
+    of this procedure, now actually return" landing pad -- no new code
+    needed there at all, just the pre-existing instruction correctly
+    being where an unresolved throw's own forward-jump chain naturally
+    ends up.
+  - **`CATCH` needed no jump logic of its own**: `OP_CATCH_CHECK`, run
+    unconditionally right after `CATCH`'s own block (itself compiled
+    with the same per-statement `OP_CHECK_THROW`s as any other block),
+    just mirrors `do_catch` -- if `app->throw_requested` and the tag
+    matches, clear it (absorbing the throw here); otherwise leave it
+    completely alone, so the *enclosing* block's own next
+    `OP_CHECK_THROW` (for the statement containing this `CATCH`) sees
+    it still set and keeps propagating. `compile_program`'s own
+    top-level statements get a different treatment via a new
+    `compile_block` parameter (`is_top_level`): `OP_CHECK_UNCAUGHT_THROW`
+    instead of `OP_CHECK_THROW` -- reports `"THROW: no CATCH found for
+    ..."` and *keeps running the rest of the script*, mirroring
+    `ast_eval_from`'s own top-level recovery loop exactly (never a
+    jump, unlike every nested block's own skip-to-end).
+  - **A real bug the test corpus caught, not guessed**: the very first
+    design used a single `Vm`-level scratch field
+    (`vm->pending_catch_tag`) to carry `CATCH`'s own evaluated tag
+    between "evaluate it" (before the block) and "check it" (after) --
+    broke immediately on a *nested* `CATCH`, where the inner `CATCH`'s
+    own tag silently overwrote the outer one's before the outer ever
+    got to check it (`test_nested_catch_with_non_matching_inner_tag_
+    propagates_to_outer` failed with an extra, wrong "no CATCH found"
+    message). Fixed by leaving the tag value on the VM's own value
+    stack instead of a scratch field at all -- the stack already
+    supports nesting correctly via ordinary push/pop, and
+    `compile_block` is always stack-neutral overall (every statement's
+    own `finish_call` nets to zero), so the tag value sits exactly
+    where it was pushed, completely undisturbed by whatever the block
+    itself does, until `OP_CATCH_CHECK` finally pops it.
+  - `THROW` itself needed no new opcode at all -- an ordinary
+    `OP_CALL_BUILTIN`, sharing a newly exposed `eval_throw_value` with
+    `do_throw` (same pattern as the two previous batches).
+    `eval_catch_check`/`eval_report_uncaught_throw` are similarly
+    shared with `do_catch`/`ast_eval_from` rather than duplicated.
+  - **Confirmed, not assumed: a test that turned out to be invalid
+    syntax, caught by the parser itself, not a VM gap.** An initial
+    test tried `PRINT CATCH "tag [...]` (`CATCH` used for its own
+    output, mirroring the same "void construct in expression position"
+    tests every other special form got) -- failed with a genuine parse
+    error in *both* engines. Traced to `parser.c`'s own `try_parse_call`,
+    which deliberately marks any `ARG_BLOCK`/`ARG_CONDITION` builtin
+    (`CATCH`, `WHILE`, `REPEAT`, `FOREVER`) unusable in expression
+    position at parse time -- not a VM-specific restriction at all.
+    Removed the test (it exercised something that can never actually
+    happen) rather than working around it; `compile_call`'s own
+    `want_value` handling for `CATCH` (and `WHILE`'s, already shipped
+    in an earlier batch) is therefore provably unreachable in practice,
+    kept only for structural consistency with every other call form's
+    uniform `finish_call` tail, and documented as such in the test file
+    rather than left as an unexplained gap.
+  - **Known, pre-existing, separate gap surfaced while working on this,
+    not introduced by it**: `REPEAT`/`FOREVER`/`FOR` were never ported
+    to this VM at all (no special form recognizes their own `ARG_BLOCK`
+    header shape yet -- compiling one today silently mis-compiles its
+    block argument as a bogus expression). They therefore don't
+    participate in `THROW`'s own cooperative-unwind mechanism either --
+    only `WHILE` (already ported, in the vertical slice) does. Left for
+    its own future batch, not folded into this one.
+  - 9 new `tests/test_vm.c` cases: 3 ported from `test_eval.c`'s own
+    confirmed corpus (basic catch-recovers, no-matching-catch recovers
+    at the top level, an uncaught throw lets later statements keep
+    running), plus 6 new cases specifically targeting cross-frame/
+    cross-construct propagation the existing tree-walker corpus didn't
+    happen to exercise: a throw through two nested procedure calls
+    (the core multi-frame case), breaking a `WHILE` loop early, a
+    throw inside an `IF` branch, nested `CATCH` with a non-matching
+    inner tag (the one that caught the scratch-field bug), and a
+    procedure that throws in expression position (confirming both the
+    "didn't output a value" diagnostic *and* the uncaught-throw report
+    fire, in the right order -- a genuinely intricate cascade, traced
+    by hand against `ast_eval`'s own code before trusting the diff).
+    All 9 passed on the first run after the nested-`CATCH` fix;
+    confirmed clean under AddressSanitizer; all 6 test suites pass via
+    `make test`.
+  - **Next**: `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates (the last
+    named item on Stage 2's own checklist), suspend/resume's actual GTK
+    integration (the real point of this whole stage, deliberately
+    last), or the known `REPEAT`/`FOREVER`/`FOR` gap noted above, or
+    whatever the user picks next.

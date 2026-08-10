@@ -1992,16 +1992,32 @@ static void do_apply(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // interpreter.c's own THROW. Unwinding itself (breaking out of nested
 // exec_block/do_repeat/do_while/do_forever/do_foreach calls) is
 // handled at each of those sites, not here.
-static void do_throw(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue tag_val = eval_expr(app, pool, arg_idx[0]);
+void eval_throw_value(LogoApp *app, EvalValue tag_val) {
     eval_value_to_text(app, tag_val, app->throw_tag, sizeof(app->throw_tag));
     app->throw_requested = TRUE;
+}
+static void do_throw(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_throw_value(app, eval_expr(app, pool, arg_idx[0]));
 }
 // CATCH "tag [block] -- runs block, then clears throw_requested only if
 // it's set AND its tag matches this CATCH's own tag; a non-matching
 // throw is deliberately left set so it keeps propagating toward
 // whichever ancestor CATCH (if any) does match, exactly mirroring
 // interpreter.c's own CATCH.
+void eval_catch_check(LogoApp *app, const char *tag_text) {
+    if (app->throw_requested && strcasecmp(app->throw_tag, tag_text) == 0) {
+        app->throw_requested = FALSE;
+    }
+}
+// The top level's own uncaught-THROW recovery message, shared between
+// ast_eval_from (below) and vm.c's own OP_CHECK_UNCAUGHT_THROW -- same
+// wording either way, one place to keep it instead of two.
+void eval_report_uncaught_throw(LogoApp *app) {
+    append_output(app, "THROW: no CATCH found for \"");
+    append_output(app, app->throw_tag);
+    append_output(app, "\n");
+    app->throw_requested = FALSE;
+}
 static void do_catch(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue tag_val = eval_expr(app, pool, arg_idx[0]);
     char tag_text[64];
@@ -2009,9 +2025,7 @@ static void do_catch(LogoApp *app, AstPool *pool, const int *arg_idx) {
     int block_node = arg_idx[1];
 
     exec_block(app, pool, block_node);
-    if (app->throw_requested && strcasecmp(app->throw_tag, tag_text) == 0) {
-        app->throw_requested = FALSE;
-    }
+    eval_catch_check(app, tag_text);
 }
 // General file I/O -- OPENREAD/OPENWRITE/OPENAPPEND/READLINE/EOF?/
 // DIRECTORY (operators) and CLOSE/FILEPRINT/DELETEFILE/LOAD
@@ -2961,12 +2975,7 @@ static void exec_block(LogoApp *app, AstPool *pool, int block_node) {
 void ast_eval_from(LogoApp *app, AstPool *pool, int start_node) {
     for (int c = start_node; c >= 0; c = pool->nodes[c].next_sibling) {
         exec_statement(app, pool, c);
-        if (app->throw_requested) {
-            append_output(app, "THROW: no CATCH found for \"");
-            append_output(app, app->throw_tag);
-            append_output(app, "\n");
-            app->throw_requested = FALSE;
-        }
+        if (app->throw_requested) eval_report_uncaught_throw(app);
         if (app->stop_requested) break;
     }
     // A STOP with no enclosing procedure call, mirroring eval_logo's

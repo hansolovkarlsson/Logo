@@ -552,6 +552,90 @@ TEST(test_send_wrong_argument_count_reports_error) {
         "SEND \"dog \"greet []");
 }
 
+// THROW/CATCH (docs/ROADMAP.md's Stage 2 checklist -- the other
+// genuinely hard piece, alongside suspend/resume: THROW's own
+// cooperative unwind has to propagate through however many nested
+// blocks/loops/procedure calls sit between it and whichever CATCH (or
+// the top level) actually stops it. See compiler.c's own compile_block
+// and bytecode.h's own OP_CHECK_THROW family for the mechanism
+// (forward jumps standing in for the tree-walker's own recursive
+// "if (throw_requested) break" checks, since this VM has no C call
+// stack to unwind through). The first three cases are ported from
+// test_eval.c's own confirmed corpus; the rest are new, specifically
+// targeting cross-frame/cross-construct propagation the existing
+// tree-walker corpus doesn't happen to exercise.
+
+TEST(test_catch_recovers_when_the_thrown_tag_matches) {
+    shadow_diff_vm("CATCH \"err [PRINT 1 THROW \"err PRINT 2]\nPRINT 3");
+}
+
+TEST(test_throw_with_no_matching_catch_reports_and_recovers_at_top_level) {
+    shadow_diff_vm("CATCH \"other [THROW \"err]\nPRINT 99");
+}
+
+TEST(test_uncaught_throw_at_top_level_reports_and_later_statements_still_run) {
+    shadow_diff_vm("THROW \"nope\nPRINT 1");
+}
+
+TEST(test_throw_propagates_through_nested_procedure_calls) {
+    // The core cross-frame case: THROW inside `inner`, called from
+    // `outer`, called from CATCH's own block -- has to unwind two VM
+    // frames (inner's, then outer's) before CATCH ever sees it.
+    shadow_diff_vm(
+        "TO inner\n"
+        "  THROW \"boom\n"
+        "END\n"
+        "TO outer\n"
+        "  inner\n"
+        "  PRINT \"unreachable\n"
+        "END\n"
+        "CATCH \"boom [outer PRINT \"also_unreachable]\n"
+        "PRINT \"done");
+}
+
+TEST(test_throw_breaks_a_while_loop_early) {
+    shadow_diff_vm(
+        "MAKE \"i 0\n"
+        "CATCH \"stop [WHILE :i < 10 [PRINT :i MAKE \"i :i + 1 IF :i = 3 [THROW \"stop]]]\n"
+        "PRINT \"after");
+}
+
+TEST(test_throw_inside_an_if_branch_is_caught_by_enclosing_catch) {
+    shadow_diff_vm("CATCH \"x [IF 1 = 1 [THROW \"x] PRINT \"never]\nPRINT \"ok");
+}
+
+TEST(test_nested_catch_with_non_matching_inner_tag_propagates_to_outer) {
+    shadow_diff_vm("CATCH \"outer_tag [CATCH \"inner_tag [THROW \"outer_tag] PRINT \"never]\nPRINT \"done");
+}
+
+TEST(test_procedure_that_throws_in_expression_position_cascades_both_diagnostics) {
+    // A procedure used for its value (PRINT risky) that throws instead
+    // of outputting: the immediate caller's own OP_CHECK_OUTPUT still
+    // fires ("risky: didn't output a value") since resolved stays 1 on
+    // this path (same asymmetry OP_CALL_PROC's own recursion-too-deep
+    // case has -- see vm.c's own comment), *and* the throw itself keeps
+    // propagating past that point, uncaught, to the top level's own
+    // recovery.
+    shadow_diff_vm(
+        "TO risky\n"
+        "  THROW \"oops\n"
+        "END\n"
+        "PRINT risky\n"
+        "PRINT \"after");
+}
+
+// No "CATCH used in expression position" test: parser.c's own
+// try_parse_call deliberately rejects any ARG_BLOCK/ARG_CONDITION
+// builtin (CATCH, WHILE, REPEAT, FOREVER) from ever being resolved as
+// a value-producing call in the first place (confirmed directly --
+// `PRINT CATCH ...` is a genuine parse error, "unknown word: CATCH",
+// in both engines, not a VM-specific gap). compile_call's own
+// want_value handling for CATCH (and WHILE's, already shipped in an
+// earlier batch) is therefore unreachable in practice, kept only for
+// structural consistency with every other call form's own uniform
+// finish_call tail -- not exercised by this corpus, and can't be,
+// short of the parser itself changing.
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -616,6 +700,14 @@ int main(void) {
     RUN(test_send_method_without_self_param_reports_error);
     RUN(test_send_cyclic_prototype_chain_is_bounded_not_infinite);
     RUN(test_send_wrong_argument_count_reports_error);
+    RUN(test_catch_recovers_when_the_thrown_tag_matches);
+    RUN(test_throw_with_no_matching_catch_reports_and_recovers_at_top_level);
+    RUN(test_uncaught_throw_at_top_level_reports_and_later_statements_still_run);
+    RUN(test_throw_propagates_through_nested_procedure_calls);
+    RUN(test_throw_breaks_a_while_loop_early);
+    RUN(test_throw_inside_an_if_branch_is_caught_by_enclosing_catch);
+    RUN(test_nested_catch_with_non_matching_inner_tag_propagates_to_outer);
+    RUN(test_procedure_that_throws_in_expression_position_cascades_both_diagnostics);
 
     if (failures == 0) {
         printf("All tests passed.\n");

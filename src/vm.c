@@ -282,6 +282,11 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         return num_val(0);
     }
     if (strcasecmp(name, "PROCEDURES") == 0) return do_procedures(app, pool);
+    if (strcasecmp(name, "THROW") == 0) {
+        eval_throw_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
     // Unreachable for a well-formed compiled program -- compile_call
     // only ever emits OP_CALL_BUILTIN for a name find_proc_def couldn't
     // resolve to a user procedure, and the parser itself already
@@ -643,8 +648,37 @@ void vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int start
             }
             case OP_VOID_RESULT:
                 vm->last_call_produced_output = 0;
-                vm->last_call_resolved = 1; // MAKE/LOCAL/ERASE/WHILE are always "resolved" -- never the unknown-procedure case
+                vm->last_call_resolved = 1; // MAKE/LOCAL/ERASE/WHILE/CATCH are always "resolved" -- never the unknown-procedure case
                 push(vm, num_val(0));
+                pc++;
+                break;
+            case OP_CHECK_THROW:
+                // See bytecode.h's own comment and compiler.c's own
+                // compile_block: skips the rest of the CURRENT block
+                // only (jumping to instr->a, that block's own end),
+                // mirroring exec_block's own cooperative
+                // "if (throw_requested) break". Composed across nested
+                // blocks (via each one's own OP_CHECK_THROW instances)
+                // and the auto-appended OP_STOP at the end of every
+                // procedure body, this is what actually propagates an
+                // uncaught throw all the way up to whichever CATCH (or
+                // the top level's own OP_CHECK_UNCAUGHT_THROW) stops it.
+                pc = app->throw_requested ? instr->a : pc + 1;
+                break;
+            case OP_CATCH_CHECK: {
+                // The tag value has been sitting on the stack since
+                // compile_call's own CATCH branch pushed it, before the
+                // block even ran -- see bytecode.h's own comment on why
+                // it isn't a VM-level scratch field (nested CATCH would
+                // clobber it there).
+                char tag_text[64];
+                eval_value_to_text(app, pop(vm), tag_text, sizeof(tag_text));
+                eval_catch_check(app, tag_text);
+                pc++;
+                break;
+            }
+            case OP_CHECK_UNCAUGHT_THROW:
+                if (app->throw_requested) eval_report_uncaught_throw(app);
                 pc++;
                 break;
             default:

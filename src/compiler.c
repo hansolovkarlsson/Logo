@@ -101,7 +101,7 @@ static int collect_children(AstPool *pool, int node_idx, int *out, int max) {
 static void compile_expr(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk *chunk);
 static void compile_condition(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk *chunk);
 static void compile_statement(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk *chunk);
-static void compile_block(Compiler *c, AstPool *pool, int block_node, BytecodeChunk *chunk);
+static void compile_block(Compiler *c, AstPool *pool, int block_node, BytecodeChunk *chunk, int is_top_level);
 
 // The uniform tail every call form ends with, whatever shape it was
 // compiled as (an ordinary builtin/procedure call, or one of the
@@ -147,11 +147,42 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         int loop_start = chunk->count;
         compile_condition(c, pool, args[0], chunk);
         int jf = emit(chunk, (Instr){.op = OP_JUMP_IF_FALSE, .a = -1});
-        compile_block(c, pool, args[1], chunk);
+        compile_block(c, pool, args[1], chunk, /*is_top_level=*/0);
+        // do_while's own equivalent: "if (stop_requested ||
+        // throw_requested) break" after exec_block returns, before
+        // looping again -- STOP already can't reach here (OP_STOP
+        // jumps directly out of the whole frame, never falling through
+        // to this point at all), so only throw_requested needs its own
+        // check, skipping the loop-back jump entirely on a throw still
+        // propagating out of the body.
+        int throw_check = emit(chunk, (Instr){.op = OP_CHECK_THROW, .a = -1});
         emit(chunk, (Instr){.op = OP_JUMP, .a = loop_start});
-        if (jf >= 0) chunk->code[jf].a = chunk->count;
+        int loop_end = chunk->count;
+        if (jf >= 0) chunk->code[jf].a = loop_end;
+        if (throw_check >= 0) chunk->code[throw_check].a = loop_end;
         emit(chunk, (Instr){.op = OP_VOID_RESULT});
         finish_call(chunk, "WHILE", want_value);
+        return;
+    }
+    if (strcasecmp(name, "CATCH") == 0) {
+        // "tag [block] -- tag is ARG_EXPR (an ordinary, possibly
+        // computed expression, unlike MAKE/LOCAL/ERASE's raw
+        // ARG_QUOTED_WORD name), so it's compiled as one, left sitting
+        // on the value stack for the block's own entire duration
+        // (compile_block is always stack-neutral overall, so nothing
+        // the block does disturbs it), and only popped by OP_CATCH_CHECK
+        // once the block finishes -- NOT stashed in a VM-level scratch
+        // field, since CATCH can nest and a nested CATCH's own tag
+        // would clobber an outer one's there (a real bug caught by
+        // test_vm.c's own nested-CATCH test, not guessed). Mirrors
+        // do_catch's own exact order either way: evaluate the tag,
+        // THEN run the block, THEN check.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        compile_expr(c, pool, args[0], chunk);
+        compile_block(c, pool, args[1], chunk, /*is_top_level=*/0);
+        emit(chunk, (Instr){.op = OP_CATCH_CHECK});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "CATCH", want_value);
         return;
     }
     if (strcasecmp(name, "MAKE") == 0) {
@@ -365,11 +396,11 @@ static void compile_if(Compiler *c, AstPool *pool, int if_node, BytecodeChunk *c
 
     compile_condition(c, pool, cond_node, chunk);
     int jf = emit(chunk, (Instr){.op = OP_JUMP_IF_FALSE, .a = -1});
-    compile_block(c, pool, true_block, chunk);
+    compile_block(c, pool, true_block, chunk, /*is_top_level=*/0);
     if (false_block >= 0) {
         int jend = emit(chunk, (Instr){.op = OP_JUMP, .a = -1});
         if (jf >= 0) chunk->code[jf].a = chunk->count;
-        compile_block(c, pool, false_block, chunk);
+        compile_block(c, pool, false_block, chunk, /*is_top_level=*/0);
         if (jend >= 0) chunk->code[jend].a = chunk->count;
     } else if (jf >= 0) {
         chunk->code[jf].a = chunk->count;
@@ -389,11 +420,46 @@ static void compile_statement(Compiler *c, AstPool *pool, int node_idx, Bytecode
     compile_call(c, pool, node_idx, chunk, /*want_value=*/0);
 }
 
-// Mirrors exec_block exactly.
-static void compile_block(Compiler *c, AstPool *pool, int block_node, BytecodeChunk *chunk) {
+// Mirrors exec_block's own per-statement loop, including its
+// cooperative THROW propagation ("if (throw_requested) break", checked
+// after every single statement -- see eval.c's own exec_block) --
+// reimplemented here as a forward jump instead of a runtime recursive
+// break, since this VM has no C call stack to unwind through the way
+// the tree-walker does. After every compiled statement, OP_CHECK_THROW
+// is emitted with a placeholder target; once every statement in this
+// block has been compiled, every one of those placeholders is patched
+// to jump to `chunk->count` (this block's own true end) -- so a throw
+// at any point skips the rest of *this* block only, then falls through
+// to whatever comes next (WHILE's own extra check before its loop-back
+// jump, a procedure body's auto-appended OP_STOP, an enclosing block's
+// own next OP_CHECK_THROW, ...). Composed this way, N levels of nested
+// blocks correctly cascade a throw all the way up to whichever CATCH
+// (or the top level) actually stops it, without this function needing
+// to know anything about what encloses it.
+//
+// `is_top_level` (only ever 1 for compile_program's own top-level
+// statements, never for a procedure body/loop body/if branch/catch
+// block) swaps OP_CHECK_THROW for OP_CHECK_UNCAUGHT_THROW instead:
+// ast_eval_from's own top-level loop doesn't skip to the end of the
+// script on an uncaught throw the way a nested exec_block skips to its
+// own end -- it reports "no CATCH found" and *keeps running* the rest
+// of the script, so no jump/patch is needed there at all.
+#define MAX_BLOCK_STATEMENTS 1024
+
+static void compile_block(Compiler *c, AstPool *pool, int block_node, BytecodeChunk *chunk, int is_top_level) {
+    int pending[MAX_BLOCK_STATEMENTS];
+    int pending_count = 0;
     for (int ch = pool->nodes[block_node].first_child; ch >= 0; ch = pool->nodes[ch].next_sibling) {
         compile_statement(c, pool, ch, chunk);
+        if (is_top_level) {
+            emit(chunk, (Instr){.op = OP_CHECK_UNCAUGHT_THROW});
+        } else {
+            int chk = emit(chunk, (Instr){.op = OP_CHECK_THROW, .a = -1});
+            if (chk >= 0 && pending_count < MAX_BLOCK_STATEMENTS) pending[pending_count++] = chk;
+        }
     }
+    int block_end = chunk->count;
+    for (int i = 0; i < pending_count; i++) chunk->code[pending[i]].a = block_end;
 }
 
 int compile_program(AstPool *pool, int program_node, BytecodeChunk *chunk) {
@@ -410,7 +476,7 @@ int compile_program(AstPool *pool, int program_node, BytecodeChunk *chunk) {
             snprintf(pa->name, sizeof(pa->name), "%s", pool->nodes[i].text);
             pa->start_pc = chunk->count;
         }
-        compile_block(&c, pool, pool->nodes[i].first_child, chunk);
+        compile_block(&c, pool, pool->nodes[i].first_child, chunk, /*is_top_level=*/0);
         // Guarantees a return even if this body never explicitly
         // OUTPUTs/STOPs -- matches call_ast_procedure's own "fell off
         // the end" default (has_output_value stays FALSE).
@@ -433,7 +499,7 @@ int compile_program(AstPool *pool, int program_node, BytecodeChunk *chunk) {
     // has a resolved address by now, so no top-level call ever needs
     // patching.
     int program_start = chunk->count;
-    compile_block(&c, pool, program_node, chunk);
+    compile_block(&c, pool, program_node, chunk, /*is_top_level=*/1);
     emit(chunk, (Instr){.op = OP_HALT});
     return program_start;
 }

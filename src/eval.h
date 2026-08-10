@@ -197,6 +197,18 @@ void eval_eraserect_value(LogoApp *app, EvalValue w_val, EvalValue h_val);
 int eval_resolve_method(LogoApp *app, AstPool *pool, const char *objname, const char *message);
 int eval_send_unpack_args(LogoApp *app, const char *obj_text, EvalValue arglist_val, EvalValue *arg_vals, int max_args);
 
+// THROW/CATCH's own shared pieces (see eval.c's own comments on each
+// and bytecode.h's own file comment for the VM's cooperative-unwind
+// mechanism built on top of these). eval_throw_value is an ordinary
+// value-taking core (THROW routes through the generic OP_CALL_BUILTIN
+// path, no special opcode needed); eval_catch_check and
+// eval_report_uncaught_throw are exposed because vm.c's own
+// OP_CATCH_CHECK/OP_CHECK_UNCAUGHT_THROW need the exact same logic
+// do_catch/ast_eval_from already have, not a parallel copy.
+void eval_throw_value(LogoApp *app, EvalValue tag_val);
+void eval_catch_check(LogoApp *app, const char *tag_text);
+void eval_report_uncaught_throw(LogoApp *app);
+
 // ERASE -- a special form (like MAKE/LOCAL), not an ordinary builtin:
 // its argument is a raw procedure name (ARG_QUOTED_WORD), never an
 // evaluated expression, and it directly mutates `pool` (see eval.c's
