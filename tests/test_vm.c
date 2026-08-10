@@ -968,7 +968,7 @@ TEST(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_sus
     VmRunResult status;
     VmTestSession s = start_vm_session("PRINT MAP [WAITKEY] [1 2]", &status);
     expect_status(status, VM_RUN_HALTED, "run");
-    if (strstr(captured_output, "WAITKEY: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+    if (strstr(captured_output, "WAITKEY: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n") == NULL) {
         failures++;
         printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
     }
@@ -979,7 +979,7 @@ TEST(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_su
     VmRunResult status;
     VmTestSession s = start_vm_session("FOREACH [WAIT 1] [1 2]", &status);
     expect_status(status, VM_RUN_HALTED, "run");
-    if (strstr(captured_output, "WAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+    if (strstr(captured_output, "WAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n") == NULL) {
         failures++;
         printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
     }
@@ -1002,7 +1002,7 @@ TEST(test_input_directly_inside_a_map_template_reports_an_error_instead_of_suspe
     VmRunResult status;
     VmTestSession s = start_vm_session("PRINT MAP [INPUT] [1 2]", &status);
     expect_status(status, VM_RUN_HALTED, "run");
-    if (strstr(captured_output, "INPUT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+    if (strstr(captured_output, "INPUT: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n") == NULL) {
         failures++;
         printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
     }
@@ -1035,7 +1035,7 @@ TEST(test_pause_directly_inside_a_foreach_template_reports_an_error_instead_of_s
     VmRunResult status;
     VmTestSession s = start_vm_session("FOREACH [PAUSE] [1 2]", &status);
     expect_status(status, VM_RUN_HALTED, "run");
-    if (strstr(captured_output, "PAUSE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+    if (strstr(captured_output, "PAUSE: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n") == NULL) {
         failures++;
         printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
     }
@@ -1157,6 +1157,156 @@ TEST(test_random_stays_within_bounds) {
     end_vm_session(s);
 }
 
+TEST(test_type_predicates) {
+    shadow_diff_vm(
+        "PRINT WORD? \"hello\n"
+        "PRINT WORD? [1 2]\n"
+        "PRINT LIST? [1 2]\n"
+        "PRINT LIST? \"hello\n"
+        "PRINT NUMBER? 5\n"
+        "PRINT NUMBER? \"five\n"
+        "PRINT ARRAY? (ARRAY 3)\n"
+        "PRINT ARRAY? 5");
+}
+
+TEST(test_turtle_command_short_aliases_match_their_full_names) {
+    shadow_diff_vm(
+        "SETH 90\nPRINT HEADING\n"
+        "SETPC 255 0 0\nSETPW 3\nSETBG 0 0 255\n"
+        "HT\nST\nPRINT \"done");
+}
+
+TEST(test_pick_from_a_list_word_array_and_bare_number) {
+    shadow_diff_vm(
+        "PRINT PICK [only]\n"
+        "PRINT PICK \"a\n"
+        "MAKE \"a ARRAY 1\nSETITEM 1 :a \"solo\nPRINT PICK :a\n"
+        "PRINT PICK 42");
+}
+
+TEST(test_pick_reports_error_on_empty_list_or_word) {
+    shadow_diff_vm("PRINT PICK []\nPRINT PICK BUTFIRST \"a");
+}
+
+TEST(test_flatten_collects_every_leaf_discarding_nesting) {
+    shadow_diff_vm("PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]\nPRINT FLATTEN 5");
+}
+
+TEST(test_parse_tokenizes_a_values_printed_text_by_whitespace) {
+    shadow_diff_vm(
+        "PRINT PARSE 'hello world'\nPRINT COUNT PARSE 'hello world'\n"
+        "PRINT COUNT PARSE [a b [c d] e]\nPRINT PARSE [a b [c d] e]\n"
+        "PRINT PARSE 42");
+}
+
+TEST(test_subst_replaces_matching_elements_including_a_whole_sublist) {
+    shadow_diff_vm(
+        "PRINT SUBST \"b \"z [a b c b]\n"
+        "PRINT SUBST [1 2] \"x [a [1 2] c]\n"
+        "PRINT SUBST \"a \"z \"a\n"
+        "PRINT SUBST \"a \"z \"b");
+}
+
+TEST(test_dot_product_of_two_numeric_lists) {
+    shadow_diff_vm("PRINT DOT [1 2 3] [4 5 6]\nPRINT DOT [1 2] [1 2 3]");
+}
+
+TEST(test_cross_product_of_two_3element_lists) {
+    shadow_diff_vm("PRINT CROSS [1 0 0] [0 1 0]\nPRINT CROSS [1 2] [1 2 3]");
+}
+
+TEST(test_memberp_on_list_and_number) {
+    shadow_diff_vm(
+        "PRINT MEMBER? \"b [a b c]\n"
+        "PRINT MEMBER? \"z [a b c]\n"
+        "PRINT MEMBER? 2 [1 2 3]\n"
+        "PRINT MEMBER? 5 5\n"
+        "PRINT MEMBER? 5 6");
+}
+
+TEST(test_memberp_on_word_is_substring) {
+    shadow_diff_vm("PRINT MEMBER? \"ell \"hello\nPRINT MEMBER? \"xyz \"hello");
+}
+
+TEST(test_apply_calls_a_procedure_with_a_list_of_arguments) {
+    shadow_diff_vm(
+        "TO add :a :b\n"
+        "  PRINT :a + :b\n"
+        "END\n"
+        "APPLY \"add [3 4]");
+}
+
+TEST(test_apply_unknown_procedure_reports_an_error) {
+    shadow_diff_vm("APPLY \"nosuch [1 2]");
+}
+
+TEST(test_apply_wrong_argument_count_reports_an_error) {
+    shadow_diff_vm(
+        "TO add :a :b\n"
+        "  PRINT :a + :b\n"
+        "END\n"
+        "APPLY \"add [3]");
+}
+
+TEST(test_apply_never_hands_back_a_value_even_when_the_procedure_outputs) {
+    // The new OP_VOID_DISCARD mechanism's own reason to exist: unlike
+    // an ordinary call, APPLY discards whatever the applied procedure
+    // itself OUTPUTs -- confirmed here in expression position, where
+    // that would otherwise surface as a real value instead of the
+    // "didn't output a value" diagnostic.
+    shadow_diff_vm(
+        "TO five\n"
+        "  OUTPUT 5\n"
+        "END\n"
+        "PRINT APPLY \"five []");
+}
+
+// RUN/LOAD (see bytecode.h's own OP_RUN/OP_LOAD comment): the last two
+// names from the 35-name audit, and the two genuinely new-architecture
+// pieces of this whole batch -- both compile a whole fresh, independent
+// BytecodeChunk at runtime and run it via a recursive vm_run call. Both
+// are pure (LOAD only ever reads its file, never writes/deletes), so
+// -- unlike the earlier file-I/O batch's OPENWRITE/DELETEFILE cases --
+// ordinary shadow_diff_vm is safe here: running the same script through
+// both engines back-to-back never double-mutates anything on disk.
+
+TEST(test_run_executes_a_stored_list_as_source) {
+    shadow_diff_vm("RUN [PRINT 1 + 2]");
+}
+
+TEST(test_run_self_referential_is_capped_not_a_crash) {
+    shadow_diff_vm("MAKE \"x [RUN :x]\nRUN :x\nPRINT 1");
+}
+
+TEST(test_load_runs_a_files_contents_as_logo_source) {
+    const char *path = "build/test_vm_load.logo";
+    remove(path);
+    g_file_set_contents(path,
+        "TO greet :name\n"
+        "  PRINT WORD \"hello- :name\n"
+        "END\n"
+        "greet \"world\n"
+        "PRINT 1 + 1", -1, NULL);
+    shadow_diff_vm("PRINT \"before\nLOAD \"build/test_vm_load.logo\nPRINT \"after");
+    remove(path);
+}
+
+TEST(test_load_of_missing_file_reports_error) {
+    shadow_diff_vm("LOAD \"build/test_vm_does_not_exist_at_all.logo");
+}
+
+TEST(test_load_defined_procedure_is_callable_from_the_loading_script) {
+    // Confirms the parser's own eager-LOAD-following pre-pass already
+    // makes this work at compile time -- exec_load's own recursive
+    // vm_run call only has to run the loaded file's own top-level
+    // `greet "world` statement, not redefine the procedure itself.
+    const char *path = "build/test_vm_load_callable.logo";
+    remove(path);
+    g_file_set_contents(path, "TO greet :name\n  PRINT WORD \"hello- :name\nEND", -1, NULL);
+    shadow_diff_vm("LOAD \"build/test_vm_load_callable.logo\ngreet \"world");
+    remove(path);
+}
+
 // Sprites (see docs/BYTECODE_VM_DESIGN.md's suspend/resume design):
 // vm.c-only, not shadow-diffed against ast_eval (which never gained
 // sprite support at all -- see parser.c's own note). load_sprite_image
@@ -1248,7 +1398,7 @@ TEST(test_animatesprite_directly_inside_a_map_template_reports_an_error_instead_
     VmRunResult status;
     VmTestSession s = start_vm_session("PRINT MAP [ANIMATESPRITE 1 2] [1 2]", &status);
     expect_status(status, VM_RUN_HALTED, "run");
-    if (strstr(captured_output, "ANIMATESPRITE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n") == NULL) {
+    if (strstr(captured_output, "ANIMATESPRITE: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n") == NULL) {
         failures++;
         printf("FAIL %s: expected the template-refusal message, got \"%s\"\n", current_test, captured_output);
     }
@@ -1663,6 +1813,26 @@ int main(void) {
     RUN(test_trig_operators_use_degrees);
     RUN(test_log_and_exp_operators);
     RUN(test_random_stays_within_bounds);
+    RUN(test_type_predicates);
+    RUN(test_turtle_command_short_aliases_match_their_full_names);
+    RUN(test_pick_from_a_list_word_array_and_bare_number);
+    RUN(test_pick_reports_error_on_empty_list_or_word);
+    RUN(test_flatten_collects_every_leaf_discarding_nesting);
+    RUN(test_parse_tokenizes_a_values_printed_text_by_whitespace);
+    RUN(test_subst_replaces_matching_elements_including_a_whole_sublist);
+    RUN(test_dot_product_of_two_numeric_lists);
+    RUN(test_cross_product_of_two_3element_lists);
+    RUN(test_memberp_on_list_and_number);
+    RUN(test_memberp_on_word_is_substring);
+    RUN(test_apply_calls_a_procedure_with_a_list_of_arguments);
+    RUN(test_apply_unknown_procedure_reports_an_error);
+    RUN(test_apply_wrong_argument_count_reports_an_error);
+    RUN(test_apply_never_hands_back_a_value_even_when_the_procedure_outputs);
+    RUN(test_run_executes_a_stored_list_as_source);
+    RUN(test_run_self_referential_is_capped_not_a_crash);
+    RUN(test_load_runs_a_files_contents_as_logo_source);
+    RUN(test_load_of_missing_file_reports_error);
+    RUN(test_load_defined_procedure_is_callable_from_the_loading_script);
     RUN(test_setsprite_of_unknown_name_reports_error_and_leaves_default);
     RUN(test_setsprite_none_is_a_silent_reset_to_default);
     RUN(test_stampsprite_records_default_triangle_when_no_sprite_set);

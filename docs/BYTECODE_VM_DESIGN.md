@@ -17,14 +17,14 @@ scoped to `WAIT`/`WAITKEY`, then `INPUT`, then `PAUSE`/`CONTINUE`/`CO`
 `ANIMATESPRITE` (plus the sprite subsystem it needed) landed right
 after as its own separate project. `bin/logo` now runs scripts through
 the compiler+VM instead of `eval_logo`, the first real cutover of the
-live app. `TEXT`/`SHOW`/`SAVE`/file I/O (12 of 13 originally flagged;
-`LOAD` excluded, its own bigger design question) are wired in now too
-— but that work's own testing surfaced a much larger version of the
-same gap: a scripted audit found 35 `parser.c`-declared builtins total
-never reaching `vm.c` at all (math operators, list/word operators, type
-predicates, `RUN`/`APPLY`, some turtle-command short aliases, and
-`LOAD`). Math operators (15 of the 35) are done now too; 20 names
-remain, reported in full, not yet scoped/prioritized.
+live app. `TEXT`/`SHOW`/`SAVE`/file I/O surfaced a much larger version
+of the same gap: a scripted audit found 35 `parser.c`-declared
+builtins total never reaching `vm.c` at all. **All 35 are now wired
+in** (math operators, type predicates, list/word operators, turtle
+short aliases, `APPLY`, and — needing genuinely new "compile a fresh
+chunk + recursive `vm_run`" machinery, the one real new architecture
+piece of this whole project — `RUN`/`LOAD`); a scripted re-run of the
+audit confirms zero remain.
 
 ## Why
 
@@ -2357,10 +2357,50 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   check instead. Confirmed clean under AddressSanitizer (same one
   pre-existing crash); all 6 `make test` suites pass; `bin/logo`/
   `bin/logi` build and run cleanly.
-  - **Next**: 20 names remain from the original 35-name audit — list/
-    word operators, the 4 type predicates, `APPLY`/`RUN`, the turtle
-    short aliases, and `LOAD` itself (see `docs/ROADMAP.md`'s own full
-    breakdown). `PAUSE`'s own Ctrl+C-based force-unpause, and the
-    still-open `WHILE`/`FOR` iteration-cap gap and
-    `OUTPUT`/`STOP`-inside-a-template limitation, remain smaller,
-    optional follow-ups, or whatever the user picks next.
+- **The remaining 20 names — closing out the 35-name audit entirely**
+  (2026-08-10): type predicates, list/word operators, and turtle short
+  aliases were more mechanical `eval_X_value`-core work, zero new
+  opcodes. `APPLY`/`RUN`/`LOAD` were the genuinely new pieces.
+  `APPLY` resolves its callee dynamically by name (`find_proc_def`, not
+  a prototype chain), mechanically close to `OP_SEND`'s own success
+  path, but never hands back a value at all even when the applied
+  procedure calls `OUTPUT` — a new `OP_VOID_DISCARD` (pop whatever's
+  there, push void) enforces that on every path uniformly.
+  `RUN`/`LOAD` needed the one genuinely new mechanism in this whole
+  project: both execute a *whole statement sequence* via
+  `interpreter.c`'s own `exec_block` (the tree-walker), no VM
+  equivalent existed. New `OP_RUN`/`OP_LOAD` re-lex/parse/
+  `compile_program` the source into a fresh, independent
+  `BytecodeChunk` at runtime, then run it via a *recursive* `vm_run`
+  call sharing this same `Vm`'s stack/frames — the same trick `MAP`/
+  `FILTER`/`REDUCE`/`FOREACH` templates established, against a
+  genuinely separate chunk instead of a shared one. `RUN` keeps
+  `do_run`'s own `run_depth` cap; `LOAD` has none, matching `do_load`'s
+  own documented asymmetry. `LOAD`'s path stays a compile-time literal
+  — the parser's own eager-`LOAD`-following pre-pass already makes a
+  loaded file's own procedures callable at compile time; this
+  recursive call's only job is the loaded file's own top-level code.
+  A real, narrow correctness wrinkle found while designing this (not
+  by accident): because `RUN`/`LOAD`'s own recursive call uses a
+  *different* chunk than the outer one, a bare `OUTPUT`/`STOP` at the
+  snippet's own top level would pop a frame belonging to the enclosing
+  procedure and set `pc` to an index only meaningful in the *outer*
+  chunk — the same `frame_floor` mitigation the template batch already
+  accepts as a documented gap applies here too. Also generalized the 5
+  existing suspend-refusal messages to mention `RUN`/`LOAD` alongside
+  templates, since `vm_run_depth > 1` is now reachable through either.
+  15 new `tests/test_vm.c` cases, all ordinary `shadow_diff_vm` —
+  unlike the file-I/O batch, every one of these is pure (`LOAD` only
+  reads, never writes/deletes; `APPLY`/`RUN` never touch the
+  filesystem), so shadow-diffing never double-mutates anything.
+  Confirmed clean under AddressSanitizer (same one pre-existing crash);
+  all 6 `make test` suites pass; `bin/logo`/`bin/logi` build and run
+  cleanly.
+  **This closes the 35-name audit entirely — a scripted re-run confirms
+  zero `parser.c`-declared builtins remain unreachable from `vm.c`.**
+  - **Next**: `PAUSE`'s own Ctrl+C-based force-unpause, the still-open
+    `WHILE`/`FOR` iteration-cap gap, and the
+    `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,
+    optional follow-ups. `ANIMATESPRITE`'s own sprite subsystem still
+    needs manual confirmation of its real image-decoding half. No
+    other named gap is currently open in Stage 2.

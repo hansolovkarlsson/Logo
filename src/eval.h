@@ -338,4 +338,20 @@ EvalValue eval_ln_value(EvalValue v);
 EvalValue eval_log_value(EvalValue v);
 EvalValue eval_exp_value(EvalValue v);
 
+// Type predicates -- one-line ValueType tag checks, same audit-found
+// gap as the math operators above.
+EvalValue eval_wordp_value(EvalValue arg);
+EvalValue eval_listp_value(EvalValue arg);
+EvalValue eval_numberp_value(EvalValue arg);
+EvalValue eval_arrayp_value(EvalValue arg);
+
+// List/word operators -- same audit-found gap as the math operators.
+EvalValue eval_pick_value(LogoApp *app, EvalValue arg);
+EvalValue eval_flatten_value(LogoApp *app, EvalValue arg);
+EvalValue eval_parse_value(LogoApp *app, EvalValue arg);
+EvalValue eval_subst_value(LogoApp *app, EvalValue old_val, EvalValue new_val, EvalValue thing);
+EvalValue eval_dot_value(LogoApp *app, EvalValue a, EvalValue b);
+EvalValue eval_cross_value(LogoApp *app, EvalValue a, EvalValue b);
+EvalValue eval_memberp_value(LogoApp *app, EvalValue thing, EvalValue container);
+
 #endif

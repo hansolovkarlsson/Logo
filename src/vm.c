@@ -20,6 +20,9 @@
 // output to ast_eval, not just "plausible" output.
 
 #include "vm.h"
+#include "lexer.h"
+#include "parser.h"
+#include "compiler.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -359,7 +362,7 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         *produced = 0;
         return num_val(0);
     }
-    if (strcasecmp(name, "SETHEADING") == 0) {
+    if (strcasecmp(name, "SETHEADING") == 0 || strcasecmp(name, "SETH") == 0) {
         eval_setheading_value(app, args[0]);
         *produced = 0;
         return num_val(0);
@@ -417,12 +420,12 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         *produced = 0;
         return num_val(0);
     }
-    if (strcasecmp(name, "HIDETURTLE") == 0) {
+    if (strcasecmp(name, "HIDETURTLE") == 0 || strcasecmp(name, "HT") == 0) {
         do_hideturtle(app);
         *produced = 0;
         return num_val(0);
     }
-    if (strcasecmp(name, "SHOWTURTLE") == 0) {
+    if (strcasecmp(name, "SHOWTURTLE") == 0 || strcasecmp(name, "ST") == 0) {
         do_showturtle(app);
         *produced = 0;
         return num_val(0);
@@ -442,17 +445,17 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         *produced = 0;
         return num_val(0);
     }
-    if (strcasecmp(name, "SETPENCOLOR") == 0) {
+    if (strcasecmp(name, "SETPENCOLOR") == 0 || strcasecmp(name, "SETPC") == 0) {
         eval_setpencolor_value(app, args[0], args[1], args[2]);
         *produced = 0;
         return num_val(0);
     }
-    if (strcasecmp(name, "SETPENWIDTH") == 0) {
+    if (strcasecmp(name, "SETPENWIDTH") == 0 || strcasecmp(name, "SETPW") == 0) {
         eval_setpenwidth_value(app, args[0]);
         *produced = 0;
         return num_val(0);
     }
-    if (strcasecmp(name, "SETBACKGROUND") == 0) {
+    if (strcasecmp(name, "SETBACKGROUND") == 0 || strcasecmp(name, "SETBG") == 0) {
         eval_setbackground_value(app, args[0], args[1], args[2]);
         *produced = 0;
         return num_val(0);
@@ -499,6 +502,17 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
     if (strcasecmp(name, "LN") == 0) return eval_ln_value(args[0]);
     if (strcasecmp(name, "LOG") == 0) return eval_log_value(args[0]);
     if (strcasecmp(name, "EXP") == 0) return eval_exp_value(args[0]);
+    if (strcasecmp(name, "WORD?") == 0) return eval_wordp_value(args[0]);
+    if (strcasecmp(name, "LIST?") == 0) return eval_listp_value(args[0]);
+    if (strcasecmp(name, "NUMBER?") == 0) return eval_numberp_value(args[0]);
+    if (strcasecmp(name, "ARRAY?") == 0) return eval_arrayp_value(args[0]);
+    if (strcasecmp(name, "PICK") == 0) return eval_pick_value(app, args[0]);
+    if (strcasecmp(name, "FLATTEN") == 0) return eval_flatten_value(app, args[0]);
+    if (strcasecmp(name, "PARSE") == 0) return eval_parse_value(app, args[0]);
+    if (strcasecmp(name, "SUBST") == 0) return eval_subst_value(app, args[0], args[1], args[2]);
+    if (strcasecmp(name, "DOT") == 0) return eval_dot_value(app, args[0], args[1]);
+    if (strcasecmp(name, "CROSS") == 0) return eval_cross_value(app, args[0], args[1]);
+    if (strcasecmp(name, "MEMBER?") == 0) return eval_memberp_value(app, args[0], args[1]);
     // MAP/FILTER/REDUCE/FOREACH reach here only when their own
     // template argument wasn't a literal `[...]` visible at compile
     // time (a runtime-computed template) or didn't parse cleanly when
@@ -689,6 +703,181 @@ static void exec_send(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk,
     frame->return_pc = *pc + 1;
     frame->value_stack_base = vm->stack_top;
     *pc = target_pc;
+}
+
+// OP_APPLY -- direct port of do_apply's own resolution/unpacking logic
+// (find_proc_def, not SEND's own prototype-chain eval_resolve_method),
+// but pushing a VmFrame + jumping on success exactly like OP_SEND's own
+// success path, since this is a real procedure call once resolved.
+// Every failure path pushes a throwaway value and advances past this
+// instruction instead of jumping -- see bytecode.h's own OP_APPLY
+// comment for why the exact pushed value doesn't matter (the
+// OP_VOID_DISCARD that always immediately follows this instruction
+// throws it away regardless, on every path).
+static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int *pc) {
+    EvalValue list_val = pop(vm);
+    EvalValue name_val = pop(vm);
+    char name_text[64];
+    eval_value_to_text(app, name_val, name_text, sizeof(name_text));
+
+    int def_node = find_proc_def(pool, name_text);
+    if (def_node < 0) {
+        append_output(app, "APPLY: no such procedure \"");
+        append_output(app, name_text);
+        append_output(app, "\n");
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return;
+    }
+    AstNode *def = &pool->nodes[def_node];
+
+    EvalValue arg_vals[AST_MAX_PARAMS];
+    int n = 0;
+    if (list_val.type == VALUE_LIST) {
+        for (int idx = list_val.list_head; idx != -1 && n < AST_MAX_PARAMS; idx = app->list_pool[idx].next) {
+            arg_vals[n++] = node_to_value(&app->list_pool[idx]);
+        }
+    } else if (n < AST_MAX_PARAMS) {
+        arg_vals[n++] = list_val;
+    }
+
+    if (n != def->param_count) {
+        append_output(app, "APPLY: wrong number of inputs for procedure \"");
+        append_output(app, name_text);
+        append_output(app, "\n");
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return;
+    }
+
+    int target_pc = bytecode_find_proc(chunk, def->text);
+    if (target_pc < 0 || vm->frame_count >= MAX_VM_FRAMES) {
+        // Can't happen for a well-formed compiled program -- same
+        // defensive reasoning as OP_SEND's own equivalent check.
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return;
+    }
+    if (!eval_push_scope_for_call(app, def, arg_vals, n)) {
+        // Recursion too deep -- already printed its own message.
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return;
+    }
+    VmFrame *frame = &vm->frames[vm->frame_count++];
+    frame->return_pc = *pc + 1;
+    frame->value_stack_base = vm->stack_top;
+    *pc = target_pc;
+}
+
+// RUN's own short in-memory snippet budget -- matches eval.c's own
+// private MAX_TEMPLATE_TOKENS (not accessible from here) exactly, same
+// reasoning: a RUN'd value is ordinarily a short expression/template,
+// not a whole external file (see VM_LOAD_MAX_TOKENS below for that).
+#define VM_RUN_MAX_TOKENS 128
+// LOAD's own whole-file budget -- matches eval.c's own private
+// MAX_LOAD_TOKENS exactly.
+#define VM_LOAD_MAX_TOKENS 8192
+
+// OP_RUN -- direct port of do_run's own re-entrant lex/parse/exec
+// machinery (see eval.c), but compiling into a fresh, independent
+// BytecodeChunk and running it via a RECURSIVE vm_run call (sharing
+// this same Vm's own stack/frames) instead of a tree-walking
+// exec_block -- the same "compile+recursively vm_run a fresh nested
+// pool/chunk" mechanism exec_load below also uses. Silently does
+// nothing on a lex/parse failure, matching do_run's own exact silence
+// (RUN was never given its own diagnostic for malformed code). Capped
+// by the shared app->run_depth/MAX_RUN_DEPTH, incremented/decremented
+// around the recursive call exactly like do_run itself -- a
+// self-referential RUN (MAKE "x [RUN :x] / RUN :x) would otherwise
+// blow the C call stack, since each nested RUN is a real recursive
+// vm_run call, not a bytecode loop.
+//
+// frame_floor mitigates the same class of gap MAP/FILTER/REDUCE/
+// FOREACH's own recursive-vm_run templates already accept as a
+// documented limitation (see exec_map_compiled's own comment): a bare
+// OUTPUT/STOP at the RUN'd snippet's own top level (not inside its own
+// TO...END) would pop a frame belonging to whatever REAL procedure
+// enclosed the whole RUN call -- but unlike a template (whose body is
+// compiled inline into the SAME chunk as the rest of the program), the
+// popped frame's own return_pc is only meaningful in the OUTER chunk,
+// not this recursive call's own freshly-compiled scratch one, so this
+// is detected (not fully prevented -- the recursive call has already
+// run to whatever conclusion that produced by the time this checks)
+// after the fact, same "documented gap, not silent corruption" spirit,
+// just a narrower and rarer case to actually hit in practice.
+static void exec_run(Vm *vm, LogoApp *app, EvalValue val) {
+    if (app->run_depth >= MAX_RUN_DEPTH) {
+        append_output(app, "RUN: too deeply nested, ignored\n");
+        return;
+    }
+    char code_text[512];
+    eval_value_to_text(app, val, code_text, sizeof(code_text));
+
+    app->run_depth++;
+    LogoToken tokens[VM_RUN_MAX_TOKENS];
+    int n = logo_lex(code_text, tokens, VM_RUN_MAX_TOKENS);
+    if (n >= 0) {
+        ParseResult *scratch = calloc(1, sizeof(ParseResult));
+        logo_parse(tokens, n, scratch);
+        if (scratch->error_count == 0) {
+            BytecodeChunk *scratch_chunk = calloc(1, sizeof(BytecodeChunk));
+            int start_pc = compile_program(&scratch->pool, scratch->program, scratch_chunk);
+            int frame_floor = vm->frame_count;
+            vm_run(vm, app, &scratch->pool, scratch_chunk, start_pc);
+            if (vm->frame_count < frame_floor) {
+                append_output(app, "RUN: OUTPUT/STOP escaping the RUN'd snippet's own top level is not fully supported\n");
+            }
+            free(scratch_chunk);
+        }
+        parse_result_destroy(scratch);
+    }
+    app->run_depth--;
+}
+
+// OP_LOAD -- same mechanism as exec_run above (compile a fresh scratch
+// pool/chunk, run it via a recursive vm_run call sharing this Vm's own
+// stack/frames), but reading its own source from a file instead of an
+// already-evaluated value, and with NO run_depth cap at all -- matching
+// do_load's own comment that LOAD, unlike RUN, has never had one.
+// `path` is a compile-time-known literal (OP_LOAD's own .text), not a
+// runtime value -- LOAD's own ARG_QUOTED_WORD grammar (matching
+// interpreter.c's own raw sscanf convention) is the only argument
+// shape it can ever syntactically take, so there's no "computed path"
+// case to handle. The parser's own eager-LOAD-following pre-pass (see
+// parser.c) has already hoisted this same file's own TO...END
+// procedures into the main program's AstPool/BytecodeChunk at compile
+// time -- this recursive vm_run call's only remaining job is the
+// loaded file's own top-level (non-TO) statements, exactly matching
+// do_load's own split (its own re-parsed scratch pool's TO...END nodes
+// are harmlessly compiled but never actually reached as statements).
+static void exec_load(Vm *vm, LogoApp *app, const char *path) {
+    char *contents = NULL;
+    GError *error = NULL;
+    if (!g_file_get_contents(path, &contents, NULL, &error)) {
+        append_output(app, "LOAD: could not read file\n");
+        g_error_free(error);
+        return;
+    }
+    LogoToken *tokens = malloc(sizeof(LogoToken) * VM_LOAD_MAX_TOKENS);
+    int n = logo_lex(contents, tokens, VM_LOAD_MAX_TOKENS);
+    if (n >= 0) {
+        ParseResult *scratch = calloc(1, sizeof(ParseResult));
+        logo_parse(tokens, n, scratch);
+        if (scratch->error_count == 0) {
+            BytecodeChunk *scratch_chunk = calloc(1, sizeof(BytecodeChunk));
+            int start_pc = compile_program(&scratch->pool, scratch->program, scratch_chunk);
+            int frame_floor = vm->frame_count;
+            vm_run(vm, app, &scratch->pool, scratch_chunk, start_pc);
+            if (vm->frame_count < frame_floor) {
+                append_output(app, "LOAD: OUTPUT/STOP escaping the loaded file's own top level is not fully supported\n");
+            }
+            free(scratch_chunk);
+        }
+        parse_result_destroy(scratch);
+    }
+    free(tokens);
+    g_free(contents);
 }
 
 // OP_OUTPUT/OP_STOP -- pops the current VmFrame (and its matching
@@ -1091,6 +1280,24 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 pc++;
                 break;
             }
+            case OP_APPLY:
+                exec_apply(vm, app, pool, chunk, &pc);
+                break;
+            case OP_VOID_DISCARD:
+                pop(vm);
+                vm->last_call_produced_output = 0;
+                vm->last_call_resolved = 1; // APPLY is always "resolved" -- never the unknown-procedure diagnostic case, matching do_apply's own unconditional void return
+                push(vm, num_val(0));
+                pc++;
+                break;
+            case OP_RUN:
+                exec_run(vm, app, pop(vm));
+                pc++;
+                break;
+            case OP_LOAD:
+                exec_load(vm, app, instr->text);
+                pc++;
+                break;
             case OP_VOID_RESULT:
                 vm->last_call_produced_output = 0;
                 vm->last_call_resolved = 1; // MAKE/LOCAL/ERASE/WHILE/CATCH are always "resolved" -- never the unknown-procedure case
@@ -1159,7 +1366,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
             case OP_WAIT: {
                 double seconds = eval_to_number(pop(vm));
                 if (vm->vm_run_depth > 1) {
-                    append_output(app, "WAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    append_output(app, "WAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
                     pc++;
                     break;
                 }
@@ -1174,7 +1381,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
             }
             case OP_WAITKEY: {
                 if (vm->vm_run_depth > 1) {
-                    append_output(app, "WAITKEY: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    append_output(app, "WAITKEY: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
                     push(vm, word_val(""));
                     vm->last_call_produced_output = 1;
                     vm->last_call_resolved = 1;
@@ -1187,7 +1394,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
             }
             case OP_INPUT: {
                 if (vm->vm_run_depth > 1) {
-                    append_output(app, "INPUT: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    append_output(app, "INPUT: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
                     push(vm, word_val(""));
                     vm->last_call_produced_output = 1;
                     vm->last_call_resolved = 1;
@@ -1200,7 +1407,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
             }
             case OP_PAUSE: {
                 if (vm->vm_run_depth > 1) {
-                    append_output(app, "PAUSE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    append_output(app, "PAUSE: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
                     pc++;
                     break;
                 }
@@ -1217,7 +1424,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 int frames = (int)eval_to_number(pop(vm));
                 double delay = eval_to_number(pop(vm));
                 if (vm->vm_run_depth > 1) {
-                    append_output(app, "ANIMATESPRITE: not supported inside a MAP/FILTER/REDUCE/FOREACH template\n");
+                    append_output(app, "ANIMATESPRITE: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
                     pc++;
                     break;
                 }

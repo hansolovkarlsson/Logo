@@ -64,6 +64,49 @@ typedef enum {
     OP_SEND,               // pop 3 (obj, message, arglist, in that order); resolves `message` through obj's prototype chain at RUNTIME (unlike every other call, the callee isn't known at compile time -- see vm.c's own exec_send), pushing a VM frame + jumping into the resolved procedure's own compiled body on success, or word_val("") with vm's own last_call_resolved cleared on any of SEND's own resolution/arity failures (each already prints its own specific message, mirroring do_send exactly -- never falls through to OP_CHECK_SEND_OUTPUT's generic one). No operands of its own: all 3 arguments were already compiled as ordinary expressions and are just popped.
     OP_CHECK_SEND_OUTPUT,  // only ever emitted right after OP_SEND used in expression position -- same job as OP_CHECK_OUTPUT, but reads the message name to report from vm->last_send_message (a runtime value OP_SEND itself just resolved) rather than from a compile-time .text field, since compile_call can't know SEND's own callee name ahead of time the way it can for an ordinary call
 
+    // APPLY "name arglist -- pop 2 (name, arglist, in that order);
+    // resolves `name` via find_proc_def (a plain, non-prototype-chain
+    // lookup, unlike SEND's own eval_resolve_method) and, on success,
+    // pushes a VM frame + jumps into the resolved procedure's own
+    // compiled body exactly like OP_SEND's own success path. Every
+    // failure path (unknown procedure, wrong arity, recursion too
+    // deep) pushes a throwaway num_val(0) and advances past this
+    // instruction instead of jumping, mirroring do_apply's own exact
+    // messages -- unlike SEND, APPLY never forwards a resolved value:
+    // interpreter.c's own APPLY documented as never handing back a
+    // value at all (matching RUN), regardless of whether the applied
+    // procedure itself called OUTPUT. OP_VOID_DISCARD, always emitted
+    // immediately after (both on the eager-failure pc+1 landing spot
+    // and as the resolved procedure's own frame->return_pc), is what
+    // actually enforces that: it discards whatever's on top of the
+    // stack (APPLY's own throwaway value, or the applied procedure's
+    // real OUTPUT/STOP result) and replaces it with an ordinary void
+    // result, the same "every call leaves exactly one value" contract
+    // OP_VOID_RESULT keeps for MAKE/LOCAL/etc -- just POPping first,
+    // since (unlike those) something is already guaranteed to be there.
+    OP_APPLY,
+    OP_VOID_DISCARD,
+
+    // RUN thing / LOAD "path -- both re-lex/parse/compile a whole
+    // statement sequence (not a single expression, unlike a template's
+    // own body) into a genuinely fresh, independent BytecodeChunk, then
+    // run it via a RECURSIVE vm_run call sharing this same Vm's own
+    // stack/frames -- see vm.c's own exec_run/exec_load. Neither ever
+    // produces a value, matching interpreter.c's own documented
+    // behavior for both, so each is always followed by OP_VOID_RESULT.
+    // OP_RUN pops its own already-evaluated argument; OP_LOAD's own
+    // path is a compile-time-known literal (.text, same ARG_QUOTED_WORD
+    // shape as OP_ERASE's own procedure name) -- LOAD's grammar can
+    // only ever take a literal path, never a computed one. Neither
+    // needs its own vm_run_depth guard the way WAIT/WAITKEY/INPUT/
+    // PAUSE/ANIMATESPRITE do (RUN/LOAD themselves never suspend) -- but
+    // a suspend point reached *inside* the RUN'd/LOADed code is still
+    // correctly refused by those five opcodes' own existing checks,
+    // since this recursive vm_run call increments vm_run_depth same as
+    // a template's own does.
+    OP_RUN,
+    OP_LOAD,
+
     // THROW/CATCH's own cooperative unwind (see vm.c's own file comment
     // and compiler.c's own compile_block for the full mechanism): THROW
     // itself is an ordinary OP_CALL_BUILTIN (just sets

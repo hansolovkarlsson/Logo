@@ -144,19 +144,24 @@ typedef struct {
     int suspend_frames_remaining;
 
     // How many nested vm_run calls are currently on the C stack for
-    // this one Vm -- 1 for an ordinary top-level run, >1 only inside a
+    // this one Vm -- 1 for an ordinary top-level run, >1 inside a
     // MAP/FILTER/REDUCE/FOREACH template's own recursive vm_run call
-    // (see exec_map_compiled and friends). WAIT/WAITKEY/INPUT/PAUSE/
-    // ANIMATESPRITE check this because a SUSPENDED return from an
-    // inner, recursive vm_run call would only unwind that one C frame
-    // -- straight back into exec_map_compiled's own C loop, not out to
-    // whatever's driving the outermost vm_run (ui.c) -- silently
+    // (see exec_map_compiled and friends) OR inside RUN/LOAD's own
+    // (see exec_run/exec_load -- a freshly compiled, independent
+    // scratch chunk, unlike templates' shared one, but the same
+    // recursive-vm_run shape). WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE
+    // check this because a SUSPENDED return from an inner, recursive
+    // vm_run call would only unwind that one C frame -- straight back
+    // into whichever C loop/function made the recursive call, not out
+    // to whatever's driving the outermost vm_run (ui.c) -- silently
     // losing the suspend instead of delivering it. Rather than attempt
     // that (a real redesign, not a small fix -- see
     // docs/BYTECODE_VM_DESIGN.md), all five refuse outright with a
     // clear runtime message whenever vm_run_depth > 1, the same
     // "documented gap, not silent corruption" spirit as the template
-    // batch's own frame_floor mitigation for OUTPUT/STOP.
+    // batch's own frame_floor mitigation for OUTPUT/STOP (which
+    // exec_run/exec_load also both use, for the same underlying reason
+    // -- see their own comments).
     int vm_run_depth;
 } Vm;
 

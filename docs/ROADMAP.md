@@ -868,6 +868,70 @@ instruction-set/frame-layout detail behind each of these.
   `PARSE`/`PICK`/`SUBST`), the type predicates (`ARRAY?`/`LIST?`/
   `NUMBER?`/`WORD?`), `APPLY`/`RUN`, the turtle-command short aliases
   (`HT`/`SETBG`/`SETH`/`SETPC`/`SETPW`/`ST`), and `LOAD` itself.
+- [x] **The remaining 20 names — closing out the 35-name audit
+  entirely** (2026-08-10): type predicates, list/word operators, and
+  the turtle short aliases were more of the same mechanical
+  `eval_X_value`-core work (zero new opcodes) — `ARRAY?`/`LIST?`/
+  `NUMBER?`/`WORD?` are one-line `ValueType` tag checks, same shape as
+  every prior batch; `CROSS`/`DOT`/`FLATTEN`/`MEMBER?`/`PARSE`/`PICK`/
+  `SUBST` needed only `app` (list_pool/`random_below`), never `pool`;
+  `HT`/`ST`/`SETH`/`SETPC`/`SETPW`/`SETBG` were just `||` additions to
+  their already-working full-name branches. `APPLY`/`RUN`/`LOAD` were
+  the genuinely new pieces.
+  **`APPLY`** resolves its callee dynamically (by name, via
+  `find_proc_def`, not a prototype chain), so it needed its own opcode
+  — mechanically almost identical to `OP_SEND`'s own success path (push
+  a `VmFrame`, jump into the resolved procedure), but with a real
+  twist: `APPLY` never hands back a value at all, confirmed in
+  `docs/LANGUAGE.md`, even when the applied procedure itself calls
+  `OUTPUT` — a new `OP_VOID_DISCARD` (pop whatever's there, whether
+  `APPLY`'s own failure-path placeholder or the callee's real result,
+  push void) enforces that uniformly, on every path.
+  **`RUN`/`LOAD` needed a genuinely new mechanism**, the one piece of
+  this whole 35-name project requiring real new architecture: both
+  execute a *whole statement sequence*, not a single expression, via
+  `interpreter.c`'s own `exec_block` (the tree-walker) — no VM
+  equivalent existed. New `OP_RUN`/`OP_LOAD` re-lex/parse/`compile_program`
+  the given source into a fresh, independent `BytecodeChunk` at
+  runtime, then run it via a *recursive* `vm_run` call sharing this
+  same `Vm`'s own stack/frames — the same trick `MAP`/`FILTER`/`REDUCE`/
+  `FOREACH` templates already established, just against a genuinely
+  separate chunk instead of a shared one. `RUN` keeps `do_run`'s own
+  `app->run_depth`/`MAX_RUN_DEPTH` cap (a self-referential `RUN` would
+  otherwise blow the C call stack); `LOAD` deliberately has none,
+  matching `do_load`'s own documented asymmetry. `LOAD`'s own path
+  stays a compile-time literal (`.text`, same `ARG_QUOTED_WORD` shape
+  as `OP_ERASE`'s procedure name) — the parser's own eager-`LOAD`-
+  following pre-pass had *already* solved making a loaded file's own
+  procedures callable at compile time (the original `LOAD` cross-
+  boundary-call fix); this recursive call's only remaining job is the
+  loaded file's own top-level statements.
+  **A real, if narrow, correctness wrinkle found while designing this,
+  not discovered by accident**: because `RUN`/`LOAD`'s own recursive
+  `vm_run` call uses a *different* chunk than the outer one (unlike a
+  template's shared-chunk body), a bare `OUTPUT`/`STOP` at the
+  run/loaded snippet's own top level (not inside its own `TO...END`)
+  would pop a frame belonging to the enclosing real procedure and set
+  `pc` to an index only meaningful in the *outer* chunk — the same
+  `frame_floor` mitigation `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates
+  already accept as a documented gap applies here too, detecting (not
+  fully preventing) it after the fact. Also generalized the 5 existing
+  suspend-refusal messages (`WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/
+  `ANIMATESPRITE`) to mention `RUN`/`LOAD` alongside templates, since
+  `vm_run_depth > 1` is now reachable through either path, and updated
+  `vm.h`'s own `vm_run_depth` comment to match.
+  15 new `tests/test_vm.c` cases. Unlike the earlier file-I/O batch,
+  ordinary `shadow_diff_vm` was safe for every one of these, including
+  `LOAD` — it only ever reads its file, never writes or deletes, so
+  running the same script through both engines back-to-back never
+  double-mutates anything on disk (`APPLY`/`RUN` never touch the
+  filesystem at all). Confirmed clean under AddressSanitizer (same one
+  pre-existing crash, confirmed via the same "which test printed last"
+  isolation as every earlier batch — not assumed); all 6 `make test`
+  suites pass; `bin/logo`/`bin/logi` build warning-free and run without
+  crashing.
+  **This closes the 35-name audit entirely — a scripted re-run confirms
+  zero `parser.c`-declared builtins remain unreachable from `vm.c`.**
 
 ## Robustness
 

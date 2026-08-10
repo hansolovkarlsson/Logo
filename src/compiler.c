@@ -596,6 +596,46 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         }
         return;
     }
+    if (strcasecmp(name, "APPLY") == 0) {
+        // Same reasoning as SEND above (dynamic callee, resolved at
+        // runtime -- see exec_apply in vm.c) plus one more wrinkle:
+        // APPLY never hands back a value at all (matching RUN,
+        // confirmed in docs/LANGUAGE.md), even when the applied
+        // procedure itself calls OUTPUT -- OP_VOID_DISCARD, not
+        // finish_call's own OP_CHECK_OUTPUT, is what enforces that.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        compile_expr(c, pool, args[0], chunk);
+        compile_expr(c, pool, args[1], chunk);
+        emit(chunk, (Instr){.op = OP_APPLY});
+        emit(chunk, (Instr){.op = OP_VOID_DISCARD});
+        finish_call(chunk, "APPLY", want_value);
+        return;
+    }
+    if (strcasecmp(name, "RUN") == 0) {
+        // See bytecode.h's own OP_RUN comment -- a plain expression
+        // argument, unlike LOAD's own compile-time-known path below.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        compile_expr(c, pool, args[0], chunk);
+        emit(chunk, (Instr){.op = OP_RUN});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "RUN", want_value);
+        return;
+    }
+    if (strcasecmp(name, "LOAD") == 0) {
+        // Same ARG_QUOTED_WORD shape as ERASE/MAKE/LOCAL's own raw-name
+        // arguments -- LOAD's grammar can only ever take a literal
+        // path, never a computed expression (see bytecode.h's own
+        // OP_LOAD comment).
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        const char *path = pool->nodes[args[0]].text;
+        Instr instr = {0};
+        instr.op = OP_LOAD;
+        snprintf(instr.text, sizeof(instr.text), "%s", path);
+        emit(chunk, instr);
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "LOAD", want_value);
+        return;
+    }
     if (strcasecmp(name, "MAP") == 0 || strcasecmp(name, "FILTER") == 0 ||
         strcasecmp(name, "REDUCE") == 0 || strcasecmp(name, "FOREACH") == 0) {
         // Only the "compiled once" fast path is special-cased here --

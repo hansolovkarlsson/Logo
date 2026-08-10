@@ -1575,21 +1575,29 @@ static EvalValue do_empty(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // ARRAY? exactly: each just checks the evaluated argument's own
 // ValueType tag (shared verbatim between the two engines, see
 // logo_types.h), no coercion.
-static EvalValue do_wordp(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+EvalValue eval_wordp_value(EvalValue arg) {
     return word_val(arg.type == VALUE_WORD ? "TRUE" : "FALSE");
 }
-static EvalValue do_listp(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_wordp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_wordp_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_listp_value(EvalValue arg) {
     return word_val(arg.type == VALUE_LIST ? "TRUE" : "FALSE");
 }
-static EvalValue do_numberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_listp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_listp_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_numberp_value(EvalValue arg) {
     return word_val(arg.type == VALUE_NUMBER ? "TRUE" : "FALSE");
 }
-static EvalValue do_arrayp(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+static EvalValue do_numberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_numberp_value(eval_expr(app, pool, arg_idx[0]));
+}
+EvalValue eval_arrayp_value(EvalValue arg) {
     return word_val(arg.type == VALUE_ARRAY ? "TRUE" : "FALSE");
+}
+static EvalValue do_arrayp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_arrayp_value(eval_expr(app, pool, arg_idx[0]));
 }
 static EvalValue do_fput(LogoApp *app, AstPool *pool, const int *arg_idx) {
     return eval_list_fput(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
@@ -1610,8 +1618,7 @@ static EvalValue do_list(LogoApp *app, AstPool *pool, const int *arg_idx) {
 // word, a random cell of an array, or the bare value itself for a
 // number (a bare number counts as a one-element list). Mirrors
 // interpreter.c's own PICK exactly, sharing the same random_below.
-static EvalValue do_pick(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+EvalValue eval_pick_value(LogoApp *app, EvalValue arg) {
     if (arg.type == VALUE_LIST) {
         int count = 0;
         for (int idx = arg.list_head; idx != -1; idx = app->list_pool[idx].next) count++;
@@ -1640,12 +1647,14 @@ static EvalValue do_pick(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     return arg; // a bare number counts as a one-element list
 }
+static EvalValue do_pick(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_pick_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 // FLATTEN list -- collects every leaf reachable from list's chain,
 // discarding sublist structure. Wraps a non-list argument as a
 // one-element list first, same convention as MAP/FOREACH's own
 // non-list handling.
-static EvalValue do_flatten(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+EvalValue eval_flatten_value(LogoApp *app, EvalValue arg) {
     int input_head = (arg.type == VALUE_LIST) ? arg.list_head : value_to_node(app, arg);
     if (arg.type != VALUE_LIST && input_head < 0) return list_pool_exhausted(app);
     int head = -1;
@@ -1653,24 +1662,26 @@ static EvalValue do_flatten(LogoApp *app, AstPool *pool, const int *arg_idx) {
     if (!eval_list_flatten_into(app, input_head, &next_slot)) return list_pool_exhausted(app);
     return list_val(head);
 }
+static EvalValue do_flatten(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_flatten_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 // PARSE thing -- tokenizes any value's printed text (same rendering
 // PRINT uses) by whitespace into a list of words, the reverse of what
 // PRINT/eval_value_to_text already does for a plain word.
-static EvalValue do_parse(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue arg = eval_expr(app, pool, arg_idx[0]);
+EvalValue eval_parse_value(LogoApp *app, EvalValue arg) {
     char text[512];
     eval_value_to_text(app, arg, text, sizeof(text));
     int head;
     if (!eval_list_tokenize_words(app, text, strlen(text), &head)) return list_pool_exhausted(app);
     return list_val(head);
 }
+static EvalValue do_parse(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    return eval_parse_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 // SUBST old new thing -- a non-list thing just compares directly
 // (old->new if it matches, thing unchanged otherwise); a list rebuilds
 // its whole chain via eval_list_subst_into.
-static EvalValue do_subst(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue old_val = eval_expr(app, pool, arg_idx[0]);
-    EvalValue new_val = eval_expr(app, pool, arg_idx[1]);
-    EvalValue thing = eval_expr(app, pool, arg_idx[2]);
+EvalValue eval_subst_value(LogoApp *app, EvalValue old_val, EvalValue new_val, EvalValue thing) {
     if (thing.type != VALUE_LIST) {
         return eval_values_equal(app, thing, old_val) ? new_val : thing;
     }
@@ -1678,10 +1689,14 @@ static EvalValue do_subst(LogoApp *app, AstPool *pool, const int *arg_idx) {
     if (!eval_list_subst_into(app, thing.list_head, old_val, new_val, &head)) return list_pool_exhausted(app);
     return list_val(head);
 }
+static EvalValue do_subst(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue old_val = eval_expr(app, pool, arg_idx[0]);
+    EvalValue new_val = eval_expr(app, pool, arg_idx[1]);
+    EvalValue thing = eval_expr(app, pool, arg_idx[2]);
+    return eval_subst_value(app, old_val, new_val, thing);
+}
 // DOT a b -- the dot product of two same-length numeric lists.
-static EvalValue do_dot(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue a = eval_expr(app, pool, arg_idx[0]);
-    EvalValue b = eval_expr(app, pool, arg_idx[1]);
+EvalValue eval_dot_value(LogoApp *app, EvalValue a, EvalValue b) {
     if (a.type != VALUE_LIST || b.type != VALUE_LIST) {
         append_output(app, "DOT: expected two lists\n");
         return num_val(0);
@@ -1700,10 +1715,13 @@ static EvalValue do_dot(LogoApp *app, AstPool *pool, const int *arg_idx) {
     }
     return num_val(sum);
 }
-// CROSS a b -- the 3D cross product of two 3-element numeric lists.
-static EvalValue do_cross(LogoApp *app, AstPool *pool, const int *arg_idx) {
+static EvalValue do_dot(LogoApp *app, AstPool *pool, const int *arg_idx) {
     EvalValue a = eval_expr(app, pool, arg_idx[0]);
     EvalValue b = eval_expr(app, pool, arg_idx[1]);
+    return eval_dot_value(app, a, b);
+}
+// CROSS a b -- the 3D cross product of two 3-element numeric lists.
+EvalValue eval_cross_value(LogoApp *app, EvalValue a, EvalValue b) {
     double av[3], bv[3];
     if (!eval_list_as_three_numbers(app, a, av) || !eval_list_as_three_numbers(app, b, bv)) {
         append_output(app, "CROSS: expected two 3-element lists\n");
@@ -1720,15 +1738,18 @@ static EvalValue do_cross(LogoApp *app, AstPool *pool, const int *arg_idx) {
     app->list_pool[n1].next = n2;
     return list_val(n0);
 }
+static EvalValue do_cross(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue a = eval_expr(app, pool, arg_idx[0]);
+    EvalValue b = eval_expr(app, pool, arg_idx[1]);
+    return eval_cross_value(app, a, b);
+}
 // MEMBER? thing container -- a list checks element membership
 // (eval_values_equal per element), a word checks substring containment
 // (its "elements" are characters), anything else (a number, or an
 // array -- interpreter.c has no special ARRAY case here either) falls
 // back to treating `container` as a single one-element value. Mirrors
 // interpreter.c's own MEMBER? exactly, including that fallback.
-static EvalValue do_memberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    EvalValue thing = eval_expr(app, pool, arg_idx[0]);
-    EvalValue container = eval_expr(app, pool, arg_idx[1]);
+EvalValue eval_memberp_value(LogoApp *app, EvalValue thing, EvalValue container) {
     if (container.type == VALUE_LIST) {
         for (int idx = container.list_head; idx != -1; idx = app->list_pool[idx].next) {
             if (eval_values_equal(app, thing, node_to_value(&app->list_pool[idx]))) return word_val("TRUE");
@@ -1741,6 +1762,11 @@ static EvalValue do_memberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
         return word_val(strstr(container.word, thing_text) != NULL ? "TRUE" : "FALSE");
     }
     return word_val(eval_values_equal(app, thing, container) ? "TRUE" : "FALSE");
+}
+static EvalValue do_memberp(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    EvalValue thing = eval_expr(app, pool, arg_idx[0]);
+    EvalValue container = eval_expr(app, pool, arg_idx[1]);
+    return eval_memberp_value(app, thing, container);
 }
 // ARRAY size -- allocates `size` contiguous list_pool cells (direct
 // index math, not chain-walked -- see array_val's own comment), each
