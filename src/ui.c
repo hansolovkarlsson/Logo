@@ -1466,9 +1466,12 @@ static void action_quit(GSimpleAction *action, GVariant *parameter, gpointer use
 
 // Build the main window: the turtle canvas / REPL pane split, the View
 // menu and its text-size actions/accelerators, then present it.
-void logo_activate(GtkApplication *app, gpointer user_data) {
-    (void)user_data;
-
+// Builds the window/widgets/actions shared by a normal launch
+// (logo_activate) and a launch with a script path on the command line
+// (logo_open) -- the two differ only in what happens after the window
+// is up: logo_open goes on to load and run the given file, same as
+// action_open_file's own on_file_open_response.
+static LogoApp *build_main_window(GtkApplication *app) {
     LogoApp *logo = g_new0(LogoApp, 1);
     logo->canvas_width = DEFAULT_CANVAS_WIDTH;
     logo->canvas_height = DEFAULT_CANVAS_HEIGHT;
@@ -1671,4 +1674,42 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
     // waiting on a keypress there) does anything until the user
     // happens to click into it themselves first.
     gtk_widget_grab_focus(logo->entry);
+
+    return logo;
+}
+
+void logo_activate(GtkApplication *app, gpointer user_data) {
+    (void)user_data;
+    build_main_window(app);
+}
+
+// GApplication's own "open" signal -- fires instead of "activate" when
+// the app is launched with a file argument (`bin/logo script.logo`),
+// since main.c registers G_APPLICATION_HANDLES_OPEN. Builds the same
+// window logo_activate would, then loads and runs the first file given
+// (extras, if any, are ignored -- this app only ever has one script
+// entry point), identical in spirit to action_open_file's own
+// on_file_open_response.
+void logo_open(GApplication *app, GFile **files, gint n_files, const gchar *hint, gpointer user_data) {
+    (void)hint;
+    (void)user_data;
+    LogoApp *logo = build_main_window(GTK_APPLICATION(app));
+    if (n_files < 1) return;
+
+    char *contents = NULL;
+    gsize length = 0;
+    GError *error = NULL;
+    if (g_file_load_contents(files[0], NULL, &contents, &length, NULL, &error)) {
+        char *path = g_file_get_path(files[0]);
+        append_output(logo, "Loaded ");
+        append_output(logo, path != NULL ? path : "file");
+        append_output(logo, "\n");
+        g_free(path);
+
+        run_logo_script(logo, contents);
+        g_free(contents);
+    } else {
+        append_output(logo, "Could not read file\n");
+        if (error != NULL) g_error_free(error);
+    }
 }

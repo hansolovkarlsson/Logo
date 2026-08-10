@@ -39,6 +39,13 @@ make run
 build artifacts; `make test` runs the headless interpreter test suite
 (no GTK window needed).
 
+Pass a `.logo` file on the command line to load and run it immediately
+on startup, instead of starting with a blank window:
+
+```sh
+bin/logo examples/concurrent_agents.logo
+```
+
 ## Example
 
 ```

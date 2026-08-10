@@ -20,8 +20,9 @@ static void handle_sigint(int sig) {
 
 int main(int argc, char **argv) {
     signal(SIGINT, handle_sigint);
-    GtkApplication *app = gtk_application_new("org.logo.procedures", G_APPLICATION_DEFAULT_FLAGS);
+    GtkApplication *app = gtk_application_new("org.logo.procedures", G_APPLICATION_HANDLES_OPEN);
     g_signal_connect(app, "activate", G_CALLBACK(logo_activate), NULL);
+    g_signal_connect(app, "open", G_CALLBACK(logo_open), NULL);
     int status = g_application_run(G_APPLICATION(app), argc, argv);
     g_object_unref(app);
     return status;
