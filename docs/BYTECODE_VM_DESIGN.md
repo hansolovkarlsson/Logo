@@ -1,10 +1,14 @@
 # A real front end + bytecode VM for Logo
 
-Status: **design discussion, no code yet.** This is Phase 5's "compile to a
-bytecode VM" item (see `ROADMAP.md`), given its own document because it's
-the largest architectural bet this project has taken on — a redesign of
-the execution engine itself, not a language feature. Nothing here is
-final; it's a proposal to iterate on before any of it gets built.
+Status: **Stage 1 shipped in full** (real lexer/parser/AST/tree-walking
+evaluator, every `docs/ROADMAP.md` coverage batch landed, `LOAD`
+cross-boundary-call gap fixed for real — see the Progress log below).
+**Stage 2 (this document's own bytecode VM) is prioritized into a
+sequenced checklist in `docs/ROADMAP.md`'s own "Phase 5, Stage 2"
+section (resolved 2026-08-09) but not yet started** — the "Stage 2
+sketch" section below is still real design discussion, not yet
+implementation, and stays open to revision as each checklist item is
+actually tackled.
 
 ## Why
 
@@ -216,20 +220,43 @@ Both directions are workable; this needs a decision before Stage 1's AST
 node shapes are finalized, since it changes what `NODE_LIST_LITERAL`
 actually holds.
 
-## Stage 2 sketch (for context, not the immediate target)
+## Stage 2 sketch
 
-Once Stage 1's AST exists, compiling it to bytecode is the more
-conventional part: a flat instruction array (`PUSH_NUMBER`, `PUSH_VAR`,
-`CALL name argc`, `JUMP`/`JUMP_IF_FALSE` for `IF`/`WHILE`, `RETURN`, ...)
-executed by a loop over an explicit value stack and an explicit array of
-call frames (each frame holding a return instruction pointer and its own
-variable bindings) — no C recursion involved in Logo-level procedure
-calls at all. That last point is what actually delivers motivations 1 and
-2 from the top of this document: pausing becomes "stop the loop, keep the
-frame array around"; resuming becomes "restart the loop from the saved
-instruction pointer"; and recursion depth becomes bounded by how big we
-choose to make the frame array, not by `eval_logo`'s own C-stack
-footprint.
+Now the actual next target, sequenced into `docs/ROADMAP.md`'s own
+"Phase 5, Stage 2" checklist (resolved 2026-08-09) — this section is
+the design detail behind that checklist's priority order, not yet
+implementation. Compiling Stage 1's already-real AST to bytecode is the
+more conventional part: a flat instruction array (`PUSH_NUMBER`,
+`PUSH_VAR`, `CALL name argc`, `JUMP`/`JUMP_IF_FALSE` for `IF`/`WHILE`,
+`RETURN`, ...) executed by a loop over an explicit value stack and an
+explicit array of call frames (each frame holding a return instruction
+pointer and its own variable bindings) — no C recursion involved in
+Logo-level procedure calls at all. That last point is what actually
+delivers motivations 1 and 2 from the top of this document: pausing
+becomes "stop the loop, keep the frame array around"; resuming becomes
+"restart the loop from the saved instruction pointer"; and recursion
+depth becomes bounded by how big we choose to make the frame array, not
+by `eval_logo`'s own C-stack footprint.
+
+A few instruction-set/design points worth flagging ahead of the actual
+build, expanding on `docs/ROADMAP.md`'s own checklist:
+- **Beyond the example opcodes above**, Logo's own value model needs
+  real list/array construction, a `SET_VAR` op for `MAKE`, property-list
+  ops, and — the two genuinely hard pieces, called out as their own
+  checklist item — `OUTPUT`/`STOP` (early return through nested blocks)
+  and `THROW`/`CATCH` (non-local exit to an arbitrary ancestor frame,
+  needing a real unwind-target stack, not just a jump target).
+- **Value representation should stay boring**: the existing tagged-
+  struct `EvalValue` shape (see eval.c), pushed/popped by value on an
+  explicit value stack, rather than reaching for NaN-boxing or tagged
+  machine words — motivation 3 (speed) is explicitly the weakest of the
+  four above, not worth spending complexity on.
+- **Migration strategy reuses the exact playbook that already worked
+  for Stage 1**: shadow-diff the new compiler+VM against `ast_eval`
+  itself, not `eval_logo` directly — Stage 1's own frontend is already
+  proven byte-identical to `eval_logo`, so diffing against `ast_eval`
+  isolates "does the compiler+VM match the tree-walker's semantics" as
+  its own, separately checkable question.
 
 ## Decisions (resolved 2026-08-08)
 
@@ -261,6 +288,13 @@ footprint.
    rather than treating Stage 1 as scaffolding that's never independently
    "done." Matches how every other feature has shipped this session:
    implement, verify, ship, reassess.
+   - **Reassessed 2026-08-09, per this decision's own instruction**:
+     Stage 1 shipped in full (every `docs/ROADMAP.md` coverage batch,
+     plus the `LOAD` cross-boundary-call gap fixed for real). Stage 2
+     is now prioritized into a sequenced checklist in
+     `docs/ROADMAP.md`'s own "Phase 5, Stage 2" section — see the
+     "Stage 2 sketch" section above for the design detail behind that
+     priority order.
 
 ## Progress
 

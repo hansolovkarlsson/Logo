@@ -37,17 +37,20 @@ redesign originally scoped here: an object is just a property list
 calls already have. No new value type, no changes to variable scoping
 or `call_procedure` at all.
 
-- [ ] Compile to a bytecode VM instead of directly tree-walking
-  `eval_logo` over raw text. An order of magnitude bigger than
-  everything else on this page — the current interpreter is
-  deliberately one direct-execution function with no AST; a bytecode VM
-  means a real compile step and a from-scratch execution core,
-  obsoleting most of `interpreter.c`'s current design. Motivation is
-  now clear (see `docs/BYTECODE_VM_DESIGN.md`: real suspend/resume
-  instead of every busy-wait `WAITKEY`/`PAUSE`/`WAIT`/etc. currently
-  uses, decoupling recursion depth from `eval_logo`'s own C-stack
-  footprint, and growing Logo past "toy language" scope generally) —
-  design discussion in progress there before any of it is implemented.
+Compile to a bytecode VM instead of tree-walking the AST Stage 1 built
+(see `docs/BYTECODE_VM_DESIGN.md`) — an order of magnitude bigger than
+everything else on this page: a real compiler (AST → bytecode) and a
+from-scratch execution core (explicit instruction pointer, explicit
+call frames in an array instead of C recursion), not a rewrite of
+Stage 1's own frontend. Motivation: real suspend/resume instead of
+every busy-wait `WAITKEY`/`PAUSE`/`WAIT`/etc. currently uses,
+decoupling recursion depth from a C-stack footprint entirely, and
+growing Logo past "toy language" scope generally (closures, generators,
+concurrent turtle agents). Prioritized into the checklist below —
+resolved 2026-08-09, after Stage 1 shipped in full — rather than a
+single undifferentiated bullet; check off a group as it lands and
+delete it once `docs/BYTECODE_VM_DESIGN.md`'s own Progress log has the
+detail, same convention Stage 1's own checklist used.
 
 ### Phase 5, Stage 1 — new evaluator built-in coverage
 
@@ -98,6 +101,51 @@ Deliberately **not** planned for Stage 1, and not just "not done yet":
   intrinsically tied to `eval_logo`'s own live-pause mechanism (see
   `docs/LANGUAGE.md`'s "Debugger" section); no equivalent concept exists
   in a tree-walking evaluator with no suspend point yet.
+
+### Phase 5, Stage 2 — bytecode VM
+
+Priority order, each roughly its own design-then-build unit; later
+items depend on earlier ones landing first (unlike Stage 1's batches,
+which were mostly independent of each other). See
+`docs/BYTECODE_VM_DESIGN.md`'s own "Stage 2 sketch" section for the
+instruction-set/frame-layout detail behind each of these.
+
+- [ ] **A small, real, end-to-end vertical slice first** — not full
+  `BUILTIN_SIGNATURES` parity. Just enough instruction set (literals,
+  arithmetic, `PRINT`, `IF`/`WHILE`, procedure calls with
+  `OUTPUT`/`STOP`) to prove the compiler + explicit-frame-array VM
+  mechanism actually works, shadow-diffed against `ast_eval` itself
+  (not `eval_logo` directly — Stage 1's frontend is already proven
+  byte-identical to that, so this isolates "does the compiler+VM match
+  the tree-walker's semantics" as its own mechanically-checkable
+  question). Frame-array sizing (how large a fixed cap replaces
+  `MAX_SCOPE_DEPTH`'s 200) gets decided here, once, not revisited per
+  batch — each frame's cost is small and uniform now, unlike
+  `eval_logo`'s own variable per-branch C-stack usage, so this can
+  likely afford a much larger cap.
+- [ ] Grow instruction coverage the same way Stage 1 grew
+  `BUILTIN_SIGNATURES` — incremental batches (lists/arrays, `MAKE`,
+  property lists, turtle/drawing commands, ...), each shadow-diffed
+  against `ast_eval` before moving to the next.
+- [ ] `THROW`/`CATCH` as a real unwind mechanism, not just another
+  opcode — non-local exit to an arbitrary ancestor frame needs its own
+  design (an explicit unwind-target stack the VM consults), flagged
+  separately since it's one of the two genuinely hard pieces (with
+  suspend/resume itself) rather than a mechanical port like most of the
+  rest of this list.
+- [ ] `MAP`/`FILTER`/`REDUCE`/`FOREACH` templates compiled once instead
+  of re-lexed/re-parsed per element (today's real cost, in both
+  `eval_logo` and Stage 1's own `ast_eval`) — a genuine semantic
+  upgrade this stage enables, not just a port: closer to a real lambda
+  than Stage 1's own re-entrant lex/parse machinery, and a concrete
+  first step toward the "growing past toy language" motivation
+  (closures) rather than just suspend/resume.
+- [ ] Suspend/resume's actual GTK integration — the real point of this
+  whole stage, deliberately last: a VM-internal detail alone doesn't
+  deliver it. Needs its own design for how the VM's "run until suspend
+  point or completion" loop hooks into `ui.c`'s event loop — a keypress
+  triggering resume for `WAITKEY`/`INPUT`, a timer for `WAIT`/`PAUSE` —
+  not assumed to fall out of the frame-array mechanism for free.
 
 ## Robustness
 
