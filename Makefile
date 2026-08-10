@@ -82,6 +82,15 @@ TEST_VM_SRC = tests/test_vm.c src/compiler.c src/bytecode.c src/vm.c src/eval.c 
 TEST_VM_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
+# test_agent.c (Phase 6's own first slice, docs/CONCURRENT_AGENTS_DESIGN.md)
+# -- same stack as TEST_VM_TARGET plus agent.c itself. Fully headless
+# (agent.c never touches GTK, by design -- see agent.h's own file
+# comment), so no window/display needed here either.
+TEST_AGENT_TARGET = build/test_agent
+TEST_AGENT_SRC = tests/test_agent.c src/agent.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
+TEST_AGENT_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_AGENT_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+
 # tools/logi_cli.c -- a standalone command-line driver for Stage 1's new
 # evaluator (see docs/BYTECODE_VM_DESIGN.md), letting a script be run
 # against it directly (or an interactive REPL started with no
@@ -98,7 +107,7 @@ LOGI_SRC = tools/logi_cli.c src/eval.c src/parser.c src/ast.c src/lexer.c src/in
 LOGI_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
-.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm logi
+.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm test-agent logi
 
 all: $(TARGET)
 
@@ -120,13 +129,14 @@ run: $(TARGET)
 # lexer.c's, parser.c's, eval.c's, and the shadow-diff corpus's own
 # tests, so `make test` remains the one command that verifies
 # everything still works.
-test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET) $(TEST_SHADOW_DIFF_TARGET) $(TEST_VM_TARGET)
+test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET) $(TEST_SHADOW_DIFF_TARGET) $(TEST_VM_TARGET) $(TEST_AGENT_TARGET)
 	./$(TEST_TARGET)
 	./$(TEST_LEXER_TARGET)
 	./$(TEST_PARSER_TARGET)
 	./$(TEST_EVAL_TARGET)
 	./$(TEST_SHADOW_DIFF_TARGET)
 	./$(TEST_VM_TARGET)
+	./$(TEST_AGENT_TARGET)
 
 $(TEST_TARGET): $(TEST_SRC) $(HEADERS)
 	@mkdir -p build
@@ -166,6 +176,13 @@ test-vm: $(TEST_VM_TARGET)
 $(TEST_VM_TARGET): $(TEST_VM_SRC) $(HEADERS)
 	@mkdir -p build
 	$(CC) $(TEST_VM_CFLAGS) $(TEST_VM_SRC) -o $(TEST_VM_TARGET) $(TEST_VM_LDFLAGS)
+
+test-agent: $(TEST_AGENT_TARGET)
+	./$(TEST_AGENT_TARGET)
+
+$(TEST_AGENT_TARGET): $(TEST_AGENT_SRC) $(HEADERS)
+	@mkdir -p build
+	$(CC) $(TEST_AGENT_CFLAGS) $(TEST_AGENT_SRC) -o $(TEST_AGENT_TARGET) $(TEST_AGENT_LDFLAGS)
 
 logi: $(LOGI_TARGET)
 

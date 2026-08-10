@@ -298,6 +298,18 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "CONTINUE", 0, { 0 } },
     { "CO", 0, { 0 } },
 
+    // Concurrent agents, Phase 6's own first slice (see
+    // docs/CONCURRENT_AGENTS_DESIGN.md) -- eval.c: none of these, same
+    // vm.c-only scope decision as every suspend/resume-era batch above.
+    // LAUNCH's own procedure-name argument is a plain ARG_EXPR, matching
+    // APPLY's own name argument (a computed name is fine -- there's no
+    // AST to mutate, unlike ERASE/LOAD's compile-time-literal
+    // ARG_QUOTED_WORD shape); no argument list in this first slice, a
+    // launched agent's own procedure must take no inputs.
+    { "LAUNCH", 1, { ARG_EXPR } },
+    { "AWAIT", 0, { 0 } },
+    { "YIELD", 0, { 0 } },
+
     // Sprites (eval.c: none of these -- vm.c-only, matching the same
     // scope decision as WAIT/WAITKEY/INPUT/PAUSE above; bin/logo no
     // longer runs on ast_eval, so this pipeline doesn't need parity

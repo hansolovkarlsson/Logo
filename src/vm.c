@@ -770,6 +770,61 @@ static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk
     *pc = target_pc;
 }
 
+// OP_LAUNCH -- resolves its own procedure name exactly like exec_apply
+// above (find_proc_def, then bytecode_find_proc), including its own
+// eager "no such procedure"/"must take no inputs" failure paths (push a
+// throwaway value, advance pc, return FALSE: not suspended). Unlike
+// APPLY, a *successful* resolution doesn't push a VmFrame and jump
+// itself -- it returns TRUE (with vm->launch_target_pc/vm->pc already
+// set), leaving vm_run's own OP_LAUNCH case to do the actual suspend,
+// since only vm_run itself can return a VmRunResult. The vm_run_depth
+// guard lives here, first thing after popping (matching WAIT's own
+// pop-then-check order), not as a separate check in vm_run's case.
+static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int *pc) {
+    EvalValue name_val = pop(vm);
+    if (vm->vm_run_depth > 1) {
+        append_output(app, "LAUNCH: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return FALSE;
+    }
+    char name_text[64];
+    eval_value_to_text(app, name_val, name_text, sizeof(name_text));
+
+    int def_node = find_proc_def(pool, name_text);
+    if (def_node < 0) {
+        append_output(app, "LAUNCH: no such procedure \"");
+        append_output(app, name_text);
+        append_output(app, "\n");
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return FALSE;
+    }
+    AstNode *def = &pool->nodes[def_node];
+    if (def->param_count != 0) {
+        // No argument-passing to a launched agent in this first slice
+        // (see docs/CONCURRENT_AGENTS_DESIGN.md) -- a launched procedure
+        // must take no inputs at all, not just "wrong count".
+        append_output(app, "LAUNCH: procedure \"");
+        append_output(app, name_text);
+        append_output(app, "\" must take no inputs\n");
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return FALSE;
+    }
+    int target_pc = bytecode_find_proc(chunk, name_text);
+    if (target_pc < 0) {
+        // Can't happen for a well-formed compiled program -- same
+        // defensive reasoning as OP_APPLY/OP_SEND's own equivalent check.
+        push(vm, num_val(0));
+        *pc = *pc + 1;
+        return FALSE;
+    }
+    vm->launch_target_pc = target_pc;
+    vm->pc = *pc + 1;
+    return TRUE;
+}
+
 // RUN's own short in-memory snippet budget -- matches eval.c's own
 // private MAX_TEMPLATE_TOKENS (not accessible from here) exactly, same
 // reasoning: a RUN'd value is ordinarily a short expression/template,
@@ -1457,6 +1512,32 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 vm->suspend_frames_remaining = frames - 1;
                 vm->vm_run_depth--;
                 return VM_RUN_SUSPENDED_ANIMATESPRITE;
+            }
+            case OP_LAUNCH:
+                if (exec_launch(vm, app, pool, chunk, &pc)) {
+                    vm->vm_run_depth--;
+                    return VM_RUN_SUSPENDED_LAUNCH;
+                }
+                break;
+            case OP_AWAIT: {
+                if (vm->vm_run_depth > 1) {
+                    append_output(app, "AWAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
+                    pc++;
+                    break;
+                }
+                vm->pc = pc + 1;
+                vm->vm_run_depth--;
+                return VM_RUN_SUSPENDED_AWAIT;
+            }
+            case OP_YIELD: {
+                if (vm->vm_run_depth > 1) {
+                    append_output(app, "YIELD: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
+                    pc++;
+                    break;
+                }
+                vm->pc = pc + 1;
+                vm->vm_run_depth--;
+                return VM_RUN_SUSPENDED_YIELD;
             }
             default:
                 pc++;

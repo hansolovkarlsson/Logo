@@ -636,6 +636,29 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "LOAD", want_value);
         return;
     }
+    if (strcasecmp(name, "LAUNCH") == 0) {
+        // Plain ARG_EXPR argument, matching APPLY -- see bytecode.h's
+        // own OP_LAUNCH comment for why (a computed procedure name is
+        // fine here, unlike LOAD's compile-time-literal path).
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        compile_expr(c, pool, args[0], chunk);
+        emit(chunk, (Instr){.op = OP_LAUNCH});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "LAUNCH", want_value);
+        return;
+    }
+    if (strcasecmp(name, "AWAIT") == 0) {
+        emit(chunk, (Instr){.op = OP_AWAIT});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "AWAIT", want_value);
+        return;
+    }
+    if (strcasecmp(name, "YIELD") == 0) {
+        emit(chunk, (Instr){.op = OP_YIELD});
+        emit(chunk, (Instr){.op = OP_VOID_RESULT});
+        finish_call(chunk, "YIELD", want_value);
+        return;
+    }
     if (strcasecmp(name, "MAP") == 0 || strcasecmp(name, "FILTER") == 0 ||
         strcasecmp(name, "REDUCE") == 0 || strcasecmp(name, "FOREACH") == 0) {
         // Only the "compiled once" fast path is special-cased here --

@@ -192,6 +192,42 @@ typedef enum {
     // which may itself return VM_RUN_SUSPENDED_ANIMATESPRITE again
     // (more frames left) before eventually falling through to vm->pc.
     OP_ANIMATESPRITE,
+
+    // LAUNCH "procname / AWAIT / YIELD -- Phase 6's own first slice
+    // (see docs/CONCURRENT_AGENTS_DESIGN.md). All three are void, same
+    // as WAIT/PAUSE, and resumed via the plain vm_resume -- but by
+    // agent.c's own synchronous scheduler, not ui.c's timer/keypress
+    // callbacks: this first slice never needs a real GTK timer or
+    // keypress at all, since WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE
+    // used *inside* an agent are deliberately deferred (an explicit,
+    // reported error, not a silent hang) rather than given a guessed-at
+    // multi-agent semantic.
+    //
+    // OP_LAUNCH resolves its own procedure name via find_proc_def/
+    // bytecode_find_proc, mirroring OP_APPLY's own resolution exactly
+    // (including its own "no such procedure"/"must take no inputs"
+    // eager-failure paths, pushing a throwaway value and falling
+    // through rather than suspending on failure) -- but unlike APPLY,
+    // a *successful* resolution doesn't push a VmFrame and jump: it
+    // suspends (VM_RUN_SUSPENDED_LAUNCH, vm->launch_target_pc set) so
+    // agent.c's own scheduler -- not this Vm -- is what actually starts
+    // a fresh Agent running that procedure. `.text` carries nothing of
+    // its own -- the procedure name is an ordinary ARG_EXPR argument,
+    // same as APPLY's own name argument (not ERASE/LOAD's compile-time-
+    // literal ARG_QUOTED_WORD shape: there's no AST to mutate and no
+    // compile-time backpatching involved, so a computed name is fine),
+    // popped like any other already-evaluated value.
+    OP_LAUNCH,
+    // OP_AWAIT/OP_YIELD suspend unconditionally, no payload of their
+    // own -- agent.c's own scheduler distinguishes them purely by which
+    // VmRunResult came back. AWAIT means "don't give this agent another
+    // turn until every other currently-tracked agent has finished";
+    // YIELD means "this agent's own turn is over for now, but it's
+    // still ready to run again on the very next scheduling pass" -- the
+    // Logo-level, explicit-only cooperative timeslice this first slice
+    // relies on instead of automatic per-loop-iteration yielding.
+    OP_AWAIT,
+    OP_YIELD,
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,

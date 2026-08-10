@@ -11,6 +11,7 @@
 #include "parser.h"
 #include "compiler.h"
 #include "vm.h"
+#include "agent.h"
 #include <SDL2/SDL.h> // JOYSTICK?/JOYSTICKAXIS/JOYSTICKBUTTON?, TONE/PLAYSOUND/STOPSOUND -- see logo_types.h
 
 #include <ctype.h>
@@ -988,6 +989,20 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             g_suspended_run = run;
             g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_animatesprite_timeout, app);
             break;
+        default:
+            // VM_RUN_SUSPENDED_LAUNCH/AWAIT/YIELD (Phase 6's own first
+            // slice, docs/CONCURRENT_AGENTS_DESIGN.md) reached via a
+            // RESUMED script -- after an earlier WAIT/WAITKEY/PAUSE/
+            // ANIMATESPRITE already suspended once -- rather than a
+            // script's own very first vm_run call, which is the only
+            // case run_logo_script's own dedicated branch catches.
+            // Mixing ordinary top-level suspend/resume with a LATER
+            // LAUNCH isn't supported yet either, matching this slice's
+            // own deliberately narrow scope -- an explicit, reported
+            // error here, not a crash or a silent hang.
+            append_output(app, "LAUNCH/AWAIT/YIELD after an earlier WAIT/WAITKEY/PAUSE/ANIMATESPRITE are not yet supported\n");
+            free_suspended_run(run);
+            break;
     }
     // Every point control returns here is a point CONTINUE/CO might
     // just have run (as an ordinary submitted command, or as part of a
@@ -1093,6 +1108,38 @@ static void run_logo_script(LogoApp *app, const char *source) {
     int start_pc = compile_program(&result->pool, result->program, chunk);
     Vm *vm = calloc(1, sizeof(Vm));
     VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+
+    // Phase 6's own first slice (see docs/CONCURRENT_AGENTS_DESIGN.md):
+    // a LAUNCH hands off to agent.c's own synchronous scheduler instead
+    // of the ordinary suspend/resume dispatch below -- it owns this
+    // script's own Vm (wrapped as its "initial" Agent, its own already-
+    // live scope/throw/run_depth/turtle state captured exactly as it
+    // stood the moment LAUNCH first suspended it) plus every other
+    // agent it or its own descendants LAUNCH along the way, and runs
+    // them all to completion before this function returns -- no GTK
+    // re-entry needed at all, since this first slice never needs a
+    // real timer/keypress (see agent.h's own file comment). Everything
+    // below this branch (g_suspended_run/g_paused_runs/
+    // handle_vm_result) stays untouched: a concurrent-agent run can't
+    // reach any of ui.c's own other suspend paths in this slice.
+    if (status == VM_RUN_SUSPENDED_LAUNCH) {
+        Agent *initial_agent = calloc(1, sizeof(Agent));
+        initial_agent->vm = *vm;
+        free(vm);
+        initial_agent->turtle_index = app->current_turtle;
+        memcpy(initial_agent->scopes, app->scopes, sizeof(Scope) * (size_t)app->scope_depth);
+        initial_agent->scope_depth = app->scope_depth;
+        initial_agent->throw_requested = app->throw_requested;
+        snprintf(initial_agent->throw_tag, sizeof(initial_agent->throw_tag), "%s", app->throw_tag);
+        initial_agent->run_depth = app->run_depth;
+        initial_agent->state = AGENT_READY;
+        initial_agent->started = TRUE;
+        scheduler_run(app, &result->pool, chunk, initial_agent);
+        parse_result_destroy(result);
+        free(chunk);
+        gtk_widget_queue_draw(app->drawing_area);
+        return;
+    }
 
     SuspendedRun *run = calloc(1, sizeof(SuspendedRun));
     run->result = result;

@@ -34,14 +34,22 @@
 // resumed later via vm_resume/vm_resume_with_key/vm_resume_with_input/
 // vm_resume_animatesprite -- see those functions' own comments, and
 // bytecode.h's own OP_WAIT/OP_WAITKEY/OP_INPUT/OP_PAUSE/
-// OP_ANIMATESPRITE comments for why only these five opcodes can ever
-// produce a SUSPENDED result. VM_RUN_SUSPENDED_PAUSE resumes via the
-// plain vm_resume (like VM_RUN_SUSPENDED_WAIT) -- PAUSE produces no
-// value, same as WAIT, so no dedicated vm_resume_with_* function is
-// needed for it. VM_RUN_SUSPENDED_ANIMATESPRITE is the one case that
-// can be returned *repeatedly* for a single ANIMATESPRITE call (once
-// per remaining frame) before finally falling through to a real
-// vm_run continuation -- see vm_resume_animatesprite's own comment.
+// OP_ANIMATESPRITE/OP_LAUNCH/OP_AWAIT/OP_YIELD comments for why only
+// these eight opcodes can ever produce a SUSPENDED result.
+// VM_RUN_SUSPENDED_PAUSE resumes via the plain vm_resume (like
+// VM_RUN_SUSPENDED_WAIT) -- PAUSE produces no value, same as WAIT, so
+// no dedicated vm_resume_with_* function is needed for it.
+// VM_RUN_SUSPENDED_ANIMATESPRITE is the one case that can be returned
+// *repeatedly* for a single ANIMATESPRITE call (once per remaining
+// frame) before finally falling through to a real vm_run continuation
+// -- see vm_resume_animatesprite's own comment. VM_RUN_SUSPENDED_LAUNCH/
+// AWAIT/YIELD are all void, same as WAIT/PAUSE -- resumed via the plain
+// vm_resume too, but by `agent.c`'s own scheduler (see
+// docs/CONCURRENT_AGENTS_DESIGN.md), never by ui.c's timer/keypress
+// callbacks the way WAIT/WAITKEY/INPUT/PAUSE are: this first slice of
+// concurrent agents never needs a real GTK timer or keypress at all,
+// since every one of these three is resolved by the scheduler itself,
+// synchronously, on its own next loop iteration.
 typedef enum {
     VM_RUN_HALTED,
     VM_RUN_SUSPENDED_WAIT,
@@ -49,6 +57,9 @@ typedef enum {
     VM_RUN_SUSPENDED_INPUT,
     VM_RUN_SUSPENDED_PAUSE,
     VM_RUN_SUSPENDED_ANIMATESPRITE,
+    VM_RUN_SUSPENDED_LAUNCH,
+    VM_RUN_SUSPENDED_AWAIT,
+    VM_RUN_SUSPENDED_YIELD,
 } VmRunResult;
 
 // One in-flight OP_CALL_PROC: where to resume in `code` when this
@@ -138,10 +149,16 @@ typedef struct {
     // is valid only after VM_RUN_SUSPENDED_ANIMATESPRITE -- how many
     // MORE frame advances are still owed after the wait this particular
     // suspend represents elapses; see vm_resume_animatesprite.
+    // `launch_target_pc` is valid only after VM_RUN_SUSPENDED_LAUNCH --
+    // OP_LAUNCH's own already-resolved target procedure's compiled
+    // start pc (via bytecode_find_proc, the same lookup OP_APPLY/OP_SEND
+    // already do), for agent.c's own scheduler to start a fresh Agent's
+    // own Vm at (see docs/CONCURRENT_AGENTS_DESIGN.md).
     int pc;
     double suspend_seconds;
     int pause_level;
     int suspend_frames_remaining;
+    int launch_target_pc;
 
     // How many nested vm_run calls are currently on the C stack for
     // this one Vm -- 1 for an ordinary top-level run, >1 inside a
@@ -149,19 +166,19 @@ typedef struct {
     // (see exec_map_compiled and friends) OR inside RUN/LOAD's own
     // (see exec_run/exec_load -- a freshly compiled, independent
     // scratch chunk, unlike templates' shared one, but the same
-    // recursive-vm_run shape). WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE
-    // check this because a SUSPENDED return from an inner, recursive
-    // vm_run call would only unwind that one C frame -- straight back
-    // into whichever C loop/function made the recursive call, not out
-    // to whatever's driving the outermost vm_run (ui.c) -- silently
-    // losing the suspend instead of delivering it. Rather than attempt
-    // that (a real redesign, not a small fix -- see
-    // docs/BYTECODE_VM_DESIGN.md), all five refuse outright with a
-    // clear runtime message whenever vm_run_depth > 1, the same
-    // "documented gap, not silent corruption" spirit as the template
-    // batch's own frame_floor mitigation for OUTPUT/STOP (which
-    // exec_run/exec_load also both use, for the same underlying reason
-    // -- see their own comments).
+    // recursive-vm_run shape). WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE/
+    // LAUNCH/AWAIT/YIELD all check this because a SUSPENDED return from
+    // an inner, recursive vm_run call would only unwind that one C
+    // frame -- straight back into whichever C loop/function made the
+    // recursive call, not out to whatever's driving the outermost
+    // vm_run (ui.c, or agent.c's own scheduler) -- silently losing the
+    // suspend instead of delivering it. Rather than attempt that (a
+    // real redesign, not a small fix -- see docs/BYTECODE_VM_DESIGN.md),
+    // all eight refuse outright with a clear runtime message whenever
+    // vm_run_depth > 1, the same "documented gap, not silent
+    // corruption" spirit as the template batch's own frame_floor
+    // mitigation for OUTPUT/STOP (which exec_run/exec_load also both
+    // use, for the same underlying reason -- see their own comments).
     int vm_run_depth;
 } Vm;
 

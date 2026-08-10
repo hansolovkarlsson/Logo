@@ -957,17 +957,38 @@ agreed per-agent semantic yet — pause just that agent, or the whole
 swarm?), the same "documented gap, not silent corruption" spirit as
 every other `vm_run_depth`-gated refusal.
 
-- [ ] **First slice** (scoped in detail 2026-08-10, see
-  `docs/CONCURRENT_AGENTS_DESIGN.md`'s own "Proposed first slice" for
-  the full breakdown — not started): `Agent` struct + the save/restore
-  context switch (reuses `find_var` and every existing opcode
-  unchanged), three new opcodes (`OP_LAUNCH`/`OP_AWAIT`/`OP_YIELD`, new
-  files `agent.h`/`agent.c` — not `ui.c`, since a 4th resolved decision
-  (`YIELD` is explicit-only, not automatic per loop iteration) means
-  this slice never needs a real GTK timer/keypress at all, so the whole
-  round-robin is a plain, synchronous, headless-testable C loop.
-  `WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/`ANIMATESPRITE` inside an agent are
-  deliberately deferred together past this slice, not just `PAUSE`.
+- [x] **First slice** (scoped 2026-08-10, shipped 2026-08-10, see
+  `docs/CONCURRENT_AGENTS_DESIGN.md`'s own "Progress" section for the
+  full writeup): three new opcodes `OP_LAUNCH`/`OP_AWAIT`/`OP_YIELD`
+  (`bytecode.h`/`vm.c`/`parser.c`/`compiler.c`) plus three new
+  `VmRunResult` variants and `Vm.launch_target_pc` (`vm.h`); a new
+  `Agent` struct and a synchronous, headless round-robin `scheduler_run`
+  in new files `src/agent.h`/`src/agent.c` — not `ui.c`, since decision
+  #4 (`YIELD` is explicit-only, not automatic per loop iteration) means
+  this slice never needs a real GTK timer/keypress at all; one new
+  branch in `ui.c`'s `run_logo_script`. The context switch is a plain
+  save/restore swap of `app->scopes`/`scope_depth`/`throw_requested`/
+  `throw_tag`/`run_depth`/`current_turtle` — `find_var` and every
+  existing opcode needed zero changes. `WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/
+  `ANIMATESPRITE` inside an agent are deliberately deferred together,
+  reported as an explicit error rather than a silent hang. 7 new tests
+  in `tests/test_agent.c` (`make test-agent`, folded into `make test`),
+  including two isolation proofs (nested-call local variables and
+  turtle selection both provably don't leak between two interleaved
+  agents). Two real bugs found and fixed during implementation, not
+  assumed away: the very first `LAUNCH` wasn't spawning its own target
+  agent (caught by the first test run — fixed by factoring a shared
+  `spawn_agent` helper called once up front, not just from inside the
+  round-robin); `handle_vm_result` didn't handle the three new
+  `VmRunResult` variants when reached via a *later* resume rather than
+  a script's initial run (caught by `-Wswitch` — fixed with an explicit
+  "not yet supported" `default:` case). Verified via `make test` (7
+  suites), standalone ASan builds of `test_vm`/`test_agent` (the latter
+  fully clean; the former's one failure is the same pre-existing,
+  unrelated recursion-depth crash documented for every earlier batch),
+  and a warning-free full build. Still deferred, not silently dropped:
+  passing arguments to a launched agent, automatic per-loop yielding,
+  and mixing an ordinary top-level suspend/resume with a later `LAUNCH`.
 
 ## Robustness
 

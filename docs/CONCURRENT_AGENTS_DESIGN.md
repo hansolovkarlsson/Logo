@@ -285,6 +285,71 @@ agent's own state from outside it (introspection, `WHO`-style).
 
 ## Progress
 
-Nothing built yet — this document is the scoping/design record, written
-before any implementation, matching this project's own established
-"design discussion first" policy for Phase 5-scale architectural bets.
+**First slice shipped 2026-08-10**, same day as the scoping above (user
+said "commit and push, then start building the first slice" right
+after). `OP_LAUNCH`/`OP_AWAIT`/`OP_YIELD` (`bytecode.h`/`vm.c`), three
+new `VmRunResult` variants and `Vm.launch_target_pc` (`vm.h`), `LAUNCH`/
+`AWAIT`/`YIELD` in `parser.c`'s `BUILTIN_SIGNATURES` and their
+`compiler.c` special-form branches, and the new `Agent` struct +
+synchronous scheduler in `src/agent.h`/`src/agent.c` (a new module, not
+`ui.c`, per the first slice's own "no GTK needed at all" simplification)
+— all built exactly as scoped above, with one real design gap found and
+fixed along the way, not assumed away:
+
+**A genuine bug caught by the first test run, not guessed**: the very
+first `LAUNCH` (the one whose own suspend is what gets a top-level
+script into multi-agent mode at all) was never actually spawning its
+own target agent — only *later* launches, reached from inside
+`scheduler_run`'s own loop, were. `OP_LAUNCH`'s own suspend only
+resolves and carries the target `pc`; something has to actually *act*
+on that by creating an `Agent` for it, and the very first one has no
+"inside the loop" to be created from. Fixed by factoring a shared
+`spawn_agent` helper (same turtle-assignment/exhaustion-check logic
+either way) and calling it once, explicitly, right before
+`scheduler_run`'s own loop starts, treating the initial agent's own
+still-live `launch_target_pc` as a "pending spawn" exactly like any
+other. Caught immediately by `test_launch_runs_a_procedure_to_completion`
+— the launched procedure's own output was silently missing entirely,
+not a crash, which is exactly the kind of failure a real test (not just
+code review) is for.
+
+**A second, smaller gap found while wiring `ui.c`, from a compiler
+warning, not a test**: `handle_vm_result`'s own `switch` didn't handle
+the three new `VmRunResult` variants (`-Wswitch`), because a top-level
+script that hits an *ordinary* suspend point (`WAIT`/`WAITKEY`/`PAUSE`/
+`ANIMATESPRITE`) and only calls `LAUNCH` *after* resuming would reach
+`handle_vm_result` directly — `run_logo_script`'s own new branch only
+catches a script's very first `vm_run` call. Rather than silently
+mis-handle or crash on that combination, added an explicit `default:`
+case reporting it as not yet supported (mixing ordinary top-level
+suspend/resume with a *later* `LAUNCH` is a real, if narrow, gap this
+first slice doesn't attempt to solve) and cleaning up normally.
+
+7 new headless `tests/test_vm.c`-style cases in a new `tests/test_agent.c`
+(new `make test-agent` target, folded into `make test`) — the two that
+matter most directly prove decision #1's own point: two agents, each
+suspending via `YIELD` from *inside* a nested procedure call with a
+real local variable (not a global) still live on its own scope stack,
+confirmed neither's value leaks into the other; and two agents each
+moving their own turtle a known, distinct distance, confirmed via
+`hypot` against `home_x`/`home_y` that neither's motion leaks into the
+other's turtle. Also: `LAUNCH` unknown-procedure/wrong-arity errors
+(matching `APPLY`'s own wording pattern), `AWAIT` genuinely blocking
+until every launched agent finishes (an output-ordering assertion, not
+just "it returns"), and `WAIT` used inside an agent correctly reporting
+the deferred-support error and being torn down rather than hanging —
+confirming `AWAIT` still resolves even when a sibling agent was torn
+down abnormally, not stuck waiting on it forever. Confirmed clean under
+AddressSanitizer (`test_agent` fully clean; `test_vm` the same one
+pre-existing, unrelated crash already documented for every earlier
+batch); all 7 `make test` suites pass; `bin/logo`/`bin/logi` build
+warning-free and `bin/logo` was confirmed to launch/run without
+crashing. The actual interactive multi-agent run (watching two turtles
+move independently on screen) still needs the user to confirm manually.
+
+Deliberately deferred, not silently dropped, matching the first slice's
+own scope exactly: `WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/`ANIMATESPRITE`
+inside an agent; automatic per-loop-iteration yielding; passing
+arguments to a launched agent; mixing ordinary top-level suspend/resume
+with a later `LAUNCH`; any way to inspect a running agent's own state
+from outside it.
