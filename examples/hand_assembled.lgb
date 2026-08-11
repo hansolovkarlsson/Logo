@@ -1,0 +1,18 @@
+; Hand-written bytecode -- never touched the Logo compiler at all.
+; Loaded by examples/bytecode_save_load.logo via LOADBYTECODE. See
+; docs/BYTECODE_REFERENCE.md for the full opcode reference and
+; docs/BYTECODE_VM_DESIGN.md's "Assembler" progress-log entry for the
+; text format bytecode_assemble itself parses (this file is exactly
+; that format, written by hand instead of produced by
+; bytecode_disassemble).
+START: @0
+CODE:
+  OP_PUSH_WORD "Hand-assembled:"
+  OP_CALL_BUILTIN PRINT argc=1
+  OP_POP
+  OP_PUSH_NUMBER 6
+  OP_PUSH_NUMBER 7
+  OP_MUL
+  OP_CALL_BUILTIN PRINT argc=1
+  OP_POP
+  OP_HALT

@@ -1388,6 +1388,222 @@ static void action_save_file(GSimpleAction *action, GVariant *parameter, gpointe
     g_object_unref(dialog);
 }
 
+// The *.lgb filter shared by the Save Bytecode/Load Bytecode dialogs --
+// same shape as logo_file_filters above, just bytecode.h/bytecode.c's
+// own text format instead of Logo source (see docs/BYTECODE_REFERENCE.md
+// and docs/ROADMAP.md's "Bytecode save/load/assembler" section).
+static GListModel *bytecode_file_filters(void) {
+    GtkFileFilter *bytecode_filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(bytecode_filter, "Logo bytecode");
+    gtk_file_filter_add_pattern(bytecode_filter, "*.lgb");
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, bytecode_filter);
+    g_object_unref(bytecode_filter);
+    return G_LIST_MODEL(filters);
+}
+
+// Runs previously-assembled bytecode text as a genuinely top-level
+// script -- the GUI counterpart of the Logo-level LOADBYTECODE builtin
+// (vm.c's own exec_loadbytecode), but wired through this file's own
+// suspend/resume machinery (handle_vm_result) instead of a nested
+// recursive vm_run, since a file picked from the File menu is the
+// WHOLE thing being run here, not one instruction inside an
+// already-running script -- same shape as run_logo_script below, just
+// bytecode_assemble instead of logo_lex+logo_parse+compile_program.
+// `result` is a genuinely empty ParseResult (node_count=0, calloc'd) --
+// SuspendedRun's own shape needs one, but nothing in this run ever
+// reads it: an assembled chunk is already fully self-contained (Stage
+// A, docs/BYTECODE_VM_DESIGN.md). Starts at the chunk's own recovered
+// start_pc (see BytecodeChunk.start_pc's own comment -- never 0
+// assumed).
+static void run_bytecode_script(LogoApp *app, const char *text) {
+    if (g_suspended_run != NULL) {
+        append_output(app, "A script is still running -- please wait for it to finish\n");
+        return;
+    }
+
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    if (!bytecode_assemble(text, chunk, err, sizeof(err))) {
+        append_output(app, "LOADBYTECODE: ");
+        append_output(app, err);
+        append_output(app, "\n");
+        free(chunk);
+        return;
+    }
+
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    Vm *vm = calloc(1, sizeof(Vm));
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, chunk->start_pc);
+
+    SuspendedRun *run = calloc(1, sizeof(SuspendedRun));
+    run->result = result;
+    run->chunk = chunk;
+    run->vm = vm;
+    handle_vm_result(app, run, status);
+}
+
+// Finishes the async GtkFileDialog started by action_load_bytecode: reads
+// the chosen file and runs it as previously-assembled bytecode, same as
+// on_file_open_response does for ordinary Logo source.
+static void on_bytecode_open_response(GObject *source, GAsyncResult *result, gpointer user_data) {
+    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
+    LogoApp *app = (LogoApp *)user_data;
+
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_open_finish(dialog, result, &error);
+    if (file == NULL) {
+        if (error != NULL) g_error_free(error); // includes user cancellation
+        return;
+    }
+
+    char *contents = NULL;
+    gsize length = 0;
+    GError *read_error = NULL;
+    if (g_file_load_contents(file, NULL, &contents, &length, NULL, &read_error)) {
+        char *path = g_file_get_path(file);
+        append_output(app, "Loaded ");
+        append_output(app, path != NULL ? path : "file");
+        append_output(app, "\n");
+        g_free(path);
+
+        run_bytecode_script(app, contents);
+        g_free(contents);
+    } else {
+        append_output(app, "Could not read file\n");
+        if (read_error != NULL) g_error_free(read_error);
+    }
+
+    g_object_unref(file);
+}
+
+// File > Load Bytecode… — shows a native file picker, then hands off to
+// on_bytecode_open_response once the user picks a file.
+static void action_load_bytecode(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Load Bytecode");
+    GListModel *filters = bytecode_file_filters();
+    gtk_file_dialog_set_filters(dialog, filters);
+    g_object_unref(filters);
+
+    gtk_file_dialog_open(dialog, GTK_WINDOW(app->window), NULL, on_bytecode_open_response, app);
+    g_object_unref(dialog);
+}
+
+// Bundles the already-disassembled text (see action_save_bytecode below)
+// with `app` for on_save_bytecode_response's own single user_data slot.
+typedef struct {
+    LogoApp *app;
+    char *bytecode_text; // owned; malloc'd by open_memstream, freed with plain free(), not g_free()
+} SaveBytecodeContext;
+
+// Finishes the async GtkFileDialog started by action_save_bytecode:
+// writes the text action_save_bytecode already compiled+disassembled
+// (captured before the dialog even opened, since the entry box's own
+// text can change while the async dialog is up) to the chosen file.
+static void on_save_bytecode_response(GObject *source, GAsyncResult *result, gpointer user_data) {
+    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
+    SaveBytecodeContext *ctx = (SaveBytecodeContext *)user_data;
+    LogoApp *app = ctx->app;
+
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_save_finish(dialog, result, &error);
+    if (file == NULL) {
+        if (error != NULL) g_error_free(error); // includes user cancellation
+        free(ctx->bytecode_text);
+        free(ctx);
+        return;
+    }
+
+    GError *write_error = NULL;
+    if (g_file_replace_contents(file, ctx->bytecode_text, strlen(ctx->bytecode_text), NULL, FALSE,
+                                 G_FILE_CREATE_NONE, NULL, NULL, &write_error)) {
+        char *path = g_file_get_path(file);
+        append_output(app, "Saved ");
+        append_output(app, path != NULL ? path : "file");
+        append_output(app, "\n");
+        g_free(path);
+    } else {
+        append_output(app, "Could not save bytecode file\n");
+        if (write_error != NULL) g_error_free(write_error);
+    }
+
+    free(ctx->bytecode_text);
+    free(ctx);
+    g_object_unref(file);
+}
+
+// File > Save Bytecode… — compiles the entry box's own current text
+// (the same text Enter would run) via logo_lex/logo_parse/
+// compile_program, WITHOUT running it (no turtle motion, no PRINT
+// output, no side effects at all -- unlike the Logo-level SAVEBYTECODE
+// builtin, which only ever runs mid-script and saves whatever chunk is
+// already executing; there's no such "currently executing chunk" to
+// reach for from a menu click), disassembles the result, and shows a
+// native save dialog for where to write it. Parse errors are reported
+// the same way run_logo_script already reports them, and no dialog is
+// shown at all in that case.
+static void action_save_bytecode(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->entry));
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char *source = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+
+    LogoToken tokens[UI_SCRIPT_MAX_TOKENS];
+    int n = logo_lex(source, tokens, UI_SCRIPT_MAX_TOKENS);
+    if (n < 0) {
+        append_output(app, "Error: script is too large to parse\n");
+        g_free(source);
+        return;
+    }
+    ParseResult *parse_result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, parse_result);
+    g_free(source);
+    if (parse_result->error_count > 0) {
+        for (int i = 0; i < parse_result->error_count; i++) {
+            char line[320];
+            snprintf(line, sizeof(line), "%d:%d: %s\n", parse_result->errors[i].line, parse_result->errors[i].col, parse_result->errors[i].message);
+            append_output(app, line);
+        }
+        parse_result_destroy(parse_result);
+        return;
+    }
+
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    compile_program(&parse_result->pool, parse_result->program, chunk);
+
+    char *text = NULL;
+    size_t size = 0;
+    FILE *f = open_memstream(&text, &size);
+    bytecode_disassemble(chunk, f);
+    fclose(f);
+
+    free(chunk);
+    parse_result_destroy(parse_result);
+
+    SaveBytecodeContext *ctx = malloc(sizeof(SaveBytecodeContext));
+    ctx->app = app;
+    ctx->bytecode_text = text;
+
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Save Bytecode");
+    gtk_file_dialog_set_initial_name(dialog, "untitled.lgb");
+    GListModel *filters = bytecode_file_filters();
+    gtk_file_dialog_set_filters(dialog, filters);
+    g_object_unref(filters);
+
+    gtk_file_dialog_save(dialog, GTK_WINDOW(app->window), NULL, on_save_bytecode_response, ctx);
+    g_object_unref(dialog);
+}
+
 // Finishes the async GtkFileDialog started by action_export_png: renders
 // the current canvas to the chosen file.
 static void on_export_png_response(GObject *source, GAsyncResult *result, gpointer user_data) {
@@ -1645,6 +1861,8 @@ static LogoApp *build_main_window(GtkApplication *app) {
     static GActionEntry file_actions[] = {
         {.name = "open-file", .activate = action_open_file},
         {.name = "save-file", .activate = action_save_file},
+        {.name = "load-bytecode", .activate = action_load_bytecode},
+        {.name = "save-bytecode", .activate = action_save_bytecode},
         {.name = "export-png", .activate = action_export_png},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(app), file_actions,
@@ -1670,6 +1888,8 @@ static LogoApp *build_main_window(GtkApplication *app) {
     // the menu), so use <Meta> directly — this app is macOS-only anyway.
     const char *open_accels[] = {"<Meta>o", NULL};
     const char *save_accels[] = {"<Meta>s", NULL};
+    const char *load_bytecode_accels[] = {"<Meta><Shift>o", NULL};
+    const char *save_bytecode_accels[] = {"<Meta><Shift>s", NULL};
     const char *export_png_accels[] = {"<Meta>e", NULL};
     const char *increase_accels[] = {"<Meta>plus", "<Meta>equal", NULL};
     const char *decrease_accels[] = {"<Meta>minus", NULL};
@@ -1677,6 +1897,8 @@ static LogoApp *build_main_window(GtkApplication *app) {
     const char *quit_accels[] = {"<Meta>q", NULL};
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.save-file", save_accels);
+    gtk_application_set_accels_for_action(app, "app.load-bytecode", load_bytecode_accels);
+    gtk_application_set_accels_for_action(app, "app.save-bytecode", save_bytecode_accels);
     gtk_application_set_accels_for_action(app, "app.export-png", export_png_accels);
     gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
     gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);
@@ -1688,6 +1910,8 @@ static LogoApp *build_main_window(GtkApplication *app) {
     GMenu *file_menu = g_menu_new();
     g_menu_append(file_menu, "Open\xe2\x80\xa6", "app.open-file");
     g_menu_append(file_menu, "Save\xe2\x80\xa6", "app.save-file");
+    g_menu_append(file_menu, "Load Bytecode\xe2\x80\xa6", "app.load-bytecode");
+    g_menu_append(file_menu, "Save Bytecode\xe2\x80\xa6", "app.save-bytecode");
     g_menu_append(file_menu, "Export as PNG\xe2\x80\xa6", "app.export-png");
     g_menu_append(file_menu, "Quit", "app.quit");
     g_menu_append_submenu(menu_bar, "File", G_MENU_MODEL(file_menu));

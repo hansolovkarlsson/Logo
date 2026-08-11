@@ -68,6 +68,7 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 - [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — full language reference for the
   Logo dialect as implemented
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned features and known gaps
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — history of completed work
 
 ## Project structure
 

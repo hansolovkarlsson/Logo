@@ -1,0 +1,17 @@
+; LOADBYTECODE: the other half of examples/bytecode_save.logo -- run
+; that file first (it writes scratch_bytecode.lgb), then run this one.
+; No compile step happens here at all: LOADBYTECODE reads the file,
+; assembles it, and runs it -- reproducing SQUARE, the same
+; "drawing-a-square" output, and (since the saved program's own last
+; statement was SAVEBYTECODE) writing the file to itself again too, all
+; without this process ever having seen bytecode_save.logo's own
+; source.
+
+LOADBYTECODE "scratch_bytecode.lgb
+DELETEFILE "scratch_bytecode.lgb
+
+; A bytecode file doesn't have to come from SAVEBYTECODE at all -- it's
+; just text, in the format docs/BYTECODE_REFERENCE.md documents.
+; examples/hand_assembled.lgb was written by hand and never touched the
+; Logo compiler; LOADBYTECODE runs it exactly the same way either way.
+LOADBYTECODE "examples/hand_assembled.lgb

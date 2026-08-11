@@ -1,0 +1,22 @@
+; SAVEBYTECODE: compile+run this program, then write its OWN compiled
+; bytecode out to disk. Run this file first, THEN
+; examples/bytecode_load.logo (in a separate `bin/logo` run) to load
+; and re-run it standalone -- not even this .logo source is needed the
+; second time. See docs/ROADMAP.md's "Bytecode save/load/assembler"
+; section (Stages A-D) and docs/COMMAND_REFERENCE.md's "Files" entry.
+;
+; SAVEBYTECODE saves the WHOLE currently-running program -- every
+; top-level statement in THIS file, not just the ones that already ran
+; -- so it has to be the LAST statement here: a later statement in this
+; same file would end up baked into the saved copy too, and (if that
+; statement were itself a LOADBYTECODE of this very file) reloading it
+; would recurse forever. examples/bytecode_load.logo is a genuinely
+; separate script/compilation for exactly this reason.
+
+TO SQUARE :SIDE
+  REPEAT 4 [FD :SIDE RT 90]
+END
+
+PRINT "drawing-a-square
+SQUARE 50
+SAVEBYTECODE "scratch_bytecode.lgb

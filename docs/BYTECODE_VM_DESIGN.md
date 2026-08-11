@@ -2879,3 +2879,54 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   last stage of the bytecode save/load/assembler initiative -- the
   user's own original request ("save the bytecode to file, load
   bytecode, and even have an assembler for it") is now fully delivered.
+  **Worked examples added afterward** (`examples/bytecode_save.logo` +
+  `examples/bytecode_load.logo`, run as two separate `bin/logo`
+  invocations, plus `examples/hand_assembled.lgb` -- a bytecode file
+  written entirely by hand, never compiled from Logo source at all,
+  demonstrating the assembler side directly): building the first
+  version of these caught a genuine bug before it ever reached the
+  repo -- a single script that both `SAVEBYTECODE`d itself and then
+  `LOADBYTECODE`d that same file recurses forever, since `SAVEBYTECODE`
+  captures the WHOLE compiled top-level program (every statement, not
+  just the ones already run), so a later `LOADBYTECODE` of the same
+  file ends up baked into the saved copy too, reloading a program that
+  reloads itself. Fixed by splitting the demo into two genuinely
+  separate compilations/processes -- the same shape `SAVEBYTECODE`
+  requires in general: it must be a program's own last statement.
+  **GUI menu equivalents added afterward** (`ui.c`): *File > Save
+  Bytecode…*/*File > Load Bytecode…*, same native `GtkFileDialog`
+  pattern the existing Open/Save/Export-as-PNG items already use, with
+  `.lgb`-filtered dialogs (`bytecode_file_filters`, alongside the
+  existing `logo_file_filters`) and `<Meta><Shift>o`/`<Meta><Shift>s`
+  accelerators (Shift-modified variants of Open/Save's own single-
+  letter ones). **A real design question worth recording**: what does
+  "Save Bytecode" even mean from a menu click, given the Logo-level
+  builtin's own defined behavior is "save whatever chunk is CURRENTLY
+  EXECUTING," and nothing is executing at the moment of a menu click?
+  Resolved by making the menu action compile (not run) the entry box's
+  own current text and disassemble that -- deliberately NOT running it
+  first (no turtle motion, no `PRINT` output, no side effects at all),
+  since a menu click causing surprise canvas/output side effects would
+  be bad GUI behavior, unlike the builtin's own mid-script invocation
+  which is always an explicit, deliberate part of the running program's
+  own logic. The disassembled text is captured synchronously BEFORE the
+  async save dialog even opens (bundled into a small `SaveBytecodeContext`
+  passed as the dialog callback's own `user_data`), since the entry
+  box's text could otherwise change while the user is still choosing a
+  destination. *Load Bytecode* is simpler: a new `run_bytecode_script`
+  mirrors `run_logo_script`'s own shape (same `g_suspended_run` "one
+  script at a time" guard, same `SuspendedRun`-wrap-and-dispatch through
+  `handle_vm_result`) but calls `bytecode_assemble` instead of `logo_lex`
+  +`logo_parse`+`compile_program` -- a loaded program participates fully
+  in this app's own suspend/resume machinery (`WAIT`/`PAUSE`/etc. all
+  work inside it), unlike `vm.c`'s own `exec_loadbytecode`, which runs
+  a LOADBYTECODE'd program via a synchronous nested `vm_run` call
+  because that one is always reached mid-instruction-stream inside an
+  already-running script, never as the top-level thing being run the
+  way a menu click's own target always is. Verified: warning-free
+  rebuild, all 8 `make test` suites still pass (`ui.c` isn't linked into
+  any test binary, so this only confirms nothing else broke), a live
+  `bin/logo` launch confirmed via process liveness (no GUI screenshot
+  or interaction -- no Accessibility permission is granted in this
+  environment, see this project's own established constraint on GUI
+  automation).

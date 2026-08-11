@@ -592,7 +592,7 @@ PRINT MEMBER? "scratch.txt DIRECTORY   -> TRUE
 DELETEFILE "scratch.txt
 ```
 
-`SAVEBYTECODE`/`LOADBYTECODE` (`docs/ROADMAP.md`'s "Bytecode save/
+`SAVEBYTECODE`/`LOADBYTECODE` (`docs/CHANGELOG.md`'s "Bytecode save/
 load/assembler" Stage D) save/reload a whole COMPILED program, not
 Logo source — `SAVEBYTECODE "path` writes the currently-running
 program's own bytecode (see `docs/BYTECODE_REFERENCE.md`'s text
@@ -624,11 +624,29 @@ VM-only: there's no bytecode chunk for the tree-walking engines
 (`eval_logo`/`ast_eval`, unreachable from `bin/logo` and used only for
 this project's own internal shadow-diff testing) to save at all.
 
+See `examples/bytecode_save.logo` and `examples/bytecode_load.logo`
+for a full working demo (run the first, then the second, as two
+separate `bin/logo` invocations — `SAVEBYTECODE` must be a program's
+own last statement, for the same reason described above) plus
+`examples/hand_assembled.lgb`, a bytecode file written by hand instead
+of produced by `SAVEBYTECODE`, loaded by `bytecode_load.logo`'s own
+last line.
+
+**File menu equivalents** (native macOS menu bar, `⌘⇧S`/`⌘⇧O`): *File >
+Save Bytecode…* compiles whatever's currently in the entry box and
+saves the result, without running it — no side effects (no drawing, no
+`PRINT` output), unlike the `SAVEBYTECODE` builtin itself, which only
+ever runs mid-script and saves whatever chunk is already executing.
+*File > Load Bytecode…* reads a chosen `.lgb` file and runs it exactly
+like `LOADBYTECODE`, participating fully in this app's own suspend/
+resume machinery (a loaded program can `WAIT`/`PAUSE`/etc. same as any
+other).
+
 `OPENWRITE`/`OPENAPPEND` don't touch disk until `CLOSE` flushes the
 buffer — losing power or crashing first loses the data. **Known,
 unfixed bug**: a literal path (or any word literal) longer than 63
 characters is silently truncated at compile time — see the
-`INSTR_MAX_TEXT` entry in project memory / `docs/ROADMAP.md`; this is
+`INSTR_MAX_TEXT` entry in project memory / `docs/CHANGELOG.md`; this is
 exactly what's being scoped next.
 
 ## Turtle sprites
