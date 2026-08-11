@@ -334,6 +334,25 @@ static void finish_call(BytecodeChunk *chunk, const char *name, int want_value) 
     }
 }
 
+// SETSPEED's own throttle point -- every builtin OP_MOTION_DELAY gets
+// emitted after (see compile_call's generic dispatch below), matching
+// exactly the set parser.c's own turtle-motion signatures cover: the
+// four step commands and their long forms, the four absolute setters,
+// HOME, and ARC. Deliberately excludes TELL (switches which turtle is
+// current, doesn't move one) and every pen/color/canvas/label/fill
+// command (no turtle position or heading changes, nothing to see slow
+// down).
+static int is_motion_command(const char *name) {
+    static const char *const names[] = {
+        "FD", "FORWARD", "BK", "BACK", "RT", "RIGHT", "LT", "LEFT",
+        "SETXY", "SETHEADING", "SETH", "SETX", "SETY", "HOME", "ARC",
+    };
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (strcasecmp(name, names[i]) == 0) return 1;
+    }
+    return 0;
+}
+
 // One AST_CALL node -- OUTPUT/STOP/WHILE/MAKE/LOCAL (see this file's
 // own comment on why these are recognized by name) or an ordinary
 // builtin/user-procedure call, in either expression position
@@ -696,6 +715,7 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         instr.a = argc;
         snprintf(instr.text, sizeof(instr.text), "%s", name);
         emit(chunk, instr);
+        if (is_motion_command(name)) emit(chunk, (Instr){.op = OP_MOTION_DELAY});
     }
     finish_call(chunk, name, want_value);
 }

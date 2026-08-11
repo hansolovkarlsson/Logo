@@ -399,6 +399,17 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         *produced = 0;
         return num_val(0);
     }
+    if (strcasecmp(name, "SETSPEED") == 0) {
+        // <= 0 is stored as-is (no clamping to exactly 0), but
+        // OP_MOTION_DELAY's own "if delay <= 0, no-op" check treats it
+        // identically to 0 either way -- same "don't bother clamping
+        // what a later guard already handles" convention as WAIT's own
+        // seconds argument.
+        app->turtle_speed_delay = eval_to_number(args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SPEED") == 0) return num_val(app->turtle_speed_delay);
     if (strcasecmp(name, "TELL") == 0) {
         eval_tell_value(app, args[0]);
         *produced = 0;
@@ -1538,6 +1549,20 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 vm->pc = pc + 1;
                 vm->vm_run_depth--;
                 return VM_RUN_SUSPENDED_YIELD;
+            }
+            case OP_MOTION_DELAY: {
+                // Silent no-op, not a reported refusal -- see this
+                // opcode's own bytecode.h comment for why depth>1 (and
+                // an unset/zero speed) skip quietly here, unlike every
+                // other suspend opcode's vm_run_depth>1 check.
+                if (vm->vm_run_depth > 1 || app->turtle_speed_delay <= 0) {
+                    pc++;
+                    break;
+                }
+                vm->pc = pc + 1;
+                vm->suspend_seconds = app->turtle_speed_delay;
+                vm->vm_run_depth--;
+                return VM_RUN_SUSPENDED_MOTION_DELAY;
             }
             default:
                 pc++;

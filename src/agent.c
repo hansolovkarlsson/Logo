@@ -123,6 +123,19 @@ void scheduler_run(LogoApp *app, AstPool *pool, BytecodeChunk *chunk, Agent *ini
                 case VM_RUN_SUSPENDED_AWAIT:
                     a->state = AGENT_WAITING_JOIN;
                     break;
+                case VM_RUN_SUSPENDED_MOTION_DELAY:
+                    // SETSPEED's throttle, hit while running as an
+                    // agent -- treated like YIELD (stays READY, no
+                    // teardown), not like WAIT below: there's no real
+                    // timer in this synchronous scheduler to honor the
+                    // delay with, but an automatic per-step throttle the
+                    // script never explicitly asked for at this call
+                    // site doesn't deserve the same reported refusal an
+                    // explicit WAIT-like call gets (see this opcode's
+                    // own bytecode.h comment). A global SETSPEED just
+                    // has no visible slow-motion effect on agents yet.
+                    a->state = AGENT_READY;
+                    break;
                 default:
                     // WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE inside an
                     // agent -- deliberately deferred (see agent.h's own

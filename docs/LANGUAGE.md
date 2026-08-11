@@ -93,6 +93,7 @@ RT 90 FD 50
 | `FILL` | — | — | Flood-fill the region containing the turtle, bounded by drawn lines, with its pen color |
 | `ERASERECT` | — | `width height` | Paint a rectangle centered on the turtle in the background color |
 | `WAIT` | — | expr (seconds) | Pause before the next command, without freezing the window |
+| `SETSPEED` | — | expr (seconds) | Pause this long after every turtle-motion command, for effect or debugging; `0` (the default) means instant, same as before this existed |
 
 `SETXY`/`HOME` draw a connecting line if the pen is down, same as
 `FORWARD` — they're a direct jump to a position, not a teleport. `CLEAR`
@@ -164,6 +165,37 @@ CLEAR
   — typing commands one at a time already shows each one immediately,
   but a whole file runs as a single unit, so without `WAIT`, a `CLEAR`
   partway through would wipe earlier drawing before it was ever visible.
+
+```
+SETSPEED 0.1
+REPEAT 4 [FD 100 RT 90]   (draws one side, pauses 0.1s, four times over)
+SETSPEED 0
+```
+
+- `SETSPEED expr` sets how long (in seconds, same unit as `WAIT`) the
+  turtle pauses after **every** motion command from then on --
+  `FORWARD`/`FD`, `BACK`/`BK`, `RIGHT`/`RT`, `LEFT`/`LT`, `SETXY`,
+  `SETX`, `SETY`, `SETHEADING`/`SETH`, `HOME`, and `ARC` -- for watching
+  a drawing unfold step by step, or slowing things down to debug.
+  `SETSPEED 0` (the default) is instant, exactly as if it never existed.
+  Uses the same non-freezing real-timer mechanism as `WAIT`, so the
+  window stays responsive and redraws between steps.
+- `SPEED` (an operator, no argument) reads the current setting back.
+- The pause applies uniformly to every turtle-motion command, not just
+  `FD` -- a script heavy on `SETXY`/`SETHEADING` slows down exactly the
+  same way one built from `FD`/`RT` does.
+- Commands that don't move or turn the turtle (`PENUP`, `SETPENCOLOR`,
+  `TELL`, `WAIT` itself, ...) are never delayed by `SETSPEED`, whatever
+  it's set to.
+- Inside a `MAP`/`FILTER`/`REDUCE`/`FOREACH` template, `RUN`, or `LOAD`,
+  the delay is silently skipped rather than reported as unsupported the
+  way `WAIT` itself would be -- it's an automatic per-step throttle, not
+  something the script explicitly asked for at that exact call site.
+  Same silent skip inside a concurrent agent (`LAUNCH`/`AWAIT`/`YIELD`,
+  see docs/CONCURRENT_AGENTS_DESIGN.md): `SETSPEED` is a single
+  canvas-wide setting shared by every agent, but this first pass has no
+  real per-agent timer to honor it with yet, so it has no visible
+  slowdown effect there.
 
 ```
 ARC 360 80        (a full circle, radius 80)

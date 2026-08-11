@@ -986,6 +986,61 @@ TEST(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_su
     end_vm_session(s);
 }
 
+TEST(test_setspeed_default_is_instant_no_delay_at_all) {
+    // The default (0) is unchanged behavior -- FD never suspends unless
+    // SETSPEED has actually been called.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("FD 10\nPRINT 1", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n");
+    end_vm_session(s);
+}
+
+TEST(test_setspeed_makes_a_motion_command_suspend_then_resume_and_continue) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SETSPEED 0.2\nFD 10\nPRINT 1", &status);
+    expect_status(status, VM_RUN_SUSPENDED_MOTION_DELAY, "initial run");
+    if (s.vm->suspend_seconds != 0.2) {
+        failures++;
+        printf("FAIL %s: suspend_seconds -- expected 0.2, got %g\n", current_test, s.vm->suspend_seconds);
+    }
+    status = vm_resume(s.vm, s.app, &s.result->pool, s.chunk);
+    expect_status(status, VM_RUN_HALTED, "resume");
+    expect_output("1\n");
+    end_vm_session(s);
+}
+
+TEST(test_setspeed_does_not_delay_non_motion_commands) {
+    // PRINT/SETPENCOLOR/etc never suspend, whatever SETSPEED is set to
+    // -- only the turtle-motion commands is_motion_command names.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SETSPEED 0.2\nPRINT 1\nSETPENCOLOR 255 0 0\nPRINT 2", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n2\n");
+    end_vm_session(s);
+}
+
+TEST(test_speed_reports_the_current_setting) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT SPEED\nSETSPEED 0.5\nPRINT SPEED", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("0\n0.5\n");
+    end_vm_session(s);
+}
+
+TEST(test_setspeed_inside_a_foreach_template_is_a_silent_no_op_not_an_error) {
+    // Unlike WAIT/WAITKEY's own explicit refusal message inside a
+    // template, an automatic per-step throttle the script never
+    // explicitly asked for at this call site just skips quietly (see
+    // OP_MOTION_DELAY's own bytecode.h comment) -- no output at all
+    // beyond what the script itself prints.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SETSPEED 0.2\nFOREACH [FD 1] [1 2]\nPRINT \"done", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("done\n");
+    end_vm_session(s);
+}
+
 TEST(test_input_suspends_then_resumes_with_the_submitted_line_and_completes) {
     VmRunResult status;
     VmTestSession s = start_vm_session("MAKE \"line INPUT\nPRINT :line", &status);
@@ -1802,6 +1857,11 @@ int main(void) {
     RUN(test_waitkey_suspends_and_resumes_correctly_through_several_nested_procedure_calls);
     RUN(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
     RUN(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
+    RUN(test_setspeed_default_is_instant_no_delay_at_all);
+    RUN(test_setspeed_makes_a_motion_command_suspend_then_resume_and_continue);
+    RUN(test_setspeed_does_not_delay_non_motion_commands);
+    RUN(test_speed_reports_the_current_setting);
+    RUN(test_setspeed_inside_a_foreach_template_is_a_silent_no_op_not_an_error);
     RUN(test_input_suspends_then_resumes_with_the_submitted_line_and_completes);
     RUN(test_input_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
     RUN(test_pause_suspends_with_the_right_level_then_resumes_and_completes);

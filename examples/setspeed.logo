@@ -1,0 +1,14 @@
+; SETSPEED: pauses this many seconds after every turtle-motion command
+; (FD/BK/RT/LT/SETXY/SETX/SETY/SETHEADING/HOME/ARC), so a drawing
+; unfolds step by step instead of snapping straight to the finished
+; shape -- for effect, or for watching exactly what a script does one
+; move at a time. SPEED reads the current setting back. 0 (the default)
+; is instant, same as before SETSPEED existed.
+
+PRINT SPEED   ; 0 -- nothing set yet
+
+SETSPEED 0.15
+REPEAT 4 [FD 100 RT 90]   ; each side and turn now takes 0.15s to appear
+
+SETSPEED 0   ; back to instant
+REPEAT 4 [FD 60 RT 90]    ; this square snaps straight to finished

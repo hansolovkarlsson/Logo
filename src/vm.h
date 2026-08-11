@@ -50,6 +50,11 @@
 // concurrent agents never needs a real GTK timer or keypress at all,
 // since every one of these three is resolved by the scheduler itself,
 // synchronously, on its own next loop iteration.
+// VM_RUN_SUSPENDED_MOTION_DELAY (SETSPEED, OP_MOTION_DELAY) resumes via
+// the plain vm_resume like WAIT/PAUSE, sharing WAIT's own real-timer
+// mechanism in ui.c (arms the same on_wait_timeout off suspend_seconds)
+// -- but agent.c's scheduler treats it like YIELD, not like WAIT: see
+// OP_MOTION_DELAY's own bytecode.h comment for why.
 typedef enum {
     VM_RUN_HALTED,
     VM_RUN_SUSPENDED_WAIT,
@@ -60,6 +65,7 @@ typedef enum {
     VM_RUN_SUSPENDED_LAUNCH,
     VM_RUN_SUSPENDED_AWAIT,
     VM_RUN_SUSPENDED_YIELD,
+    VM_RUN_SUSPENDED_MOTION_DELAY,
 } VmRunResult;
 
 // One in-flight OP_CALL_PROC: where to resume in `code` when this
@@ -179,6 +185,10 @@ typedef struct {
     // corruption" spirit as the template batch's own frame_floor
     // mitigation for OUTPUT/STOP (which exec_run/exec_load also both
     // use, for the same underlying reason -- see their own comments).
+    // OP_MOTION_DELAY checks it too, but silently no-ops instead of
+    // refusing -- see its own bytecode.h comment for why an automatic
+    // per-step throttle doesn't deserve the same reported refusal an
+    // explicit WAIT-like call does.
     int vm_run_depth;
 } Vm;
 

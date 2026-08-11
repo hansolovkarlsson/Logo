@@ -990,6 +990,61 @@ every other `vm_run_depth`-gated refusal.
   passing arguments to a launched agent, automatic per-loop yielding,
   and mixing an ordinary top-level suspend/resume with a later `LAUNCH`.
 
+### CLI ergonomics
+
+- [x] **Run a `.logo` file straight from the command line** (shipped
+  2026-08-10): `bin/logo script.logo` loads and runs it immediately on
+  startup instead of always opening a blank window. Uses GApplication's
+  own `"open"` signal (`G_APPLICATION_HANDLES_OPEN`) rather than parsing
+  argv by hand, so multi-file-open semantics and GTK's own arg handling
+  stay correct for free; a new `build_main_window` helper factors the
+  window/widget construction out of `logo_activate` so the new
+  `logo_open` handler (`ui.c`) can share it, then reuses the exact same
+  load+run logic `File > Open…` already had (`on_file_open_response`).
+  No argument still opens a blank window as before. Verified live (both
+  launch modes checked via process liveness, not GUI screenshot, per
+  this project's no-GUI-automation constraint) with `examples/
+  concurrent_agents.logo` (the synchronous scheduler path) and
+  `examples/animate_sprite.logo` (the real-GTK-timer suspend/resume
+  path) — both loaded, ran to completion, and stayed alive with no
+  crash.
+
+- [x] **`SETSPEED`/`SPEED` + `--speed`** (shipped 2026-08-10): a
+  turtle-motion throttle for watching a drawing unfold step by step, or
+  slowing things down to debug — `SETSPEED seconds` pauses the turtle
+  that long after every motion command (`FD`/`FORWARD`/`BK`/`BACK`/
+  `RT`/`RIGHT`/`LT`/`LEFT`/`SETXY`/`SETX`/`SETY`/`SETHEADING`/`SETH`/
+  `HOME`/`ARC`) from then on; `SPEED` reads it back; `0` (the default)
+  is instant, unchanged from every prior release. `--speed <seconds>`
+  on the command line sets the same value before a script's first
+  instruction runs (works with both launch modes above).
+  Reuses `WAIT`'s own real-timer suspend/resume mechanism exactly (a new
+  `OP_MOTION_DELAY` opcode + `VM_RUN_SUSPENDED_MOTION_DELAY`, compiled
+  in by `compiler.c` right after every motion-command call, resumed by
+  `ui.c`'s existing `on_wait_timeout`) — a VM-only feature, same as
+  Phase 6's `LAUNCH`/`AWAIT`/`YIELD`, since only the bytecode VM
+  (`bin/logo`'s own live engine) has real suspend/resume at all.
+  Deliberately differs from `WAIT` in one respect: inside a
+  `MAP`/`FILTER`/`REDUCE`/`FOREACH` template, `RUN`, `LOAD`, or a
+  concurrent agent, the delay is silently skipped rather than reported
+  as unsupported — an automatic per-step throttle the script never
+  explicitly asked for at that exact call site doesn't deserve the same
+  reported refusal an explicit `WAIT`-like call gets; agent.c's own
+  scheduler treats it like `YIELD` (stays READY) rather than tearing the
+  agent down, so a global `SETSPEED` can't turn an ordinary `FD` inside
+  an agent into a silent killer. 5 new `test_vm.c` cases + 1 new
+  `test_agent.c` case; a new `examples/setspeed.logo`; verified via
+  `make test` (still 7 suites, all pass), standalone ASan builds of
+  `test_vm`/`test_agent` (both fully clean this run — the previously-
+  noted pre-existing recursion-depth crash didn't reproduce this time,
+  a known flaky/borderline case, not something this change introduced),
+  a headless harness confirming the exact suspend count/timing/output
+  for `examples/setspeed.logo`, and a live `bin/logo --speed 1.0`
+  launch showing CPU dropping back to idle right around the expected
+  ~8-second mark for an 8-motion-command script (proxy confirmation,
+  not pixel-level proof — GUI screenshot verification is off-limits per
+  this project's own established constraint).
+
 ## Robustness
 
 - [ ] Grow `tests/test_interpreter.c`'s coverage as new language features

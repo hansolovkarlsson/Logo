@@ -989,6 +989,17 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             g_suspended_run = run;
             g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_animatesprite_timeout, app);
             break;
+        case VM_RUN_SUSPENDED_MOTION_DELAY:
+            // SETSPEED's own throttle -- identical to VM_RUN_SUSPENDED_
+            // WAIT's own handling (same real timer, same resume
+            // callback): from ui.c's own perspective there's no
+            // meaningful difference between "the script explicitly
+            // asked to wait" and "a motion command's own automatic
+            // throttle fired," both just need the window to stay
+            // responsive for suspend_seconds before continuing.
+            g_suspended_run = run;
+            g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
+            break;
         default:
             // VM_RUN_SUSPENDED_LAUNCH/AWAIT/YIELD (Phase 6's own first
             // slice, docs/CONCURRENT_AGENTS_DESIGN.md) reached via a
@@ -1464,6 +1475,17 @@ static void action_quit(GSimpleAction *action, GVariant *parameter, gpointer use
     g_application_quit(G_APPLICATION(user_data));
 }
 
+// main.c's own --speed/--speed=N parsing stashes its result here (via
+// set_startup_turtle_speed) before g_application_run ever fires
+// "activate"/"open" -- a single file-scope value is enough for the same
+// reason g_suspended_run is: this app only ever builds one window/one
+// LogoApp per process.
+static double g_startup_turtle_speed = 0.0;
+
+void set_startup_turtle_speed(double seconds) {
+    g_startup_turtle_speed = seconds;
+}
+
 // Build the main window: the turtle canvas / REPL pane split, the View
 // menu and its text-size actions/accelerators, then present it.
 // Builds the window/widgets/actions shared by a normal launch
@@ -1478,6 +1500,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     init_turtle(logo, &logo->turtles[0]);
     logo->turtle_count = 1;
     logo->current_turtle = 0;
+    logo->turtle_speed_delay = g_startup_turtle_speed;
     logo->bg_r = 1.0;
     logo->bg_g = 1.0;
     logo->bg_b = 1.0;

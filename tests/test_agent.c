@@ -251,6 +251,26 @@ TEST(test_wait_inside_an_agent_reports_the_deferred_support_error) {
     free(app);
 }
 
+// SETSPEED's throttle, unlike WAIT above, doesn't tear the agent down
+// -- it's an automatic per-step delay the script never explicitly
+// asked for at this call site (see agent.c's own VM_RUN_SUSPENDED_
+// MOTION_DELAY case), so a global SETSPEED must not turn FD into a
+// silent agent-killer.
+TEST(test_setspeed_inside_an_agent_does_not_tear_it_down) {
+    LogoApp *app = new_app();
+    run_agent_script(app,
+        "SETSPEED 0.2\n"
+        "TO mover\n"
+        "  FD 10\n"
+        "  PRINT \"mover-done\n"
+        "END\n"
+        "LAUNCH \"mover\n"
+        "AWAIT\n"
+        "PRINT \"main-done");
+    expect_output("mover-done\nmain-done\n");
+    free(app);
+}
+
 int main(void) {
     RUN(test_launch_runs_a_procedure_to_completion);
     RUN(test_await_blocks_until_every_launched_agent_finishes);
@@ -259,6 +279,7 @@ int main(void) {
     RUN(test_two_agents_dont_leak_local_variables_into_each_other);
     RUN(test_two_agents_dont_leak_turtle_selection_into_each_other);
     RUN(test_wait_inside_an_agent_reports_the_deferred_support_error);
+    RUN(test_setspeed_inside_an_agent_does_not_tear_it_down);
 
     if (failures == 0) {
         printf("All tests passed.\n");

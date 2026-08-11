@@ -275,6 +275,20 @@ typedef struct LogoApp {
     int turtle_count;
     int current_turtle;
 
+    // SETSPEED's own setting, in seconds -- 0 (the default) means
+    // instant/no delay, unchanged from every prior release. When
+    // nonzero, the VM (vm.c's OP_MOTION_DELAY, emitted by compiler.c
+    // right after FD/BK/RT/LT/SETXY/SETHEADING/SETH/SETX/SETY/HOME/ARC)
+    // suspends for this many seconds after each such command, the same
+    // real-timer mechanism WAIT itself uses, so the window stays
+    // responsive and redraws between steps instead of freezing. See
+    // SPEED for the paired getter. Only the bytecode VM (bin/logo's own
+    // live engine) implements the actual throttling; eval_logo/ast_eval
+    // parse and store this value but never suspend, matching how
+    // VM-only features (LAUNCH/AWAIT/YIELD) have been handled since
+    // Phase 6.
+    double turtle_speed_delay;
+
     LineSegment lines[MAX_LINES];
     int line_count;
 

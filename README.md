@@ -46,6 +46,15 @@ on startup, instead of starting with a blank window:
 bin/logo examples/concurrent_agents.logo
 ```
 
+Pass `--speed <seconds>` to start every turtle-motion command already
+throttled by that many seconds (same as calling `SETSPEED` as the
+script's first line) -- useful for watching a drawing unfold step by
+step:
+
+```sh
+bin/logo --speed 0.2 examples/multiple_turtles.logo
+```
+
 ## Example
 
 ```

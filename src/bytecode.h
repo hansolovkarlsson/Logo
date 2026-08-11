@@ -228,6 +228,30 @@ typedef enum {
     // relies on instead of automatic per-loop-iteration yielding.
     OP_AWAIT,
     OP_YIELD,
+
+    // SETSPEED's own throttle -- compile_call emits this right after
+    // OP_CALL_BUILTIN for FD/FORWARD/BK/BACK/RT/RIGHT/LT/LEFT/SETXY/
+    // SETHEADING/SETH/SETX/SETY/HOME/ARC (is_motion_command in
+    // compiler.c), never for any other builtin. Unlike OP_WAIT there's
+    // no companion OP_VOID_RESULT immediately after -- the call it
+    // follows has already produced/discarded its own result via
+    // finish_call, so this opcode touches the stack not at all. Pops
+    // nothing; if app->turtle_speed_delay <= 0 (the default) or
+    // vm_run_depth > 1 (inside a MAP/FILTER/REDUCE/FOREACH template,
+    // RUN, or LOAD), it's a silent no-op -- deliberately NOT the
+    // "not supported inside a template/RUN/LOAD" refusal WAIT/WAITKEY/
+    // etc. give, since this is an automatic per-step throttle the
+    // script never explicitly asked for at this call site, not a
+    // command whose refusal the user needs reported. Otherwise suspends
+    // (VM_RUN_SUSPENDED_MOTION_DELAY, vm->suspend_seconds =
+    // app->turtle_speed_delay) with vm->pc pointing at the very next
+    // instruction. ui.c resumes it exactly like WAIT (same timer, same
+    // on_wait_timeout); agent.c's scheduler treats it like YIELD
+    // (silently keeps the agent READY, no real delay -- see agent.c's
+    // own comment) rather than the "not yet supported inside a
+    // concurrent agent" teardown WAIT itself gets, for the same "this
+    // wasn't an explicit ask" reasoning.
+    OP_MOTION_DELAY,
 } OpCode;
 
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,
