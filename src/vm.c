@@ -307,6 +307,57 @@ static void exec_loadbytecode(Vm *vm, LogoApp *app, const char *path) {
     g_free(contents);
 }
 
+// ONKEY "procname -- registers procname (must take exactly one input,
+// bound to the pressed key's name -- same gdk_keyval_name convention
+// WAITKEY's own output already uses) to fire as a fresh background
+// invocation on every keypress (see ui.c's own fire_onkey/handle_vm_
+// result). Validated eagerly here (exists, exactly 1 param) so a typo
+// is reported immediately rather than silently doing nothing the first
+// time a key is pressed; a validation failure leaves any previously-
+// registered handler untouched, not cleared. The actual firing --
+// resolving app->onkey_handler against a *retained* copy of this
+// chunk, since this run's own chunk is normally freed the moment it
+// finishes -- is ui.c's job, not this engine's: vm.c stays headless/
+// GTK-free, same as everywhere else in this file.
+static void exec_onkey(LogoApp *app, BytecodeChunk *chunk, const char *proc_name) {
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, proc_name);
+    if (def == NULL) {
+        append_output(app, "ONKEY: no such procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\n");
+        return;
+    }
+    if (def->param_count != 1) {
+        append_output(app, "ONKEY: procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\" must take exactly one input (the pressed key's name)\n");
+        return;
+    }
+    snprintf(app->onkey_handler, sizeof(app->onkey_handler), "%s", proc_name);
+}
+
+// ONCLICK "procname -- same shape as exec_onkey above, but for mouse
+// clicks on the canvas: procname must take exactly three inputs, bound
+// to the click's x, y (canvas-relative pixels, the same coordinate
+// space SETXY/POS already use) and button number (1/2/3, GDK's own
+// left/middle/right convention).
+static void exec_onclick(LogoApp *app, BytecodeChunk *chunk, const char *proc_name) {
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, proc_name);
+    if (def == NULL) {
+        append_output(app, "ONCLICK: no such procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\n");
+        return;
+    }
+    if (def->param_count != 3) {
+        append_output(app, "ONCLICK: procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\" must take exactly three inputs (x, y, button)\n");
+        return;
+    }
+    snprintf(app->onclick_handler, sizeof(app->onclick_handler), "%s", proc_name);
+}
+
 static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
@@ -369,6 +420,26 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     }
     if (strcasecmp(name, "LOADBYTECODE") == 0) {
         exec_loadbytecode(vm, app, args[0].word);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ONKEY") == 0) {
+        exec_onkey(app, chunk, args[0].word);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "OFFKEY") == 0) {
+        app->onkey_handler[0] = '\0';
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ONCLICK") == 0) {
+        exec_onclick(app, chunk, args[0].word);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "OFFCLICK") == 0) {
+        app->onclick_handler[0] = '\0';
         *produced = 0;
         return num_val(0);
     }

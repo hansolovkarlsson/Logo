@@ -2930,3 +2930,67 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   or interaction -- no Accessibility permission is granted in this
   environment, see this project's own established constraint on GUI
   automation).
+
+## ONKEY/ONCLICK -- background event triggers
+
+Shipped 2026-08-11 (see `docs/CHANGELOG.md`'s own "Mouse/keyboard event
+triggers" entry for the full writeup; recorded here for the suspend/
+resume-design angle specifically). No new opcodes: both go through the
+existing generic `OP_CALL_BUILTIN` dispatch with an `ARG_QUOTED_WORD`
+procedure-name argument, same shape as Stage D's `SAVEBYTECODE`/
+`LOADBYTECODE` -- registration (`exec_onkey`/`exec_onclick` in `vm.c`)
+is a plain, non-suspending builtin call that validates the named
+procedure exists in the CURRENTLY EXECUTING chunk with the right arity,
+then stores its name in `LogoApp.onkey_handler`/`onclick_handler`.
+
+The interesting design problem was firing a handler later, from a live
+GTK key/click event, well after the script that registered it may have
+already finished and had its own chunk freed. Two mechanisms this
+needed that didn't exist before:
+
+- **`SuspendedRun.owns_chunk`**: `TRUE` for every ordinary
+  `run_logo_script`/`run_bytecode_script` run (owns its own
+  `result`/`chunk` outright, freed normally when it finishes), `FALSE`
+  only for a run spawned by `ui.c`'s new `fire_onkey`/`fire_onclick`,
+  whose `result`/`chunk` are *borrowed* from whichever chunk registered
+  the handler. `free_suspended_run` and the `VM_RUN_SUSPENDED_LAUNCH`
+  case (which used to free `run->chunk`/`run->result` unconditionally)
+  both now check this flag first -- otherwise a handler that itself
+  calls `LAUNCH` would free a chunk still needed elsewhere.
+- **`g_onkey_owner`/`g_onclick_owner`** (`RetainedChunk` -- a bare
+  `{result, chunk}` pair): `handle_vm_result`'s `VM_RUN_HALTED` case now
+  checks, before freeing a finishing run's own chunk, whether either
+  currently-registered handler name resolves against it
+  (`bytecode_find_proc_entry`) -- if so, that chunk is adopted into the
+  matching retained-owner slot instead of being freed. Two independent
+  slots, not one shared one: `ONKEY` and `ONCLICK` can be registered by
+  two different scripts at different times, each needing its own chunk
+  kept alive; `release_retained_chunk` does a pointer-equality check
+  against the OTHER slot before actually freeing, so the common case
+  (one script registers both, sharing one chunk) doesn't double-free.
+  Released the moment the corresponding handler is cleared (`OFFKEY`/
+  `OFFCLICK`), checked unconditionally at the top of every
+  `handle_vm_result` call rather than only at clear-time, so it happens
+  promptly regardless of what triggered the check.
+
+Firing itself (`fire_handler` in `ui.c`) builds a scope via the same
+`eval_push_scope_for_call` every other call site (`OP_CALL_PROC`,
+`LAUNCH`, `APPLY`) uses, against a fresh, freshly-`calloc`'d `Vm`
+(`scopes[0]`/`scope_depth = 1`, matching `agent.c`'s own pattern for a
+freshly spawned agent), then runs it through the ordinary
+`vm_run`+`handle_vm_result` path -- a fired handler is a genuine
+top-level run in every respect except which chunk backs it, so it gets
+`WAIT`/`PAUSE`/`LAUNCH`/etc for free, no special-casing needed. It
+silently declines to fire at all if `g_suspended_run != NULL` (the
+interpreter isn't idle) -- the existing "one script thread at a time"
+rule already enforced for ordinary submissions turns out to double as
+exactly the debounce a fast-firing handler needs, with no extra
+bookkeeping.
+
+Known, accepted gap: a handler registered by a script that also calls
+`LAUNCH` isn't retained, since `VM_RUN_SUSPENDED_LAUNCH`'s own
+`scheduler_run` call happens before `VM_RUN_HALTED`'s retention check
+could ever run for that chunk. Not fixed here -- combining concurrent
+turtle agents with background event handlers in one script is an
+advanced combination beyond this feature's own scope, documented as a
+limitation rather than chased down.

@@ -1878,6 +1878,98 @@ TEST(test_savebytecode_of_an_unwritable_path_reports_an_error) {
     end_vm_session(s);
 }
 
+// ONKEY/ONCLICK (docs/ROADMAP.md's "Mouse/keyboard event triggers"):
+// registration-time validation only -- exec_onkey/exec_onclick and the
+// call_builtin dispatch are the whole part of this feature that lives
+// in vm.c and is reachable headlessly. Actually *firing* a registered
+// handler (fire_onkey/fire_onclick, the retained-chunk bookkeeping in
+// handle_vm_result) is ui.c-only, GTK-event-driven, and untestable here
+// the same way WAIT's real timer or WAITKEY's real keypress already
+// are -- see this file's own comment on why WAIT/WAITKEY are tested via
+// vm_run/vm_resume_with_key directly instead of a live GTK loop.
+TEST(test_onkey_registers_a_valid_one_param_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :KEY\nEND\nONKEY \"handler", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (strcasecmp(s.app->onkey_handler, "HANDLER") != 0) {
+        failures++;
+        printf("FAIL %s: onkey_handler -- expected \"HANDLER\", got \"%s\"\n", current_test, s.app->onkey_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onkey_of_a_missing_procedure_reports_an_error_and_registers_nothing) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("ONKEY \"nosuchproc", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONKEY: no such procedure \"nosuchproc\n");
+    if (s.app->onkey_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onkey_handler -- expected empty, got \"%s\"\n", current_test, s.app->onkey_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onkey_of_a_wrong_arity_procedure_reports_an_error_and_leaves_the_previous_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO GOOD :KEY\nEND\nTO BAD :A :B\nEND\nONKEY \"good\nONKEY \"bad", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONKEY: procedure \"bad\" must take exactly one input (the pressed key's name)\n");
+    if (strcasecmp(s.app->onkey_handler, "GOOD") != 0) {
+        failures++;
+        printf("FAIL %s: onkey_handler -- expected the earlier \"GOOD\" to survive, got \"%s\"\n", current_test, s.app->onkey_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_offkey_clears_a_registered_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :KEY\nEND\nONKEY \"handler\nOFFKEY", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (s.app->onkey_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onkey_handler -- expected empty after OFFKEY, got \"%s\"\n", current_test, s.app->onkey_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onclick_registers_a_valid_three_param_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :X :Y :BUTTON\nEND\nONCLICK \"handler", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (strcasecmp(s.app->onclick_handler, "HANDLER") != 0) {
+        failures++;
+        printf("FAIL %s: onclick_handler -- expected \"HANDLER\", got \"%s\"\n", current_test, s.app->onclick_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onclick_of_a_wrong_arity_procedure_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO BAD :X :Y\nEND\nONCLICK \"bad", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONCLICK: procedure \"bad\" must take exactly three inputs (x, y, button)\n");
+    if (s.app->onclick_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onclick_handler -- expected empty, got \"%s\"\n", current_test, s.app->onclick_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_offclick_clears_a_registered_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :X :Y :BUTTON\nEND\nONCLICK \"handler\nOFFCLICK", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (s.app->onclick_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onclick_handler -- expected empty after OFFCLICK, got \"%s\"\n", current_test, s.app->onclick_handler);
+    }
+    end_vm_session(s);
+}
+
 // Stage C of the bytecode save/load/assembler initiative
 // (docs/ROADMAP.md): disassembles a normally-compiled chunk, feeds the
 // resulting text straight back through bytecode_assemble into a FRESH
@@ -2121,6 +2213,13 @@ int main(void) {
     RUN(test_loadbytecode_of_a_missing_file_reports_an_error);
     RUN(test_loadbytecode_of_a_malformed_file_reports_the_assembler_error);
     RUN(test_savebytecode_of_an_unwritable_path_reports_an_error);
+    RUN(test_onkey_registers_a_valid_one_param_handler);
+    RUN(test_onkey_of_a_missing_procedure_reports_an_error_and_registers_nothing);
+    RUN(test_onkey_of_a_wrong_arity_procedure_reports_an_error_and_leaves_the_previous_handler);
+    RUN(test_offkey_clears_a_registered_handler);
+    RUN(test_onclick_registers_a_valid_three_param_handler);
+    RUN(test_onclick_of_a_wrong_arity_procedure_reports_an_error);
+    RUN(test_offclick_clears_a_registered_handler);
     RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);
 
     if (failures == 0) {

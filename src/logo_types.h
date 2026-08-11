@@ -423,6 +423,18 @@ typedef struct LogoApp {
     double mouse_y;
     gboolean mouse_button_down;
 
+    // ONKEY/ONCLICK's own registered handler procedure names, or empty
+    // strings if none registered (OFFKEY/OFFCLICK, or never set at
+    // all). Resolved against a *retained* copy of whichever chunk
+    // registered them (see ui.c's own g_onkey_owner/g_onclick_owner,
+    // right alongside g_suspended_run) each time a key/click actually
+    // fires one, since an ordinary run's own chunk is normally freed
+    // the moment that run finishes. Plain data, not a callback, same
+    // headless-safe convention as mouse_x/mouse_y above -- always empty
+    // in headless tests, where nothing ever calls ONKEY/ONCLICK anyway.
+    char onkey_handler[32];
+    char onclick_handler[32];
+
     // Joystick/game-controller state (JOYSTICK?/JOYSTICKAXIS/
     // JOYSTICKBUTTON?), Phase 4's one genuinely new dependency (SDL2,
     // linked alongside GTK -- see the Makefile). interpreter.c never

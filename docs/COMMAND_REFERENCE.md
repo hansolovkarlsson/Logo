@@ -47,6 +47,7 @@ check whether the change also touches `docs/BYTECODE_REFERENCE.md`
 - [Resizable canvas](#resizable-canvas)
 - [Suspend/resume](#suspendresume)
 - [Concurrent agents](#concurrent-agents)
+- [Event triggers](#event-triggers)
 - [Appendix: documented elsewhere, not available in `bin/logo`](#appendix-documented-elsewhere-not-available-in-binlogo)
 
 ---
@@ -748,6 +749,50 @@ PRINT "all-agents-done
 agent are deliberately deferred (an explicit, reported error, not a
 silent hang). `SETSPEED` has no visible slow-motion effect on agents
 yet. See `examples/concurrent_agents.logo` for a full working demo.
+
+## Event triggers
+
+Unlike `WAITKEY` above (which blocks the running script until the next
+key), `ONKEY`/`ONCLICK` register a procedure to run in the background
+whenever a key/click happens, without pausing anything. See
+`docs/ROADMAP.md`'s "Mouse/keyboard event triggers" for the original
+design writeup.
+
+| Command | Args | Description |
+|---|---|---|
+| `ONKEY` | `"procname` | Run `procname` on every keypress (entry box focused), called with the key's name as its one input (`:KEY`) — same name convention as `WAITKEY`'s own output |
+| `OFFKEY` | — | Clear the current `ONKEY` handler |
+| `ONCLICK` | `"procname` | Run `procname` on every mouse button press on the canvas, called with `:X :Y :BUTTON` (canvas-relative pixels, same coordinate space `SETXY`/`POS` use; button 1/2/3, GDK's own left/middle/right convention) |
+| `OFFCLICK` | — | Clear the current `ONCLICK` handler |
+
+```
+TO KEYHANDLER :KEY
+  IF :KEY = "space [PRINT "jump]
+END
+ONKEY "keyhandler
+
+TO CLICKHANDLER :X :Y :BUTTON
+  SETXY :X :Y
+END
+ONCLICK "clickhandler
+```
+
+`procname` must take *exactly* one input for `ONKEY` (three for
+`ONCLICK`) — a mismatch is a reported error at registration time, and
+leaves any previously-registered handler untouched rather than
+clearing it. A typo'd or undefined `procname` is likewise reported
+immediately, not silently ignored the first time it would have fired.
+
+Each handler slot holds at most one procedure — registering a new one
+replaces the old, same as `SETSPEED`. A key/click that fires while the
+interpreter isn't idle (the main script or a previous handler
+invocation is still running/suspended) is simply missed, not queued —
+same "at most one script thread" rule every ordinary REPL submission
+already follows. `ONKEY` only sees keys while the entry box has focus
+(the app's only keyboard-capture point); a handler registered inside a
+script that also uses `LAUNCH` is not retained once that script
+finishes (a known, narrow gap — register `ONKEY`/`ONCLICK` from a
+script that doesn't also `LAUNCH`, if both are needed).
 
 ---
 

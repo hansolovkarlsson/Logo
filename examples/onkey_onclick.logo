@@ -1,0 +1,27 @@
+; ONKEY/ONCLICK: background event triggers, unlike WAITKEY (see
+; examples/waitkey.logo), which blocks the whole script until the next
+; key. Here the script registers two handlers and then just ends --
+; KEYHANDLER/CLICKHANDLER keep firing on their own, in the background,
+; for as long as the app stays open, without anything else running.
+; Only makes sense from the actual app: the headless test driver has no
+; entry box/canvas to ever generate a real key/click event from.
+
+TO KEYHANDLER :KEY
+  PRINT SENTENCE "you-pressed: :KEY
+  IF :KEY = "Up [FD 20]
+  IF :KEY = "Down [BK 20]
+  IF :KEY = "Left [LT 15]
+  IF :KEY = "Right [RT 15]
+END
+
+TO CLICKHANDLER :X :Y :BUTTON
+  PENUP
+  SETXY :X :Y
+  PENDOWN
+  PRINT SENTENCE (SENTENCE "clicked: :X) :Y
+END
+
+ONKEY "keyhandler
+ONCLICK "clickhandler
+
+PRINT 'Arrow keys drive the turtle; click the canvas to jump there. Both keep working while you type other commands too.'

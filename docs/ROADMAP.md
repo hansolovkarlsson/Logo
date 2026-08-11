@@ -65,62 +65,24 @@ primitives genuinely missing — ranked roughly easiest first:
 
 ## Mouse/keyboard event triggers
 
-Today, input is pull-only: `WAITKEY` blocks until a key is pressed and
-outputs its name; there's no way to react to input as a background
-concern while a script keeps running. `MOUSEPOS`/`MOUSEX`/`MOUSEY`/
-`BUTTON?` were designed once for the old tree-walking engine but never
-ported to the VM (see `docs/COMMAND_REFERENCE.md`'s "documented
-elsewhere, not available in `bin/logo`" appendix) — no mouse story
-exists in `bin/logo` at all yet, pull-based or otherwise.
+`ONKEY`/`OFFKEY`/`ONCLICK`/`OFFCLICK` shipped 2026-08-11 (see
+`docs/CHANGELOG.md`'s own entry for the full design and implementation
+writeup, and `docs/COMMAND_REFERENCE.md`'s "Event triggers" section for
+day-to-day usage). Still open, not yet built:
 
-Proposed push-based API, reusing `LAUNCH`'s existing "run a procedure as
-a background agent" machinery rather than inventing a new execution
-model:
-
-| Command | Args | Description |
-|---|---|---|
-| `ONKEY` | `"procname` | Run `procname` as a background agent on every keypress, called with the key's name as its one parameter (`:KEY`) — same name convention as `WAITKEY`'s own output |
-| `ONKEYUP` | `"procname` | Same, for key release |
-| `ONCLICK` | `"procname` | Run `procname` on mouse button press, called with `:X :Y :BUTTON` |
-| `ONRELEASE` | `"procname` | Mirror of `ONCLICK` for button release |
-| `ONMOUSEMOVE` | `"procname` | Run `procname` on pointer motion, called with `:X :Y` |
-| `OFFKEY` / `OFFKEYUP` / `OFFCLICK` / `OFFRELEASE` / `OFFMOUSEMOVE` | — | Clear the respective handler |
-
-```
-TO KEYHANDLER :KEY
-  IF :KEY = "space [PRINT "jump]
-END
-ONKEY "keyhandler
-
-TO CLICKHANDLER :X :Y :BUTTON
-  SETXY :X :Y
-END
-ONCLICK "clickhandler
-```
-
-Design decisions (settled 2026-08-11, before any implementation):
-
-- **One handler per event type**, not a list — registering a new one
-  replaces the old, same as `SETSPEED`'s single global setting. Simpler,
-  and nothing here needs multiple independent listeners on one event.
-- **`ONMOUSEMOVE`'s firing rate**: motion events can fire 60+/sec, and
-  spawning a fresh `LAUNCH`-style agent per event would let invocations
-  pile up faster than they finish. Fix: track a per-handler "busy" flag;
-  drop a new fire while the previous invocation of *that same handler*
-  is still running, rather than queuing. `ONKEY`/`ONCLICK` are naturally
-  low-frequency enough this shouldn't matter for them, but the same
-  guard is cheap to apply uniformly.
-- **Coordinate space for `:X`/`:Y`**: logical turtle coordinates
-  (matching `SETXY`), not raw pixels — consistent with the never-ported
-  `MOUSEPOS` design rather than introducing a second coordinate system.
-- **Joystick support is a separate, later item** (see the earlier
-  discussion in this doc's history) — GTK4 has no built-in gamepad
-  support on macOS, so it needs an extra dependency (e.g. GNOME's
-  libmanette) or direct IOKit/HID access, a bigger lift than mouse/
-  keyboard and not needed to ship those.
-
-- [ ] `ONKEY`/`ONKEYUP`/`OFFKEY`/`OFFKEYUP` — keyboard event triggers
-- [ ] `ONCLICK`/`ONRELEASE`/`ONMOUSEMOVE`/`OFFCLICK`/`OFFRELEASE`/
-  `OFFMOUSEMOVE` — mouse event triggers
-- [ ] Joystick event triggers (`ONJOYBUTTON`/etc) — deferred until a
-  gamepad library dependency is decided on
+- [ ] `ONKEYUP` / `OFFKEYUP` — mirror of `ONKEY`/`OFFKEY` for key
+  *release* rather than press
+- [ ] `ONRELEASE` / `OFFRELEASE` — mirror of `ONCLICK`/`OFFCLICK` for
+  button *release*
+- [ ] `ONMOUSEMOVE` / `OFFMOUSEMOVE` — fires on pointer motion, called
+  with `:X :Y`. Needs its own debounce: motion events can fire 60+/sec,
+  and firing a full background invocation per event would let them pile
+  up faster than they finish. `ONKEY`/`ONCLICK`'s own firing already
+  drops an event outright while the interpreter isn't idle (see the
+  CHANGELOG entry) — the same drop-not-queue behavior naturally covers
+  this too, just worth confirming it actually holds up at a real 60Hz
+  rate before calling this done, not only reasoning about it.
+- [ ] Joystick event triggers (`ONJOYBUTTON`/etc) — GTK4 has no built-in
+  gamepad support on macOS, so this needs an extra dependency (e.g.
+  GNOME's libmanette) or direct IOKit/HID access, a bigger lift than
+  mouse/keyboard and not needed to ship those.

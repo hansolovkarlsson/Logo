@@ -1223,3 +1223,76 @@ saved to file, loaded back, and hand-assembled.
   ~8-second mark for an 8-motion-command script (proxy confirmation,
   not pixel-level proof — GUI screenshot verification is off-limits per
   this project's own established constraint).
+
+## Mouse/keyboard event triggers
+
+- [x] **`ONKEY`/`OFFKEY`/`ONCLICK`/`OFFCLICK`** (shipped 2026-08-11):
+  push-based event handlers, registered by procedure name and fired as
+  a fresh background invocation whenever a key is pressed (entry box
+  focused) or the canvas is clicked — unlike `WAITKEY`, the main script
+  never blocks waiting for them. `ONKEY "procname` requires `procname`
+  to take exactly one input (`:KEY`, same `gdk_keyval_name` convention
+  `WAITKEY`'s own output already uses); `ONCLICK "procname` requires
+  exactly three (`:X :Y :BUTTON`, canvas-relative pixels — the same
+  coordinate space `SETXY`/`POS` already use — and GDK's own 1/2/3
+  left/middle/right button numbering). A missing procedure or an arity
+  mismatch is a reported error at *registration* time, leaving any
+  previously-registered handler untouched rather than clearing it.
+  `OFFKEY`/`OFFCLICK` clear the respective slot; each slot holds at
+  most one procedure, a new registration replacing the old (same
+  single-slot shape as `SETSPEED`).
+
+  Implementation ended up simpler than the original design sketch (see
+  `docs/ROADMAP.md`'s own history) in two ways: it does NOT reuse
+  `LAUNCH`'s agent scheduler (that scheduler is synchronous and runs to
+  completion in one call, wrong shape for a GTK-event-driven invocation
+  that might itself suspend on `WAIT`/etc) — instead each fire is a
+  brand-new top-level run through `ui.c`'s existing `handle_vm_result`
+  suspend/resume machinery, same as an ordinary REPL submission. And
+  the "debounce a busy handler" concern from the original design didn't
+  need a dedicated per-handler flag: firing already goes through the
+  same `g_suspended_run != NULL` check every ordinary submission uses,
+  so a fire during an already-running/suspended script or handler
+  invocation is just silently missed for free, no separate bookkeeping
+  needed.
+
+  The real new problem this needed solving: an ordinary script run's
+  own compiled chunk is normally freed the instant that run finishes
+  (`free_suspended_run`), but `ONKEY`/`ONCLICK`'s handler procedure
+  still needs to be findable/callable in it *after* the registering
+  script has finished (the whole point — register once, keep firing
+  indefinitely). Fixed with a `SuspendedRun.owns_chunk` flag (`FALSE`
+  only for a fired-handler's own run, whose chunk/result are borrowed,
+  not owned) plus two independent `RetainedChunk` slots in `ui.c`
+  (`g_onkey_owner`/`g_onclick_owner`, deliberately not one shared slot —
+  `ONKEY` and `ONCLICK` can be registered by two different scripts at
+  different times, each needing its own chunk kept alive) that
+  `handle_vm_result`'s `VM_RUN_HALTED` case adopts a finishing run's
+  chunk into (via a `bytecode_find_proc_entry` check against whichever
+  handler name is currently set) instead of freeing it, and releases
+  (with a pointer-equality check to avoid a double free when both slots
+  happen to share one chunk) the moment the corresponding handler is
+  cleared. One known, narrow gap left in place rather than chased down:
+  a handler registered by a script that also calls `LAUNCH` isn't
+  retained, since `scheduler_run`'s own call site frees its chunk
+  unconditionally — register `ONKEY`/`ONCLICK` from a script that
+  doesn't also `LAUNCH`, if both are needed.
+
+  No new opcodes: both go through the existing generic `OP_CALL_BUILTIN`
+  dispatch with `ARG_QUOTED_WORD` procedure-name arguments, the exact
+  same shape Stage D's `SAVEBYTECODE`/`LOADBYTECODE` used (see the
+  bytecode save/load/assembler entry above) — `src/parser.c`'s
+  `BUILTIN_SIGNATURES` table plus two new `vm.c` helpers
+  (`exec_onkey`/`exec_onclick`) were the entire compiler-side change.
+  7 new `test_vm.c` cases covering registration/arity/missing-procedure/
+  clearing (the actual GTK firing path, `ui.c`'s `fire_onkey`/
+  `fire_onclick`, is untestable headlessly, same as `WAIT`'s real timer
+  or `WAITKEY`'s real keypress already are); a new
+  `examples/onkey_onclick.logo`; verified via `make test` (all 8 suites
+  pass), a standalone ASan build of `test_vm` (clean with a raised
+  `ulimit -s` — the pre-existing recursion-depth crash this project
+  already tracks needs more headroom than this environment's default
+  stack size to get past, not a new issue), and two live `bin/logo`
+  process-liveness launches (the example script, and a smaller smoke
+  test covering registration + `OFFKEY`/`OFFCLICK` clearing) confirming
+  no crash on startup.

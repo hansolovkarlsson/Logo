@@ -404,6 +404,13 @@ static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gp
     draw_scene((LogoApp *)user_data, cr);
 }
 
+// Defined down in the "Bytecode VM execution" section, alongside
+// run_logo_script -- forward-declared here since on_canvas_button_
+// pressed (ONCLICK) and on_entry_key_pressed (ONKEY) both need to fire
+// a handler well before that section's own definitions appear.
+static void fire_onkey(LogoApp *app, const char *key_name);
+static void fire_onclick(LogoApp *app, double x, double y, int button);
+
 // MOUSEPOS/MOUSEX/MOUSEY: continuously updated from the canvas's own
 // motion events, in the same widget-relative pixel coordinates
 // SETXY/POS already use (origin top-left) -- no conversion needed.
@@ -416,13 +423,17 @@ static void on_canvas_motion(GtkEventControllerMotion *controller, gdouble x, gd
 
 // BUTTON?: continuously updated from the canvas's own click events.
 // Deliberately not position/button-number specific -- "is any button
-// down right now", matching Terrapin's own BUTTON.
+// down right now", matching Terrapin's own BUTTON. ONCLICK's own
+// handler (if one is registered) fires alongside this, with the
+// gesture's actual button number (1/2/3 -- GDK's own left/middle/right
+// convention), even though the gesture itself is configured to match
+// any button (see gtk_gesture_single_set_button(..., 0) below).
 static void on_canvas_button_pressed(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
-    (void)gesture;
     (void)n_press;
-    (void)x;
-    (void)y;
-    ((LogoApp *)user_data)->mouse_button_down = TRUE;
+    LogoApp *app = (LogoApp *)user_data;
+    app->mouse_button_down = TRUE;
+    int button = (int)gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+    fire_onclick(app, x, y, button);
 }
 
 static void on_canvas_button_released(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
@@ -901,9 +912,45 @@ typedef struct {
     ParseResult *result;
     BytecodeChunk *chunk;
     Vm *vm;
+    // FALSE only for a run spawned by fire_onkey/fire_onclick below,
+    // whose result/chunk are borrowed from g_onkey_owner/g_onclick_owner
+    // (still needed for as long as that handler stays registered) --
+    // free_suspended_run must not free them in that case. TRUE for
+    // every run_logo_script-spawned run, which always owns its own
+    // result/chunk outright.
+    gboolean owns_chunk;
 } SuspendedRun;
 
 static SuspendedRun *g_suspended_run = NULL;
+
+// ONKEY/ONCLICK's own retained chunk+result, kept alive independently
+// of g_suspended_run's normal free-on-finish lifecycle for as long as a
+// handler still needs them (see handle_vm_result's own VM_RUN_HALTED
+// case below, and release_retained_chunk right after). Two separate
+// slots, not one shared one: ONKEY and ONCLICK can validly be
+// registered by two different scripts/submissions at different times,
+// each needing its own chunk kept alive -- sharing one slot would
+// silently break whichever handler registered first the moment the
+// other one's script finishes. When both happen to point at the very
+// same chunk (the common case: one script registers both in one run),
+// release_retained_chunk's own pointer-equality check avoids a double
+// free.
+typedef struct {
+    ParseResult *result;
+    BytecodeChunk *chunk;
+} RetainedChunk;
+static RetainedChunk g_onkey_owner = {0};
+static RetainedChunk g_onclick_owner = {0};
+
+static void release_retained_chunk(RetainedChunk *slot, const RetainedChunk *other) {
+    if (slot->chunk == NULL) return;
+    if (slot->chunk != other->chunk) {
+        free(slot->chunk);
+        parse_result_destroy(slot->result);
+    }
+    slot->chunk = NULL;
+    slot->result = NULL;
+}
 
 // PAUSE's own paused runs -- deliberately a SEPARATE stack from
 // g_suspended_run, not folded into it. WAIT/WAITKEY/INPUT all suspend
@@ -934,8 +981,10 @@ static int g_paused_run_count = 0;
 
 static void free_suspended_run(SuspendedRun *run) {
     free(run->vm);
-    free(run->chunk);
-    parse_result_destroy(run->result);
+    if (run->owns_chunk) {
+        free(run->chunk);
+        parse_result_destroy(run->result);
+    }
     free(run);
 }
 
@@ -952,11 +1001,46 @@ static void maybe_resume_paused_runs(LogoApp *app);
 // request_redraw) mean users already expect to see that motion right
 // away, not only once the whole script finally finishes.
 static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result) {
+    // OFFKEY/OFFCLICK cleared a handler at some point during whatever
+    // run just reached this call (or a fresh script never re-registered
+    // one at all) -- release the correspondingly retained chunk right
+    // away rather than leaving it held onto uselessly until some LATER
+    // unrelated event happens to trigger a check.
+    if (app->onkey_handler[0] == '\0') release_retained_chunk(&g_onkey_owner, &g_onclick_owner);
+    if (app->onclick_handler[0] == '\0') release_retained_chunk(&g_onclick_owner, &g_onkey_owner);
+
     gtk_widget_queue_draw(app->drawing_area);
     switch (result) {
-        case VM_RUN_HALTED:
-            free_suspended_run(run);
+        case VM_RUN_HALTED: {
+            // If this run's own execution registered ONKEY/ONCLICK (its
+            // own chunk's procs[] resolves whichever handler name is
+            // now set), its chunk/result must outlive this call instead
+            // of being freed below -- see g_onkey_owner/g_onclick_owner
+            // above. A handler-invocation run's own chunk (owns_chunk
+            // FALSE) is always already retained by someone else, never
+            // newly adopted here.
+            gboolean keep_for_onkey = run->owns_chunk && app->onkey_handler[0] != '\0' &&
+                bytecode_find_proc_entry(run->chunk, app->onkey_handler) != NULL;
+            gboolean keep_for_onclick = run->owns_chunk && app->onclick_handler[0] != '\0' &&
+                bytecode_find_proc_entry(run->chunk, app->onclick_handler) != NULL;
+            if (keep_for_onkey) {
+                release_retained_chunk(&g_onkey_owner, &g_onclick_owner);
+                g_onkey_owner.result = run->result;
+                g_onkey_owner.chunk = run->chunk;
+            }
+            if (keep_for_onclick) {
+                release_retained_chunk(&g_onclick_owner, &g_onkey_owner);
+                g_onclick_owner.result = run->result;
+                g_onclick_owner.chunk = run->chunk;
+            }
+            if (keep_for_onkey || keep_for_onclick) {
+                free(run->vm);
+                free(run);
+            } else {
+                free_suspended_run(run);
+            }
             break;
+        }
         case VM_RUN_SUSPENDED_WAIT:
             g_suspended_run = run;
             g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
@@ -1031,8 +1115,15 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             initial_agent->state = AGENT_READY;
             initial_agent->started = TRUE;
             scheduler_run(app, &run->result->pool, run->chunk, initial_agent);
-            parse_result_destroy(run->result);
-            free(run->chunk);
+            // Same owns_chunk guard as VM_RUN_HALTED above -- a LAUNCH
+            // reached from inside an ONKEY/ONCLICK handler invocation
+            // runs against a *borrowed* chunk (still needed by
+            // g_onkey_owner/g_onclick_owner), which must not be freed
+            // here just because this particular run is done with it.
+            if (run->owns_chunk) {
+                parse_result_destroy(run->result);
+                free(run->chunk);
+            }
             free(run); // not free_suspended_run -- run->vm already freed above, not double-freed
             // A second redraw, after the whole concurrent run finishes
             // -- the one at this function's own top already fired
@@ -1168,7 +1259,55 @@ static void run_logo_script(LogoApp *app, const char *source) {
     run->result = result;
     run->chunk = chunk;
     run->vm = vm;
+    run->owns_chunk = TRUE;
     handle_vm_result(app, run, status);
+}
+
+// Fires `proc_name` (already validated at ONKEY/ONCLICK registration
+// time to exist in `owner`'s own chunk, with exactly `argc` params) as
+// a brand-new top-level run, sharing `owner`'s retained result/chunk
+// (never owned by the new SuspendedRun -- see its own owns_chunk field)
+// rather than compiling anything fresh. Silently drops the fire if the
+// interpreter isn't idle (g_suspended_run != NULL): matches the
+// existing "only one script thread at a time" rule every ordinary
+// submission already follows (run_logo_script's own g_suspended_run
+// check above), rather than queuing events or letting invocations pile
+// up -- an event that fires while a previous handler invocation (or
+// the main script) is still running/suspended is simply missed, not
+// queued.
+static void fire_handler(LogoApp *app, RetainedChunk *owner, const char *proc_name, EvalValue *args, int argc) {
+    if (g_suspended_run != NULL) return;
+    const ProcAddr *def = bytecode_find_proc_entry(owner->chunk, proc_name);
+    if (def == NULL) return; // shouldn't happen -- validated at registration time; erased since then, silently skipped
+
+    Scope handler_scope;
+    int scratch_depth = 0;
+    ScopeStack ss = {&handler_scope, &scratch_depth, 1};
+    eval_push_scope_for_call(app, ss, def->name, def->param_count, def->param_names, args, argc); // always succeeds -- argc already matches param_count, checked at registration
+
+    Vm *vm = calloc(1, sizeof(Vm));
+    vm->scopes[0] = handler_scope;
+    vm->scope_depth = 1;
+    VmRunResult status = vm_run(vm, app, &owner->result->pool, owner->chunk, def->start_pc);
+
+    SuspendedRun *run = calloc(1, sizeof(SuspendedRun));
+    run->result = owner->result;
+    run->chunk = owner->chunk;
+    run->vm = vm;
+    run->owns_chunk = FALSE;
+    handle_vm_result(app, run, status);
+}
+
+static void fire_onkey(LogoApp *app, const char *key_name) {
+    if (app->onkey_handler[0] == '\0') return;
+    EvalValue args[1] = { word_val(key_name) };
+    fire_handler(app, &g_onkey_owner, app->onkey_handler, args, 1);
+}
+
+static void fire_onclick(LogoApp *app, double x, double y, int button) {
+    if (app->onclick_handler[0] == '\0') return;
+    EvalValue args[3] = { num_val(x), num_val(y), num_val(button) };
+    fire_handler(app, &g_onclick_owner, app->onclick_handler, args, 3);
 }
 
 // Handles Enter/Shift+Enter and Up/Down history recall in the command
@@ -1230,6 +1369,15 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
         }
         return FALSE; // every other key behaves normally: typing, backspace, cursor movement
     }
+
+    // ONKEY's own handler (if one is registered) fires here, on every
+    // ordinary keypress that reaches this point -- same key-name
+    // convention as WAITKEY's own output above, but passive: unlike
+    // WAITKEY/waiting_for_input, this never consumes the keystroke or
+    // returns early, so typing/history/submission below all still
+    // happen normally alongside it.
+    const char *pressed_key_name = gdk_keyval_name(keyval);
+    if (pressed_key_name != NULL) fire_onkey(app, pressed_key_name);
 
     GdkModifierType mods = state & gtk_accelerator_get_default_mod_mask();
     if ((keyval == GDK_KEY_Up || keyval == GDK_KEY_Down) && mods == 0) {
@@ -1440,6 +1588,7 @@ static void run_bytecode_script(LogoApp *app, const char *text) {
     run->result = result;
     run->chunk = chunk;
     run->vm = vm;
+    run->owns_chunk = TRUE;
     handle_vm_result(app, run, status);
 }
 

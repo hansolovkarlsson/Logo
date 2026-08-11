@@ -148,6 +148,17 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SAVEBYTECODE", 1, { ARG_QUOTED_WORD } },
     { "LOADBYTECODE", 1, { ARG_QUOTED_WORD } },
 
+    // ONKEY/ONCLICK (docs/ROADMAP.md's "Mouse/keyboard event triggers")
+    // -- same ARG_QUOTED_WORD shape as SAVEBYTECODE/LOADBYTECODE right
+    // above: a compile-time-literal procedure name, resolved against
+    // chunk->procs[] at runtime (see vm.c's own exec_onkey/exec_onclick).
+    // OFFKEY/OFFCLICK take no arguments -- they just clear whatever's
+    // currently registered.
+    { "ONKEY", 1, { ARG_QUOTED_WORD } },
+    { "OFFKEY", 0, { 0 } },
+    { "ONCLICK", 1, { ARG_QUOTED_WORD } },
+    { "OFFCLICK", 0, { 0 } },
+
     // ERASE "name -- procedure deletion, not a drawing primitive
     // despite being grouped with the rest of this batch in
     // docs/ROADMAP.md (a miscategorization worth fixing there, not
