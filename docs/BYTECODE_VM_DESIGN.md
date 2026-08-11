@@ -2709,3 +2709,85 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   disassembler's own text format is deliberately not claimed as Stage
   C's eventual input syntax; that's a decision for when Stage C is
   actually scoped.
+- **Assembler — Stage C of bytecode save/load/assemble** (2026-08-11;
+  see `docs/ROADMAP.md`'s own "Bytecode save/load/assembler" section).
+  `bytecode_assemble(text, chunk, error, error_size)` (`bytecode.h`/
+  `bytecode.c`) parses text into a `BytecodeChunk`, appending via the
+  exact same `bytecode_emit`/`bytecode_add_word_literal`/
+  `bytecode_add_list_literal` functions `compiler.c` itself calls, so a
+  hand-assembled chunk is indistinguishable at runtime from a compiled
+  one. A hand-rolled, line-oriented parser -- same "reimplement
+  precisely, don't reach for a heavier abstraction" style `lexer.c`/
+  `parser.c` already use for Logo source itself, just for this format.
+  **Grammar decision**: rather than inventing a brand-new assembly
+  syntax, `bytecode_assemble` accepts exactly what `bytecode_disassemble`
+  already emits (Stage B's own `@N` absolute-pc jump targets, `PROCS:`
+  header, `---- source ----` blocks) unchanged -- Stage B needed no
+  retroactive changes at all -- and *additionally* accepts symbolic
+  labels: any `name:` line anywhere in `CODE:` (already used for a
+  proc's own entry point; a hand-writer can add ordinary ones too)
+  becomes a resolvable jump target, alongside `@N`, for
+  `OP_JUMP`/`OP_JUMP_IF_FALSE`/`OP_CHECK_THROW`/`OP_CALL_PROC`/the
+  `OP_MAP_COMPILED` family's own operands. This is a genuine two-pass
+  assembly: pass 1 walks the whole text once, populating `chunk->procs[]`
+  from `PROCS:` and recording every label's own resolved pc (an
+  ordinary instruction line just increments a running counter, not yet
+  parsed); pass 2 re-walks `CODE:` alone, this time actually parsing
+  each instruction's operands (labels already resolved, so a forward
+  reference works) and calling `bytecode_emit`.
+  **Two deliberate "don't trust stale data" decisions**, both aimed at
+  making hand-editing safe: a proc's own `start=` field in its `PROCS:`
+  entry is read (so the line's own grammar is symmetric with
+  `bytecode_disassemble`'s output) but never actually used -- its real
+  `start_pc` always comes from resolving its own `<name>:` label in
+  `CODE:` after pass 1, found via the same `asm_find_label` case-
+  insensitive lookup (`strcasecmp`, matching `bytecode_find_proc`'s own
+  convention) every ordinary jump target uses; and `CODE:`'s own
+  leading `<pc>:` address column, when present, is likewise read past
+  (`asm_strip_pc_prefix`) but never trusted, since `bytecode_assemble`
+  tracks its own running address. Together these mean inserting or
+  removing an instruction in a hand-edited file never requires manually
+  renumbering anything that follows.
+  **Reverse opcode lookup**: `asm_lookup_opcode` is a linear scan
+  comparing each mnemonic against `bytecode_opcode_name(i)` for `i` in
+  `[0, OPCODE_COUNT)` -- a new `#define OPCODE_COUNT (OP_MOTION_DELAY + 1)`
+  right after the enum, the one place Stage C's own reverse table
+  relies on `OpCode` staying a plain contiguous-int enum (already an
+  assumption `bytecode_opcode_name`'s own forward switch makes).
+  **Errors are loud, not silent**: an unknown opcode mnemonic, an
+  undefined or duplicate label, a `PROCS:` entry with no matching
+  `CODE:` label, a params-list-count/`argc=` mismatch, or a fixed table
+  filling up (`MAX_CHUNK_PROCS`/`MAX_INSTRUCTIONS`/`MAX_ASM_LABELS`/
+  word or list literal tables) each fail immediately with a one-line,
+  line-numbered message via a small `asm_error` `vsnprintf` helper --
+  the same "loud error, not silent corruption" policy every other
+  fixed-pool function in `bytecode.c` already follows -- rather than
+  emitting a partially-built, silently-wrong chunk.
+  **Verified**: warning-free build. Structural round-trip tests
+  (`tests/test_bytecode.c`, GTK-free, extending Stage B's own suite) --
+  disassemble a compiled chunk, reassemble it, and assert the
+  instruction stream and every proc's own metadata match exactly --
+  cover arithmetic, a nested list literal (quote/varref/leading-sign
+  fidelity), `IF`'s own jump target, recursion (`FACT`), multiple
+  procedures (forward reference + a real call chain), and a compiled
+  `MAP` template; plus dedicated tests for hand-written labels with a
+  forward jump, an omitted `<pc>:` column, a deliberately-wrong `start=`
+  field being correctly ignored, and every error path listed above.
+  Separately, a new `test_vm.c` test -- the one check that genuinely
+  needs the full `Vm`/`LogoApp` stack, so it couldn't live in the
+  GTK-free suite -- compiles a recursive `FACT` program normally,
+  disassembles the resulting chunk, reassembles it via
+  `bytecode_assemble`, and runs the REASSEMBLED chunk against a
+  completely empty `AstPool` (`node_count=0` -- no original AST
+  whatsoever) via an ordinary `vm_run` call, confirming its output
+  (`720` for `FACT 6`) matches the originally-compiled run's own output
+  exactly: genuine proof, not just structural equality, that a chunk
+  built from nothing but text can execute completely standalone --
+  directly answering the user's own original ask ("save the bytecode
+  to file, load bytecode"). All 8 `make test` suites pass; both
+  `test_bytecode` and `test_vm` also run clean under ASan; a live
+  `bin/logo` launch confirmed via process liveness (no GUI screenshot,
+  per this project's own constraint). Not yet built: Stage D
+  (`SAVEBYTECODE`/`LOADBYTECODE` builtins wiring `bytecode_disassemble`/
+  `bytecode_assemble` to actual files, plus round-trip tests through
+  real disk I/O).

@@ -1093,8 +1093,35 @@ scoped but not yet built.
   Stage C's eventual reverse lookup. Covered by a new, GTK-free
   `tests/test_bytecode.c` (`make test-bytecode`) that lexes/parses/
   compiles real snippets and asserts on the disassembly text.
-- [ ] **Stage C — assembler** (text → chunk, including label resolution
-  for jump targets). Not yet built.
+- [x] **Stage C — assembler** (text → chunk, including label resolution
+  for jump targets; shipped 2026-08-11). `bytecode_assemble(text,
+  chunk, error, error_size)` (bytecode.h/.c) accepts exactly what
+  `bytecode_disassemble` produces — its own output round-trips
+  unchanged — plus hand-written symbolic labels: any `name:` line in
+  `CODE:` (a proc's own entry point, or an ordinary bare one) can be
+  referenced by name from a jump-target operand instead of (or as well
+  as) the disassembler's own literal `@N` form, resolved via a genuine
+  two-pass assembly so a label may be referenced before its own
+  definition. A proc's `start=` field in its `PROCS:` entry is read but
+  never trusted — its real `start_pc` always comes from resolving its
+  own `<name>:` label — and the `CODE:` section's own `<pc>:` address
+  column is optional and, when present, likewise not trusted; both
+  choices mean hand-inserting/removing instructions never requires
+  renumbering anything by hand. Malformed input (unknown opcode,
+  undefined/duplicate label, a proc with no matching label, a params-
+  list/argc mismatch, a full fixed table) fails loudly with a one-line,
+  line-numbered message rather than silently producing a broken chunk.
+  Verified via structural round-trip tests (disassemble → assemble →
+  compare instructions/proc metadata) for arithmetic, nested list
+  literals, `IF`, recursion, multiple procedures, and a compiled `MAP`
+  template, hand-written-label and error-path tests (all in
+  `tests/test_bytecode.c`), and — the one check that genuinely needs
+  the full VM — a new `test_vm.c` test that disassembles a compiled
+  `FACT` recursion, reassembles it, and runs the reassembled chunk
+  against a completely empty `AstPool` (no original AST at all),
+  confirming its output matches the original run exactly: proof a
+  hand-assembled or reloaded-from-disk program can actually execute
+  standalone.
 - [ ] **Stage D — `SAVEBYTECODE`/`LOADBYTECODE`** builtins wiring B/C
   together, with round-trip tests. Not yet built.
 

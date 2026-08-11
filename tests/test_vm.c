@@ -1801,6 +1801,68 @@ TEST(test_directory_returns_a_list_without_crashing) {
     end_vm_session(s);
 }
 
+// Stage C of the bytecode save/load/assembler initiative
+// (docs/ROADMAP.md): disassembles a normally-compiled chunk, feeds the
+// resulting text straight back through bytecode_assemble into a FRESH
+// chunk, then runs that reassembled chunk against a completely empty
+// AstPool (node_count=0 -- no original AST at all) and checks its
+// output still matches the original run exactly. tests/test_bytecode.c
+// already covers structural round-tripping (same instructions/proc
+// metadata) without needing GTK; this is the one behavioral check that
+// genuinely needs the full Vm/LogoApp stack -- proving a hand-
+// assembled or reloaded-from-disk chunk can actually execute standalone,
+// not merely look structurally identical.
+TEST(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast) {
+    const char *source = "TO FACT :N\nIF :N <= 1 [OUTPUT 1]\nOUTPUT :N * FACT :N - 1\nEND\nPRINT FACT 6";
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex(source, tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+
+    captured_output[0] = '\0';
+    LogoApp *app1 = new_app();
+    BytecodeChunk *chunk1 = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk1);
+    Vm *vm1 = calloc(1, sizeof(Vm));
+    vm_run(vm1, app1, &result->pool, chunk1, start_pc);
+    char original_output[4096];
+    snprintf(original_output, sizeof(original_output), "%s", captured_output);
+
+    char *text = NULL;
+    size_t text_size = 0;
+    FILE *f = open_memstream(&text, &text_size);
+    bytecode_disassemble(chunk1, f);
+    fclose(f);
+
+    BytecodeChunk *chunk2 = calloc(1, sizeof(BytecodeChunk));
+    char asm_err[256];
+    if (!bytecode_assemble(text, chunk2, asm_err, sizeof(asm_err))) {
+        failures++;
+        printf("FAIL %s: bytecode_assemble failed: %s\n", current_test, asm_err);
+    } else {
+        captured_output[0] = '\0';
+        LogoApp *app2 = new_app();
+        AstPool *empty_pool = calloc(1, sizeof(AstPool));
+        Vm *vm2 = calloc(1, sizeof(Vm));
+        vm_run(vm2, app2, empty_pool, chunk2, start_pc);
+        if (strcmp(captured_output, original_output) != 0) {
+            failures++;
+            printf("FAIL %s: output differs\n  original:   \"%s\"\n  reassembled: \"%s\"\n",
+                   current_test, original_output, captured_output);
+        }
+        free(vm2);
+        free(app2);
+        free(empty_pool);
+    }
+
+    free(text);
+    free(chunk1);
+    free(vm1);
+    free(app1);
+    free(chunk2);
+    parse_result_destroy(result);
+}
+
 int main(void) {
     RUN(test_literals_and_print);
     RUN(test_arithmetic_with_precedence_and_grouping);
@@ -1971,6 +2033,7 @@ int main(void) {
     RUN(test_deletefile_removes_a_file);
     RUN(test_deletefile_of_missing_file_reports_error);
     RUN(test_directory_returns_a_list_without_crashing);
+    RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);
 
     if (failures == 0) {
         printf("All tests passed.\n");

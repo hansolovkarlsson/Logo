@@ -173,6 +173,200 @@ TEST(test_disassemble_header_summarizes_counts) {
     free(chunk);
 }
 
+// Asserts two chunks are equal in every way bytecode_assemble is
+// supposed to reproduce: same instruction stream (op/a/b/number/text)
+// and same proc metadata (name/start_pc/param_count/param_names/
+// source_text) -- NOT byte-identical word_literals[]/list_literals[]
+// tables, since bytecode_assemble appends into a freshly empty chunk
+// via the same bytecode_add_word_literal/bytecode_add_list_literal
+// compiler.c itself uses, so indices land in the same order but the
+// tables' own unused tail slots differ from a directly-compiled
+// chunk's (irrelevant -- nothing ever reads past word_literal_count/
+// list_literal_count).
+static void check_chunks_equal(const BytecodeChunk *a, const BytecodeChunk *b) {
+    CHECK(a->count == b->count);
+    int n = a->count < b->count ? a->count : b->count;
+    for (int i = 0; i < n; i++) {
+        const Instr *x = &a->code[i], *y = &b->code[i];
+        if (x->op != y->op || x->a != y->a || x->b != y->b || x->number != y->number || strcmp(x->text, y->text) != 0) {
+            failures++;
+            printf("FAIL %s: instr %d differs (line %d)\n", current_test, i, __LINE__);
+        }
+    }
+    CHECK(a->proc_count == b->proc_count);
+    int pn = a->proc_count < b->proc_count ? a->proc_count : b->proc_count;
+    for (int i = 0; i < pn; i++) {
+        CHECK(strcmp(a->procs[i].name, b->procs[i].name) == 0);
+        CHECK(a->procs[i].start_pc == b->procs[i].start_pc);
+        CHECK(a->procs[i].param_count == b->procs[i].param_count);
+        CHECK(strcmp(a->procs[i].source_text, b->procs[i].source_text) == 0);
+    }
+}
+
+static void check_roundtrip(const char *source) {
+    BytecodeChunk *original = compile_source(source);
+    if (!original) return;
+    char *text = disassemble_to_string(original);
+    BytecodeChunk *reassembled = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    if (!bytecode_assemble(text, reassembled, err, sizeof(err))) {
+        failures++;
+        printf("FAIL %s: bytecode_assemble failed: %s\n", current_test, err);
+    } else {
+        check_chunks_equal(original, reassembled);
+    }
+    free(text);
+    free(original);
+    free(reassembled);
+}
+
+TEST(test_disassemble_then_assemble_roundtrips_arithmetic) {
+    check_roundtrip("PRINT 1 + 2 * 3");
+}
+
+TEST(test_disassemble_then_assemble_roundtrips_a_nested_list_literal) {
+    check_roundtrip("PRINT [1 2 [3 4] \"a :b -5]");
+}
+
+TEST(test_disassemble_then_assemble_roundtrips_if_and_its_jump_targets) {
+    check_roundtrip("IF 1 = 1 [PRINT \"yes] [PRINT \"no]");
+}
+
+TEST(test_disassemble_then_assemble_roundtrips_recursion) {
+    check_roundtrip("TO FACT :N\nIF :N <= 1 [OUTPUT 1]\nOUTPUT :N * FACT :N - 1\nEND\nPRINT FACT 5");
+}
+
+TEST(test_disassemble_then_assemble_roundtrips_multiple_procedures) {
+    check_roundtrip("TO A :X\nOUTPUT :X + 1\nEND\nTO B :Y\nOUTPUT A :Y * 2\nEND\nPRINT B 3");
+}
+
+TEST(test_disassemble_then_assemble_roundtrips_a_compiled_map_template) {
+    check_roundtrip("PRINT MAP [? * 2] [1 2 3]");
+}
+
+TEST(test_assemble_accepts_hand_written_labels_with_a_forward_jump) {
+    const char *asm_text =
+        "CODE:\n"
+        "  OP_PUSH_NUMBER 5\n"
+        "  OP_JUMP_IF_FALSE skip\n"
+        "  OP_PUSH_WORD \"yes\"\n"
+        "  OP_JUMP done\n"
+        "skip:\n"
+        "  OP_PUSH_WORD \"no\"\n"
+        "done:\n"
+        "  OP_HALT\n";
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    int ok = bytecode_assemble(asm_text, chunk, err, sizeof(err));
+    CHECK(ok);
+    if (ok) {
+        CHECK(chunk->count == 6);
+        CHECK(chunk->code[1].a == 4); // OP_JUMP_IF_FALSE skip -> the "skip:" label's own pc
+        CHECK(chunk->code[3].a == 5); // OP_JUMP done -> the "done:" label's own pc
+    }
+    free(chunk);
+}
+
+TEST(test_assemble_omits_the_optional_pc_column) {
+    // No "<N>:" address prefix at all -- bytecode_assemble tracks its
+    // own running address instead of trusting one.
+    const char *asm_text = "CODE:\nOP_PUSH_NUMBER 1\nOP_PUSH_NUMBER 2\nOP_ADD\nOP_HALT\n";
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(bytecode_assemble(asm_text, chunk, err, sizeof(err)));
+    CHECK(chunk->count == 4);
+    free(chunk);
+}
+
+TEST(test_assemble_does_not_trust_a_procs_own_stale_start_field) {
+    // "start=@99" is wrong on purpose -- the real answer has to come
+    // from resolving the "FOO:" label in CODE, exactly so a hand-editor
+    // never has to keep this field in sync by hand.
+    const char *asm_text =
+        "PROCS:\n"
+        "  FOO start=@99 argc=0 params=()\n"
+        "  ---- source ----\n"
+        "OUTPUT 1\n"
+        "  ---- end source ----\n"
+        "CODE:\n"
+        "  OP_PUSH_NUMBER 7\n"
+        "  OP_POP\n"
+        "FOO:\n"
+        "  OP_PUSH_NUMBER 1\n"
+        "  OP_OUTPUT\n"
+        "  OP_HALT\n";
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(bytecode_assemble(asm_text, chunk, err, sizeof(err)));
+    CHECK(chunk->proc_count == 1);
+    if (chunk->proc_count == 1) CHECK(chunk->procs[0].start_pc == 2);
+    free(chunk);
+}
+
+TEST(test_assemble_rejects_an_unknown_opcode) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(!bytecode_assemble("CODE:\n  OP_BOGUS\n", chunk, err, sizeof(err)));
+    CHECK_CONTAINS(err, "OP_BOGUS");
+    free(chunk);
+}
+
+TEST(test_assemble_rejects_an_undefined_label) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(!bytecode_assemble("CODE:\n  OP_JUMP nowhere\n", chunk, err, sizeof(err)));
+    CHECK_CONTAINS(err, "nowhere");
+    free(chunk);
+}
+
+TEST(test_assemble_rejects_a_duplicate_label) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(!bytecode_assemble("CODE:\nfoo:\n  OP_HALT\nfoo:\n  OP_HALT\n", chunk, err, sizeof(err)));
+    CHECK_CONTAINS(err, "duplicate label");
+    free(chunk);
+}
+
+TEST(test_assemble_rejects_missing_code_section) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(!bytecode_assemble("PROCS:\n", chunk, err, sizeof(err)));
+    CHECK_CONTAINS(err, "CODE:");
+    free(chunk);
+}
+
+TEST(test_assemble_rejects_a_proc_with_no_matching_label) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    const char *asm_text =
+        "PROCS:\n"
+        "  FOO start=@0 argc=0 params=()\n"
+        "  ---- source ----\n"
+        "OUTPUT 1\n"
+        "  ---- end source ----\n"
+        "CODE:\n"
+        "  OP_HALT\n";
+    CHECK(!bytecode_assemble(asm_text, chunk, err, sizeof(err)));
+    CHECK_CONTAINS(err, "FOO");
+    free(chunk);
+}
+
+TEST(test_assemble_rejects_a_params_count_mismatch) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    const char *asm_text =
+        "PROCS:\n"
+        "  FOO start=@0 argc=2 params=(a)\n"
+        "  ---- source ----\n"
+        "OUTPUT 1\n"
+        "  ---- end source ----\n"
+        "CODE:\n"
+        "FOO:\n"
+        "  OP_HALT\n";
+    CHECK(!bytecode_assemble(asm_text, chunk, err, sizeof(err)));
+    free(chunk);
+}
+
 int main(void) {
     RUN(test_opcode_name_covers_a_representative_sample);
     RUN(test_disassemble_a_number_literal_and_arithmetic);
@@ -182,6 +376,21 @@ int main(void) {
     RUN(test_disassemble_lists_a_procedure_in_procs_and_labels_its_entry_point);
     RUN(test_disassemble_omits_an_erased_procedure_from_procs);
     RUN(test_disassemble_header_summarizes_counts);
+    RUN(test_disassemble_then_assemble_roundtrips_arithmetic);
+    RUN(test_disassemble_then_assemble_roundtrips_a_nested_list_literal);
+    RUN(test_disassemble_then_assemble_roundtrips_if_and_its_jump_targets);
+    RUN(test_disassemble_then_assemble_roundtrips_recursion);
+    RUN(test_disassemble_then_assemble_roundtrips_multiple_procedures);
+    RUN(test_disassemble_then_assemble_roundtrips_a_compiled_map_template);
+    RUN(test_assemble_accepts_hand_written_labels_with_a_forward_jump);
+    RUN(test_assemble_omits_the_optional_pc_column);
+    RUN(test_assemble_does_not_trust_a_procs_own_stale_start_field);
+    RUN(test_assemble_rejects_an_unknown_opcode);
+    RUN(test_assemble_rejects_an_undefined_label);
+    RUN(test_assemble_rejects_a_duplicate_label);
+    RUN(test_assemble_rejects_missing_code_section);
+    RUN(test_assemble_rejects_a_proc_with_no_matching_label);
+    RUN(test_assemble_rejects_a_params_count_mismatch);
 
     if (failures == 0) {
         printf("All tests passed.\n");

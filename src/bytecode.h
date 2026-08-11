@@ -266,6 +266,15 @@ typedef enum {
     OP_MOTION_DELAY,
 } OpCode;
 
+// One past the last OpCode member -- relies on the plain enum above
+// being contiguous ints starting at 0 (never reassigned with explicit
+// values), same assumption bytecode_opcode_name's own switch already
+// makes. Used by bytecode_assemble's own name -> OpCode reverse lookup
+// (a linear scan comparing bytecode_opcode_name(i) for i in
+// [0, OPCODE_COUNT)) -- update this alongside the enum itself if a
+// member is ever added after OP_MOTION_DELAY.
+#define OPCODE_COUNT (OP_MOTION_DELAY + 1)
+
 // AST_MAX_TEXT-sized would be wasteful here (512 bytes per instruction,
 // most of which never carry text at all) -- a variable/procedure/
 // builtin name only ever needs to fit what AST_MAX_TEXT itself already
@@ -446,5 +455,38 @@ const char *bytecode_opcode_name(OpCode op);
 // a self-contained BytecodeChunk carries (see
 // docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk" entry).
 void bytecode_disassemble(const BytecodeChunk *chunk, FILE *out);
+
+// Stage C of the bytecode save/load/assembler initiative: parses
+// `text` into `chunk`, appending instructions/procs/literals via the
+// same bytecode_emit/bytecode_add_word_literal/bytecode_add_list_literal
+// functions compiler.c itself uses, so a hand-assembled chunk is
+// indistinguishable at runtime from a compiled one. `chunk` must
+// already be zeroed (e.g. calloc'd) by the caller, same convention
+// compile_program itself relies on. Accepts exactly what
+// bytecode_disassemble produces (its own output round-trips
+// unchanged), PLUS hand-written symbolic labels: a "name:" line
+// (a proc's own entry-point label, or an ordinary bare one) anywhere
+// in the CODE section defines a jump target that OP_JUMP/
+// OP_JUMP_IF_FALSE/OP_CHECK_THROW/OP_CALL_PROC/OP_MAP_COMPILED-family
+// operands may reference by name instead of (or as well as) the
+// disassembler's own literal "@N" form -- a genuine two-pass assembly,
+// so a label may be referenced before its own definition appears in
+// the text. A procedure's own "start=" field in its PROCS entry is
+// read but not trusted -- its real start_pc always comes from
+// resolving its own "<name>:" label in CODE, so hand-editing
+// instructions without keeping that field in sync by hand is safe.
+// The leading "<pc>:" address column CODE instruction lines carry is
+// also optional and, when present, not trusted either -- bytecode_
+// assemble tracks its own running address, so inserting/removing
+// lines never requires renumbering anything by hand.
+//
+// On success returns 1. On failure (malformed syntax, an unknown
+// opcode mnemonic, an undefined or duplicate label, a proc whose own
+// label is missing, or a fixed table filling up) returns 0 and writes
+// a one-line description (including the offending line number where
+// applicable) into `error` (size `error_size`) -- the same "loud
+// error, not silent corruption" policy every other fixed-pool function
+// in this file already follows.
+int bytecode_assemble(const char *text, BytecodeChunk *chunk, char *error, size_t error_size);
 
 #endif
