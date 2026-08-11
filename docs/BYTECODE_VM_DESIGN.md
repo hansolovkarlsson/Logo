@@ -2666,3 +2666,46 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   working) — run twice, plain and under ASan, both clean; a live
   `bin/logo` launch confirmed via process liveness (no GUI screenshot,
   per this project's own constraint).
+- **Disassembler — Stage B of bytecode save/load/assemble** (2026-08-11;
+  see `docs/ROADMAP.md`'s own "Bytecode save/load/assembler" section).
+  `bytecode_disassemble(chunk, FILE *out)` (`bytecode.h`/`bytecode.c`)
+  renders a `BytecodeChunk` as text — no `Vm`/`LogoApp` involved at
+  all, since Stage A's own self-containment work already made a chunk
+  carry everything a reader (or, eventually, Stage C's assembler) would
+  need. Two sections: `PROCS` lists every still-defined entry in
+  `chunk->procs[]` (name, `start_pc`, `param_count`/`param_names`, the
+  full `source_text`) — the one piece of chunk state an instruction's
+  own operands don't always surface, since a procedure reachable only
+  via `SEND`/`APPLY`/`LAUNCH` may have no static `OP_CALL_PROC`
+  anywhere referencing it; `CODE` lists every instruction in order,
+  each proc's own `start_pc` doubling as an inline `name:` label right
+  before the instruction at that `pc`. `word_literals[]`/
+  `list_literals[]` indices are resolved into their own literal text
+  inline at each use site (e.g. `OP_PUSH_WORD "hello"`,
+  `OP_PUSH_LIST_LITERAL [1 2 3]`) rather than left as raw indices next
+  to a separate table a reader would have to cross-reference. Jump
+  targets (`OP_JUMP`/`OP_JUMP_IF_FALSE`/`OP_CHECK_THROW`) print as
+  `@N`. A new `bytecode_opcode_name(OpCode)` backs every instruction's
+  own mnemonic — a plain one-case-per-enum-member switch with no
+  `default:`, so `-Wswitch` itself (already part of this project's own
+  `-Wall -Wextra`) fails the build the moment a future opcode is added
+  without a matching name, the same safety net the exhaustive `switch`
+  in `vm.c`'s own `vm_run` already relies on for execution; exposed via
+  `bytecode.h` for Stage C's eventual reverse lookup (name → `OpCode`).
+  **Verified**: a new, GTK-free `tests/test_bytecode.c` (`make
+  test-bytecode`, wired into `make test`) lexes/parses/compiles real
+  Logo snippets via `compiler.c` directly — no `interpreter.h`/`LogoApp`
+  needed, since `compiler.c` itself has no such dependency either — and
+  asserts on the disassembly text via `open_memstream` (confirmed
+  available on this project's own macOS toolchain), covering arithmetic,
+  a word literal, a nested list literal, an `IF`'s own jump target, a
+  user procedure's `PROCS` entry + inline label + call site, `ERASE`
+  correctly dropping an entry from `PROCS`, and the header's own
+  instruction/proc/literal counts. All 8 `make test` suites pass,
+  warning-free rebuild, and a manual dump of a recursive `FACT`
+  procedure plus a `REPEAT` loop visually confirmed the format reads
+  correctly end to end. Not yet built: Stage C (assembler, text →
+  chunk) and Stage D (`SAVEBYTECODE`/`LOADBYTECODE` builtins) — this
+  disassembler's own text format is deliberately not claimed as Stage
+  C's eventual input syntax; that's a decision for when Stage C is
+  actually scoped.

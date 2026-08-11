@@ -30,6 +30,7 @@
 // instructions needed.
 
 #include "ast.h" // AST_MAX_TEXT -- the one size word_literals[] below needs to match
+#include <stdio.h> // FILE -- bytecode_disassemble's own output sink
 
 typedef enum {
     OP_PUSH_NUMBER,   // .number -> push num_val(.number)
@@ -419,5 +420,31 @@ int bytecode_add_word_literal(BytecodeChunk *chunk, const char *text);
 // list-literal table is full -- same "loud error, not silent
 // truncation" policy as bytecode_add_word_literal.
 int bytecode_add_list_literal(BytecodeChunk *chunk, const char *text);
+
+// Returns `op`'s own C enum identifier as text (e.g. "OP_PUSH_NUMBER"),
+// or "OP_UNKNOWN" for a value outside OpCode's own range (never
+// crashes on bad input) -- what bytecode_disassemble's own CODE
+// listing uses for each instruction's mnemonic, and what Stage C's
+// eventual assembler will need the reverse of (name -> OpCode) to
+// parse one back.
+const char *bytecode_opcode_name(OpCode op);
+
+// Renders `chunk` as human-readable text into `out` -- Stage B of the
+// bytecode save/load/assembler initiative (docs/ROADMAP.md's own
+// "Bytecode save/load/assembler" section), the chunk -> text half of
+// what Stage C's eventual assembler will need the reverse of. Two
+// sections: PROCS lists every still-defined entry in chunk->procs[]
+// (name, start_pc, param_count/param_names, source_text) -- the one
+// piece of chunk state an instruction's own operands don't always
+// surface, since a procedure reachable only via SEND/APPLY/LAUNCH may
+// have no static OP_CALL_PROC referencing it anywhere; CODE lists every
+// instruction in order, each proc's own start_pc doubling as an inline
+// "name:" label right before the instruction at that pc. word_literals[]/
+// list_literals[] entries are resolved into their own literal text
+// inline at each use site rather than a separate table a reader would
+// have to cross-reference by index. Together this surfaces every field
+// a self-contained BytecodeChunk carries (see
+// docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk" entry).
+void bytecode_disassemble(const BytecodeChunk *chunk, FILE *out);
 
 #endif

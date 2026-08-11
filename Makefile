@@ -82,6 +82,15 @@ TEST_VM_SRC = tests/test_vm.c src/compiler.c src/bytecode.c src/vm.c src/eval.c 
 TEST_VM_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
+# test_bytecode.c (Stage B of the bytecode save/load/assembler
+# initiative, docs/ROADMAP.md) -- bytecode.c/compiler.c are both
+# GTK/interpreter-free by design (see bytecode.h's own file comment and
+# compiler.c's own), so this needs no pkg-config flags at all, same
+# shape as TEST_PARSER_TARGET above.
+TEST_BYTECODE_TARGET = build/test_bytecode
+TEST_BYTECODE_SRC = tests/test_bytecode.c src/compiler.c src/bytecode.c src/parser.c src/ast.c src/lexer.c
+TEST_BYTECODE_CFLAGS = -Wall -Wextra -g -O1 -std=c11
+
 # test_agent.c (Phase 6's own first slice, docs/CONCURRENT_AGENTS_DESIGN.md)
 # -- same stack as TEST_VM_TARGET plus agent.c itself. Fully headless
 # (agent.c never touches GTK, by design -- see agent.h's own file
@@ -107,7 +116,7 @@ LOGI_SRC = tools/logi_cli.c src/eval.c src/parser.c src/ast.c src/lexer.c src/in
 LOGI_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
-.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm test-agent logi
+.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm test-bytecode test-agent logi
 
 all: $(TARGET)
 
@@ -129,13 +138,14 @@ run: $(TARGET)
 # lexer.c's, parser.c's, eval.c's, and the shadow-diff corpus's own
 # tests, so `make test` remains the one command that verifies
 # everything still works.
-test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET) $(TEST_SHADOW_DIFF_TARGET) $(TEST_VM_TARGET) $(TEST_AGENT_TARGET)
+test: $(TEST_TARGET) $(TEST_LEXER_TARGET) $(TEST_PARSER_TARGET) $(TEST_EVAL_TARGET) $(TEST_SHADOW_DIFF_TARGET) $(TEST_VM_TARGET) $(TEST_BYTECODE_TARGET) $(TEST_AGENT_TARGET)
 	./$(TEST_TARGET)
 	./$(TEST_LEXER_TARGET)
 	./$(TEST_PARSER_TARGET)
 	./$(TEST_EVAL_TARGET)
 	./$(TEST_SHADOW_DIFF_TARGET)
 	./$(TEST_VM_TARGET)
+	./$(TEST_BYTECODE_TARGET)
 	./$(TEST_AGENT_TARGET)
 
 $(TEST_TARGET): $(TEST_SRC) $(HEADERS)
@@ -176,6 +186,13 @@ test-vm: $(TEST_VM_TARGET)
 $(TEST_VM_TARGET): $(TEST_VM_SRC) $(HEADERS)
 	@mkdir -p build
 	$(CC) $(TEST_VM_CFLAGS) $(TEST_VM_SRC) -o $(TEST_VM_TARGET) $(TEST_VM_LDFLAGS)
+
+test-bytecode: $(TEST_BYTECODE_TARGET)
+	./$(TEST_BYTECODE_TARGET)
+
+$(TEST_BYTECODE_TARGET): $(TEST_BYTECODE_SRC) src/compiler.h src/bytecode.h src/parser.h src/ast.h src/lexer.h
+	@mkdir -p build
+	$(CC) $(TEST_BYTECODE_CFLAGS) $(TEST_BYTECODE_SRC) -o $(TEST_BYTECODE_TARGET)
 
 test-agent: $(TEST_AGENT_TARGET)
 	./$(TEST_AGENT_TARGET)

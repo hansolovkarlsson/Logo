@@ -1079,7 +1079,20 @@ scoped but not yet built.
   `pool`-dependent (out of scope for this stage, still fully
   functional) — flagged as a real, separate follow-up if a future stage
   wants loaded-only bytecode to support them too.
-- [ ] **Stage B — disassembler** (chunk → text). Not yet built.
+- [x] **Stage B — disassembler** (chunk → text; shipped 2026-08-11).
+  `bytecode_disassemble(chunk, FILE *out)` (bytecode.h/.c, no
+  VM/LogoApp dependency, same standalone shape as the rest of
+  bytecode.c) prints a PROCS section (every still-defined entry's
+  name/start_pc/param_names/source_text) followed by a labeled CODE
+  listing — each instruction's own `word_literals[]`/`list_literals[]`
+  index resolved into its literal text inline, jump targets rendered as
+  `@N`, and every proc's own `start_pc` doubling as a `name:` label in
+  the listing. `bytecode_opcode_name(OpCode)` (a plain name table, one
+  case per enum member, no `default:` so a missing case is a compiler
+  warning) backs the CODE listing's own mnemonics and is exposed for
+  Stage C's eventual reverse lookup. Covered by a new, GTK-free
+  `tests/test_bytecode.c` (`make test-bytecode`) that lexes/parses/
+  compiles real snippets and asserts on the disassembly text.
 - [ ] **Stage C — assembler** (text → chunk, including label resolution
   for jump targets). Not yet built.
 - [ ] **Stage D — `SAVEBYTECODE`/`LOADBYTECODE`** builtins wiring B/C
