@@ -381,6 +381,22 @@ typedef struct {
 
     char list_literals[MAX_CHUNK_LIST_LITERALS][MAX_LIST_LITERAL_TEXT];
     int list_literal_count;
+
+    // The whole PROGRAM's own top-level entry point -- NOT 0 in
+    // general: compile_program compiles every procedure body first
+    // (pc 0 onward), so a program with any TO...END at all has its own
+    // top-level statements start somewhere after all of them. Set by
+    // compile_program itself (which also still returns this same value
+    // directly, unchanged, for every existing caller that already reads
+    // it that way) -- added so a chunk that outlives its own compile
+    // call (saved to a file, reloaded elsewhere) can still be run
+    // correctly without the caller having to separately remember this
+    // number. bytecode_disassemble/bytecode_assemble round-trip it via
+    // a dedicated "START:" line -- see docs/BYTECODE_VM_DESIGN.md's own
+    // "Stage D" entry for the gap this closed (SAVEBYTECODE/LOADBYTECODE
+    // would otherwise have no way to recover a reloaded program's own
+    // real entry point).
+    int start_pc;
 } BytecodeChunk;
 
 // Appends `instr` to `chunk`, returning its own index (the position a
@@ -441,9 +457,13 @@ const char *bytecode_opcode_name(OpCode op);
 // Renders `chunk` as human-readable text into `out` -- Stage B of the
 // bytecode save/load/assembler initiative (docs/ROADMAP.md's own
 // "Bytecode save/load/assembler" section), the chunk -> text half of
-// what Stage C's eventual assembler will need the reverse of. Two
-// sections: PROCS lists every still-defined entry in chunk->procs[]
-// (name, start_pc, param_count/param_names, source_text) -- the one
+// what Stage C's eventual assembler will need the reverse of. A
+// "START: @N" line records chunk->start_pc (the whole program's own
+// top-level entry point -- see that field's own comment; NOT always 0,
+// and otherwise unrecoverable from the CODE listing alone), right
+// after the header comment. Then two sections: PROCS lists every
+// still-defined entry in chunk->procs[] (name, start_pc,
+// param_count/param_names, source_text) -- the one
 // piece of chunk state an instruction's own operands don't always
 // surface, since a procedure reachable only via SEND/APPLY/LAUNCH may
 // have no static OP_CALL_PROC referencing it anywhere; CODE lists every
@@ -460,7 +480,12 @@ void bytecode_disassemble(const BytecodeChunk *chunk, FILE *out);
 // `text` into `chunk`, appending instructions/procs/literals via the
 // same bytecode_emit/bytecode_add_word_literal/bytecode_add_list_literal
 // functions compiler.c itself uses, so a hand-assembled chunk is
-// indistinguishable at runtime from a compiled one. `chunk` must
+// indistinguishable at runtime from a compiled one -- including
+// chunk->start_pc, resolved from the text's own "START: @N" (or
+// "START: <label>") line the same way a jump target is, and REQUIRED
+// (unlike PROCS, which is optional): without it there's no way to know
+// where the resulting chunk's own top-level execution should actually
+// begin (see BytecodeChunk.start_pc's own comment). `chunk` must
 // already be zeroed (e.g. calloc'd) by the caller, same convention
 // compile_program itself relies on. Accepts exactly what
 // bytecode_disassemble produces (its own output round-trips

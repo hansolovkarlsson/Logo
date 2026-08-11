@@ -184,6 +184,7 @@ TEST(test_disassemble_header_summarizes_counts) {
 // chunk's (irrelevant -- nothing ever reads past word_literal_count/
 // list_literal_count).
 static void check_chunks_equal(const BytecodeChunk *a, const BytecodeChunk *b) {
+    CHECK(a->start_pc == b->start_pc);
     CHECK(a->count == b->count);
     int n = a->count < b->count ? a->count : b->count;
     for (int i = 0; i < n; i++) {
@@ -246,6 +247,7 @@ TEST(test_disassemble_then_assemble_roundtrips_a_compiled_map_template) {
 
 TEST(test_assemble_accepts_hand_written_labels_with_a_forward_jump) {
     const char *asm_text =
+        "START: @0\n"
         "CODE:\n"
         "  OP_PUSH_NUMBER 5\n"
         "  OP_JUMP_IF_FALSE skip\n"
@@ -261,16 +263,27 @@ TEST(test_assemble_accepts_hand_written_labels_with_a_forward_jump) {
     CHECK(ok);
     if (ok) {
         CHECK(chunk->count == 6);
+        CHECK(chunk->start_pc == 0);
         CHECK(chunk->code[1].a == 4); // OP_JUMP_IF_FALSE skip -> the "skip:" label's own pc
         CHECK(chunk->code[3].a == 5); // OP_JUMP done -> the "done:" label's own pc
     }
     free(chunk);
 }
 
+TEST(test_assemble_accepts_a_symbolic_start_label) {
+    // "START:" itself may reference a label too, not just "@N".
+    const char *asm_text = "START: main\nCODE:\nmain:\n  OP_HALT\n";
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(bytecode_assemble(asm_text, chunk, err, sizeof(err)));
+    CHECK(chunk->start_pc == 0);
+    free(chunk);
+}
+
 TEST(test_assemble_omits_the_optional_pc_column) {
     // No "<N>:" address prefix at all -- bytecode_assemble tracks its
     // own running address instead of trusting one.
-    const char *asm_text = "CODE:\nOP_PUSH_NUMBER 1\nOP_PUSH_NUMBER 2\nOP_ADD\nOP_HALT\n";
+    const char *asm_text = "START: @0\nCODE:\nOP_PUSH_NUMBER 1\nOP_PUSH_NUMBER 2\nOP_ADD\nOP_HALT\n";
     BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
     char err[256];
     CHECK(bytecode_assemble(asm_text, chunk, err, sizeof(err)));
@@ -283,6 +296,7 @@ TEST(test_assemble_does_not_trust_a_procs_own_stale_start_field) {
     // from resolving the "FOO:" label in CODE, exactly so a hand-editor
     // never has to keep this field in sync by hand.
     const char *asm_text =
+        "START: @0\n"
         "PROCS:\n"
         "  FOO start=@99 argc=0 params=()\n"
         "  ---- source ----\n"
@@ -303,10 +317,26 @@ TEST(test_assemble_does_not_trust_a_procs_own_stale_start_field) {
     free(chunk);
 }
 
+TEST(test_assemble_rejects_missing_start_line) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(!bytecode_assemble("CODE:\n  OP_HALT\n", chunk, err, sizeof(err)));
+    CHECK_CONTAINS(err, "START:");
+    free(chunk);
+}
+
+TEST(test_assemble_rejects_an_unresolvable_start_target) {
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    char err[256];
+    CHECK(!bytecode_assemble("START: nowhere\nCODE:\n  OP_HALT\n", chunk, err, sizeof(err)));
+    CHECK_CONTAINS(err, "nowhere");
+    free(chunk);
+}
+
 TEST(test_assemble_rejects_an_unknown_opcode) {
     BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
     char err[256];
-    CHECK(!bytecode_assemble("CODE:\n  OP_BOGUS\n", chunk, err, sizeof(err)));
+    CHECK(!bytecode_assemble("START: @0\nCODE:\n  OP_BOGUS\n", chunk, err, sizeof(err)));
     CHECK_CONTAINS(err, "OP_BOGUS");
     free(chunk);
 }
@@ -314,7 +344,7 @@ TEST(test_assemble_rejects_an_unknown_opcode) {
 TEST(test_assemble_rejects_an_undefined_label) {
     BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
     char err[256];
-    CHECK(!bytecode_assemble("CODE:\n  OP_JUMP nowhere\n", chunk, err, sizeof(err)));
+    CHECK(!bytecode_assemble("START: @0\nCODE:\n  OP_JUMP nowhere\n", chunk, err, sizeof(err)));
     CHECK_CONTAINS(err, "nowhere");
     free(chunk);
 }
@@ -339,6 +369,7 @@ TEST(test_assemble_rejects_a_proc_with_no_matching_label) {
     BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
     char err[256];
     const char *asm_text =
+        "START: @0\n"
         "PROCS:\n"
         "  FOO start=@0 argc=0 params=()\n"
         "  ---- source ----\n"
@@ -383,8 +414,11 @@ int main(void) {
     RUN(test_disassemble_then_assemble_roundtrips_multiple_procedures);
     RUN(test_disassemble_then_assemble_roundtrips_a_compiled_map_template);
     RUN(test_assemble_accepts_hand_written_labels_with_a_forward_jump);
+    RUN(test_assemble_accepts_a_symbolic_start_label);
     RUN(test_assemble_omits_the_optional_pc_column);
     RUN(test_assemble_does_not_trust_a_procs_own_stale_start_field);
+    RUN(test_assemble_rejects_missing_start_line);
+    RUN(test_assemble_rejects_an_unresolvable_start_target);
     RUN(test_assemble_rejects_an_unknown_opcode);
     RUN(test_assemble_rejects_an_undefined_label);
     RUN(test_assemble_rejects_a_duplicate_label);

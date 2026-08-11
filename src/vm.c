@@ -235,7 +235,79 @@ static void exec_stampsprite(LogoApp *app) {
     }
 }
 
-static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, const char *name, EvalValue *args, int *produced) {
+// SAVEBYTECODE "path -- Stage D of the bytecode save/load/assembler
+// initiative (docs/ROADMAP.md's own "Bytecode save/load/assembler"
+// section): disassembles `chunk` (the chunk THIS OP_CALL_BUILTIN
+// instruction itself lives in -- see call_builtin's own new `chunk`
+// parameter and vm_run's OP_CALL_BUILTIN case, the only call site) into
+// text via bytecode_disassemble, written to `path` via
+// g_file_set_contents. Same success/failure messaging shape as SAVE
+// (eval_save_value): "Saved <path>\n" on success, "SAVEBYTECODE: could
+// not write file\n" on failure.
+static void exec_savebytecode(LogoApp *app, BytecodeChunk *chunk, const char *path) {
+    char *text = NULL;
+    size_t size = 0;
+    FILE *f = open_memstream(&text, &size);
+    bytecode_disassemble(chunk, f);
+    fclose(f);
+    GError *error = NULL;
+    if (g_file_set_contents(path, text, (gssize)size, &error)) {
+        append_output(app, "Saved ");
+        append_output(app, path);
+        append_output(app, "\n");
+    } else {
+        append_output(app, "SAVEBYTECODE: could not write file\n");
+        g_error_free(error);
+    }
+    free(text);
+}
+
+// LOADBYTECODE "path -- the reverse of SAVEBYTECODE above: reads
+// `path`, parses it via bytecode_assemble into a fresh scratch
+// BytecodeChunk, then runs it via a RECURSIVE vm_run call sharing this
+// same Vm's own stack/frames -- the same recursive-call mechanism
+// exec_run/exec_load below already use for RUN/LOAD, but with no real
+// AstPool actually needed: the assembled chunk is already fully self-
+// contained (see docs/BYTECODE_VM_DESIGN.md's "Self-contained
+// BytecodeChunk" entry), so an empty one (node_count=0, never actually
+// read) is passed just to satisfy vm_run's own signature. Unlike LOAD,
+// there's no separate "hoist TO...END, then run the rest" split to
+// preserve -- an assembled chunk already IS one complete compiled
+// program (every procedure body AND every top-level statement already
+// baked into a single instruction stream), so this recursive vm_run
+// call's only job is to run the whole thing, starting at the file's
+// own recorded entry point (chunk->start_pc, recovered from its own
+// "START:" line -- see BytecodeChunk.start_pc's own comment for why
+// this can't just be 0). Same frame_floor OUTPUT/STOP-escape guard
+// exec_run/exec_load already use, for the same reason.
+static void exec_loadbytecode(Vm *vm, LogoApp *app, const char *path) {
+    char *contents = NULL;
+    GError *error = NULL;
+    if (!g_file_get_contents(path, &contents, NULL, &error)) {
+        append_output(app, "LOADBYTECODE: could not read file\n");
+        g_error_free(error);
+        return;
+    }
+    BytecodeChunk *scratch_chunk = calloc(1, sizeof(BytecodeChunk));
+    char asm_err[256];
+    if (!bytecode_assemble(contents, scratch_chunk, asm_err, sizeof(asm_err))) {
+        append_output(app, "LOADBYTECODE: ");
+        append_output(app, asm_err);
+        append_output(app, "\n");
+    } else {
+        AstPool *empty_pool = calloc(1, sizeof(AstPool));
+        int frame_floor = vm->frame_count;
+        vm_run(vm, app, empty_pool, scratch_chunk, scratch_chunk->start_pc);
+        if (vm->frame_count < frame_floor) {
+            append_output(app, "LOADBYTECODE: OUTPUT/STOP escaping the loaded program's own top level is not fully supported\n");
+        }
+        free(empty_pool);
+    }
+    free(scratch_chunk);
+    g_free(contents);
+}
+
+static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
         eval_print_value(app, args[0]);
@@ -287,6 +359,16 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, const char *n
     }
     if (strcasecmp(name, "DELETEFILE") == 0) {
         eval_deletefile_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SAVEBYTECODE") == 0) {
+        exec_savebytecode(app, chunk, args[0].word);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "LOADBYTECODE") == 0) {
+        exec_loadbytecode(vm, app, args[0].word);
         *produced = 0;
         return num_val(0);
     }
@@ -1354,7 +1436,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                     args[i] = (i < AST_MAX_PARAMS) ? pop(vm) : (pop(vm), num_val(0));
                 }
                 int produced;
-                EvalValue result = call_builtin(vm, app, pool, instr->text, args, &produced);
+                EvalValue result = call_builtin(vm, app, pool, chunk, instr->text, args, &produced);
                 vm->last_call_produced_output = produced;
                 vm->last_call_resolved = 1; // an ordinary builtin call is always "resolved" in ast_eval's own sense
                 push(vm, result);

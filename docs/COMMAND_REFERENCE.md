@@ -576,6 +576,8 @@ self-referential `RUN` is capped and reported rather than crashing.
 | `FILEPRINT` | `channel thing` | Append `thing` (rendered like `PRINT`) plus a newline |
 | `DELETEFILE` | `"path` | Remove a file from disk |
 | `DIRECTORY` | — (operator) | Every file/subdirectory name in the current directory |
+| `SAVEBYTECODE` | `"path` | Write the running program's own compiled bytecode to disk (VM only) |
+| `LOADBYTECODE` | `"path` | Read a file written by `SAVEBYTECODE` and run it standalone (VM only) |
 
 ```
 MAKE "ch OPENWRITE "scratch.txt
@@ -589,6 +591,38 @@ CLOSE :rd
 PRINT MEMBER? "scratch.txt DIRECTORY   -> TRUE
 DELETEFILE "scratch.txt
 ```
+
+`SAVEBYTECODE`/`LOADBYTECODE` (`docs/ROADMAP.md`'s "Bytecode save/
+load/assembler" Stage D) save/reload a whole COMPILED program, not
+Logo source — `SAVEBYTECODE "path` writes the currently-running
+program's own bytecode (see `docs/BYTECODE_REFERENCE.md`'s text
+format), and `LOADBYTECODE "path` reads it back and runs it, needing
+nothing else — not even the original `.logo` file — to work correctly:
+
+```
+TO SQUARE :SIDE
+REPEAT 4 [FD :SIDE RT 90]
+END
+PRINT "drawn
+SAVEBYTECODE "square.lgb
+```
+then, in a later, completely separate run:
+```
+LOADBYTECODE "square.lgb   -> prints "drawn" and draws the square again
+```
+
+Unlike `LOAD`, a procedure defined inside a `LOADBYTECODE`d file is
+**not** callable from the rest of the script that called `LOADBYTECODE`
+— `LOAD`'s own procedures are visible to the outer script only because
+the parser eagerly re-parses and hoists the loaded file's `TO...END`
+blocks at compile time; a `.lgb` file isn't Logo source at all, so
+there's nothing to hoist. `LOADBYTECODE` just runs the whole saved
+program, top to bottom, as its own self-contained unit — the useful
+pattern is a program that does its own real work at the top level
+(as `SQUARE` above is called from, not left for the caller to invoke).
+VM-only: there's no bytecode chunk for the tree-walking engines
+(`eval_logo`/`ast_eval`, unreachable from `bin/logo` and used only for
+this project's own internal shadow-diff testing) to save at all.
 
 `OPENWRITE`/`OPENAPPEND` don't touch disk until `CLOSE` flushes the
 buffer — losing power or crashing first loses the data. **Known,

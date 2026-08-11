@@ -1159,5 +1159,6 @@ int compile_program(AstPool *pool, int program_node, BytecodeChunk *chunk) {
     int program_start = chunk->count;
     compile_block(&c, pool, program_node, chunk, /*is_top_level=*/1);
     emit(chunk, (Instr){.op = OP_HALT});
+    chunk->start_pc = program_start; // see bytecode.h's own BytecodeChunk.start_pc comment
     return program_start;
 }

@@ -137,6 +137,17 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "LOAD", 1, { ARG_QUOTED_WORD } },
     { "SAVE", 1, { ARG_QUOTED_WORD } },
 
+    // SAVEBYTECODE/LOADBYTECODE (docs/ROADMAP.md's "Bytecode save/load/
+    // assembler" Stage D) -- same ARG_QUOTED_WORD shape as SAVE/LOAD
+    // right above, and deliberately named/grouped to parallel them. VM-
+    // only (see vm.c's own call_builtin): there's no BytecodeChunk at
+    // all for ast_eval/eval_logo's own tree-walkers to save, so those
+    // engines gracefully fall through to do_user_procedure_call's own
+    // "I don't know how to SAVEBYTECODE" if either is ever run through
+    // one -- no special-casing needed there.
+    { "SAVEBYTECODE", 1, { ARG_QUOTED_WORD } },
+    { "LOADBYTECODE", 1, { ARG_QUOTED_WORD } },
+
     // ERASE "name -- procedure deletion, not a drawing primitive
     // despite being grouped with the rest of this batch in
     // docs/ROADMAP.md (a miscategorization worth fixing there, not

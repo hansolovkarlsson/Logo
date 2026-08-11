@@ -122,6 +122,7 @@ void bytecode_disassemble(const BytecodeChunk *chunk, FILE *out) {
             chunk->proc_count, chunk->proc_count == 1 ? "" : "s",
             chunk->word_literal_count, chunk->word_literal_count == 1 ? "" : "s",
             chunk->list_literal_count, chunk->list_literal_count == 1 ? "" : "s");
+    fprintf(out, "START: @%d\n", chunk->start_pc); // the whole program's own top-level entry point -- see BytecodeChunk.start_pc's own comment
 
     if (chunk->proc_count > 0) {
         fprintf(out, "\nPROCS:\n");
@@ -525,6 +526,8 @@ int bytecode_assemble(const char *text, BytecodeChunk *chunk, char *error, size_
     int code_pc = 0;
     int in_source_block = 0;
     ProcAddr *cur_proc = NULL;
+    char start_tok[INSTR_MAX_TEXT];
+    int have_start = 0;
 
     // Pass 1: walk the whole text once, populating chunk->procs[] from
     // the PROCS section and recording every "name:" label's own pc
@@ -559,6 +562,22 @@ int bytecode_assemble(const char *text, BytecodeChunk *chunk, char *error, size_
 
         if (*trimmed == '\0' || *trimmed == ';') { p = next; continue; }
 
+        if (strncmp(trimmed, "START:", 6) == 0) {
+            if (have_start) {
+                asm_error(error, error_size, "line %d: duplicate 'START:' line", line_no);
+                ok = 0;
+                goto done;
+            }
+            const char *s = asm_skip_ws(trimmed + 6);
+            if (!asm_parse_token(&s, start_tok, sizeof(start_tok)) || !asm_at_end(s)) {
+                asm_error(error, error_size, "line %d: expected 'START: @N' or 'START: <label>'", line_no);
+                ok = 0;
+                goto done;
+            }
+            have_start = 1;
+            p = next;
+            continue;
+        }
         if (strcmp(trimmed, "PROCS:") == 0) { mode = 1; p = next; continue; }
         if (strcmp(trimmed, "CODE:") == 0) {
             mode = 2;
@@ -569,7 +588,7 @@ int bytecode_assemble(const char *text, BytecodeChunk *chunk, char *error, size_
         }
 
         if (mode == 0) {
-            asm_error(error, error_size, "line %d: expected 'PROCS:' or 'CODE:'", line_no);
+            asm_error(error, error_size, "line %d: expected 'START:', 'PROCS:', or 'CODE:'", line_no);
             ok = 0;
             goto done;
         }
@@ -697,6 +716,16 @@ int bytecode_assemble(const char *text, BytecodeChunk *chunk, char *error, size_
     }
     if (code_start == NULL) {
         asm_error(error, error_size, "missing 'CODE:' section");
+        ok = 0;
+        goto done;
+    }
+    if (!have_start) {
+        asm_error(error, error_size, "missing 'START:' line");
+        ok = 0;
+        goto done;
+    }
+    if (!asm_resolve_target(start_tok, labels, label_count, &chunk->start_pc)) {
+        asm_error(error, error_size, "'START:' target '%s' is not a defined label", start_tok);
         ok = 0;
         goto done;
     }

@@ -2791,3 +2791,91 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   (`SAVEBYTECODE`/`LOADBYTECODE` builtins wiring `bytecode_disassemble`/
   `bytecode_assemble` to actual files, plus round-trip tests through
   real disk I/O).
+- **`SAVEBYTECODE`/`LOADBYTECODE` — Stage D of bytecode save/load/
+  assemble** (2026-08-11; see `docs/ROADMAP.md`'s own "Bytecode
+  save/load/assembler" section — this closes the initiative). Two new
+  `ARG_QUOTED_WORD` builtins, `parser.c`'s `BUILTIN_SIGNATURES` table,
+  same shape as `SAVE`/`LOAD`/`DELETEFILE` right next to them.
+  **Deliberately NOT dedicated opcodes** (unlike `LOAD`/`ERASE`): with
+  no special compile-time AST coordination needed, their path argument
+  just flows through `compile_call`'s ordinary generic dispatch --
+  `compile_expr` on an `ARG_QUOTED_WORD` argument's own `AST_WORD` node
+  emits an ordinary `OP_PUSH_WORD` via `bytecode_add_word_literal`, the
+  same unbounded-effectively `word_literals[512]` table every other
+  word literal already uses -- so unlike `LOAD`/`ERASE`'s own dedicated-
+  opcode `Instr.text[64]` fields, there's no `INSTR_MAX_TEXT`-style
+  truncation risk on a long path at all. This is a real, concrete
+  benefit of NOT reaching for a new opcode reflexively.
+  **`SAVEBYTECODE "path`**: `call_builtin` (`vm.c`) gained a new
+  `BytecodeChunk *chunk` parameter (threaded from its own single call
+  site, `vm_run`'s `OP_CALL_BUILTIN` case, which already had `chunk` in
+  scope) purely so `SAVEBYTECODE` can reach the chunk it's actually
+  running inside of -- every other builtin ignores it. A new
+  `exec_savebytecode` disassembles that chunk (`bytecode_disassemble`
+  into an `open_memstream` buffer) and writes it via
+  `g_file_set_contents`, matching `SAVE`/`eval_save_value`'s own exact
+  messaging shape ("Saved `<path>`\n" / "SAVEBYTECODE: could not write
+  file\n").
+  **`LOADBYTECODE "path`**: a new `exec_loadbytecode` reads the file
+  (`g_file_get_contents`), calls `bytecode_assemble` into a fresh
+  scratch chunk, then runs it via a RECURSIVE `vm_run` call sharing
+  this same `Vm`'s own stack/frames -- the identical mechanism
+  `exec_run`/`exec_load` already use for `RUN`/`LOAD` (same
+  `frame_floor` OUTPUT/STOP-escape guard too), except the scratch
+  `AstPool` it passes is genuinely never read: the assembled chunk is
+  already fully self-contained (Stage A), so an empty, `calloc`'d one
+  only exists to satisfy `vm_run`'s own signature.
+  **A real gap this surfaced, fixed as part of this batch**:
+  `compile_program`'s own top-level entry point (`program_start`, its
+  return value) is NOT `0` in general -- procedure bodies compile
+  first, top-level statements after -- and Stage B/C's own text format
+  had no way to record or recover it at all; `bytecode_assemble` was
+  quietly relying on its *caller* already knowing the right value from
+  having compiled the program itself moments earlier, which is exactly
+  what `LOADBYTECODE` can never do (there's no compile step at all).
+  Fixed by adding `int start_pc` directly to `BytecodeChunk` (set by
+  `compile_program` itself, alongside its existing return value, not
+  instead of it -- every existing caller is unaffected), plus a new,
+  REQUIRED `"START: @N"` (or `"START: <label>"`, resolved the same
+  two-pass way as any other jump target) line in `bytecode_disassemble`/
+  `bytecode_assemble`'s own text format, right after the header
+  comment. `tests/test_bytecode.c`'s own round-trip tests were extended
+  to check `start_pc` too, and several of its hand-written-assembly
+  tests needed a `START:` line added once it became required --
+  existing coverage, not a regression.
+  **A real, deliberately-documented-not-silently-accepted limitation**,
+  found by actually testing the intended doc example before writing it
+  down (a `LOADBYTECODE "square.lgb` followed immediately by `SQUARE
+  50` in the same script) and watching it fail with "unknown word:
+  SQUARE": unlike `LOAD`, whose own procedures the PARSER eagerly
+  re-parses and hoists into the *caller's* `AstPool` at compile time
+  (see `OP_LOAD`'s own `bytecode.h` comment), a procedure inside a
+  `LOADBYTECODE`d file is never compile-time-visible to the script that
+  loaded it -- there's no Logo source in a `.lgb` file to hoist from at
+  all, just an already-compiled instruction stream discovered only at
+  runtime. A `LOADBYTECODE`d program has to be a genuinely self-
+  contained unit that does its own real work at its own top level (the
+  corrected doc example: `SQUARE` is CALLED from within the saved
+  program itself, not left for the caller to invoke afterward).
+  **VM-only, confirmed harmless for the tree-walkers**: `SAVEBYTECODE`/
+  `LOADBYTECODE` are recognized by `parser.c`'s shared grammar table but
+  have no branch in `eval.c`'s own dispatch at all -- `ast_eval`/
+  `eval_logo` have no `BytecodeChunk` concept to save in the first
+  place, and already-existing `do_user_procedure_call` machinery
+  gracefully reports "I don't know how to SAVEBYTECODE" if either
+  engine (unreachable from `bin/logo`, used only for this project's own
+  shadow-diff testing) is ever asked -- no new special-casing needed.
+  **Verified**: a live end-to-end scratch run -- compile a real
+  recursive multi-procedure program (`FACT`), run it, `SAVEBYTECODE` it
+  to a real file, then in a COMPLETELY SEPARATE process-like session
+  with no compile step at all, `LOADBYTECODE` that file and confirm
+  identical output (`720`) -- plus every error path (a missing file, a
+  write to an unwritable path, a corrupted/non-bytecode file, each
+  reporting a specific, clear message rather than crashing). Dedicated
+  `tests/test_vm.c` tests cover the same real-file round trip and every
+  error path permanently. All 8 `make test` suites pass, warning-free
+  full rebuild, both `test_bytecode` and `test_vm` clean under ASan, a
+  live `bin/logo` launch confirmed via process liveness. This is the
+  last stage of the bytecode save/load/assembler initiative -- the
+  user's own original request ("save the bytecode to file, load
+  bytecode, and even have an assembler for it") is now fully delivered.

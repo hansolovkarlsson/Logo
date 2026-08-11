@@ -1122,8 +1122,43 @@ scoped but not yet built.
   confirming its output matches the original run exactly: proof a
   hand-assembled or reloaded-from-disk program can actually execute
   standalone.
-- [ ] **Stage D — `SAVEBYTECODE`/`LOADBYTECODE`** builtins wiring B/C
-  together, with round-trip tests. Not yet built.
+- [x] **Stage D — `SAVEBYTECODE`/`LOADBYTECODE`** builtins wiring B/C
+  together, with round-trip tests (shipped 2026-08-11). Ordinary
+  `ARG_QUOTED_WORD` builtins (same shape as `SAVE`/`LOAD`/`DELETEFILE`)
+  — no dedicated opcode needed, and no `INSTR_MAX_TEXT`-style
+  truncation risk on the path argument either, since an ordinary
+  builtin's arguments always compile through the generic
+  `compile_expr`-per-argument path into `OP_PUSH_WORD`'s own
+  `word_literals[]` table, unlike `LOAD`/`ERASE`'s own dedicated-opcode
+  `Instr.text[64]` fields. `SAVEBYTECODE "path` disassembles the
+  currently-executing chunk (`call_builtin` gained a `BytecodeChunk *`
+  parameter to reach it) to `path`. `LOADBYTECODE "path` reads the
+  file, assembles it, and runs it via a recursive `vm_run` call against
+  an empty `AstPool` — the assembled chunk needs nothing else. Closed a
+  real gap found while building this: `compile_program`'s own top-level
+  entry point isn't `0` in general (procedure bodies compile first) and
+  wasn't recoverable from disassembled text at all — fixed by adding
+  `BytecodeChunk.start_pc` plus a `START:` line to the Stage B/C text
+  format (required, resolved via the same label mechanism as any jump
+  target). **Real, documented limitation**: unlike `LOAD` (whose own
+  procedures the parser eagerly hoists into the *caller's* AstPool at
+  compile time), a procedure inside a `LOADBYTECODE`d file is not
+  callable from the rest of the script that loaded it — there's no
+  Logo source to hoist from, just a `LOADBYTECODE`d file always runs as
+  its own self-contained unit. VM-only — `eval_logo`/`ast_eval` have no
+  bytecode chunk to save at all, and gracefully report "I don't know
+  how to SAVEBYTECODE" via already-existing machinery if either engine
+  is ever asked (neither is reachable from `bin/logo`). Verified: a
+  live end-to-end run (compile a real multi-procedure recursive
+  program, `SAVEBYTECODE` it, then in a completely separate process-
+  like session with zero compile step, `LOADBYTECODE` it and confirm
+  identical output) plus dedicated `test_vm.c` tests for the real-file
+  round trip and every error path (missing file, malformed file,
+  unwritable path) — all 8 `make test` suites pass, warning-free
+  rebuild, ASan-clean, live `bin/logo` launch confirmed.
+
+This closes the initiative the user asked for: bytecode can now be
+saved to file, loaded back, and hand-assembled.
 
 ### CLI ergonomics
 

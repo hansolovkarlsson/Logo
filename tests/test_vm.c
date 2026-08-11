@@ -1801,6 +1801,83 @@ TEST(test_directory_returns_a_list_without_crashing) {
     end_vm_session(s);
 }
 
+// Stage D of the bytecode save/load/assembler initiative
+// (docs/ROADMAP.md): SAVEBYTECODE writes the currently-running chunk's
+// own bytecode_disassemble text to a real file; a SEPARATE session
+// (its own fresh LogoApp/ParseResult/BytecodeChunk/Vm -- start_vm_session
+// makes a new one every call, same as every other test in this file)
+// then LOADBYTECODEs that file and is checked for the same output --
+// this is the actual save-to-disk/load-from-disk scenario the whole
+// initiative was for, not just an in-memory round-trip.
+TEST(test_savebytecode_then_loadbytecode_round_trips_through_a_real_file) {
+    const char *path = "build/test_vm_savebytecode.lgb";
+    VmRunResult save_status;
+    VmTestSession save_session = start_vm_session(
+        "TO FACT :N\nIF :N <= 1 [OUTPUT 1]\nOUTPUT :N * FACT :N - 1\nEND\n"
+        "PRINT FACT 6\nSAVEBYTECODE \"build/test_vm_savebytecode.lgb", &save_status);
+    expect_status(save_status, VM_RUN_HALTED, "save run");
+    if (strstr(captured_output, "720\n") == NULL || strstr(captured_output, "Saved build/test_vm_savebytecode.lgb\n") == NULL) {
+        failures++;
+        printf("FAIL %s: unexpected save-run output \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(save_session);
+
+    if (!g_file_test(path, G_FILE_TEST_EXISTS)) {
+        failures++;
+        printf("FAIL %s: %s was not created\n", current_test, path);
+        return;
+    }
+
+    VmRunResult load_status;
+    char load_script[128];
+    snprintf(load_script, sizeof(load_script), "LOADBYTECODE \"%s", path);
+    VmTestSession load_session = start_vm_session(load_script, &load_status);
+    expect_status(load_status, VM_RUN_HALTED, "load run");
+    // SAVEBYTECODE saved the WHOLE currently-running chunk, including
+    // its own SAVEBYTECODE call (baked into the saved instruction
+    // stream right along with the PRINT before it) -- so re-running the
+    // loaded chunk correctly re-executes that same statement too,
+    // writing the file again and printing "Saved ..." a second time.
+    // Not a bug: proof the reloaded program is genuinely running its
+    // own real top-level statements, not some trimmed-down subset.
+    expect_output("720\nSaved build/test_vm_savebytecode.lgb\n");
+    end_vm_session(load_session);
+
+    remove(path);
+}
+
+TEST(test_loadbytecode_of_a_missing_file_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("LOADBYTECODE \"build/test_vm_does_not_exist.lgb", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("LOADBYTECODE: could not read file\n");
+    end_vm_session(s);
+}
+
+TEST(test_loadbytecode_of_a_malformed_file_reports_the_assembler_error) {
+    const char *path = "build/test_vm_loadbytecode_corrupt.lgb";
+    g_file_set_contents(path, "not valid bytecode at all\n", -1, NULL);
+    VmRunResult status;
+    char script[128];
+    snprintf(script, sizeof(script), "LOADBYTECODE \"%s", path);
+    VmTestSession s = start_vm_session(script, &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "LOADBYTECODE:") == NULL) {
+        failures++;
+        printf("FAIL %s: expected a LOADBYTECODE error, got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+    remove(path);
+}
+
+TEST(test_savebytecode_of_an_unwritable_path_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("SAVEBYTECODE \"/nonexistent_directory_xyz/out.lgb", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("SAVEBYTECODE: could not write file\n");
+    end_vm_session(s);
+}
+
 // Stage C of the bytecode save/load/assembler initiative
 // (docs/ROADMAP.md): disassembles a normally-compiled chunk, feeds the
 // resulting text straight back through bytecode_assemble into a FRESH
@@ -1839,12 +1916,19 @@ TEST(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_orig
     if (!bytecode_assemble(text, chunk2, asm_err, sizeof(asm_err))) {
         failures++;
         printf("FAIL %s: bytecode_assemble failed: %s\n", current_test, asm_err);
+    } else if (chunk2->start_pc != start_pc) {
+        failures++;
+        printf("FAIL %s: reassembled chunk's own start_pc %d != original %d\n", current_test, chunk2->start_pc, start_pc);
     } else {
         captured_output[0] = '\0';
         LogoApp *app2 = new_app();
         AstPool *empty_pool = calloc(1, sizeof(AstPool));
         Vm *vm2 = calloc(1, sizeof(Vm));
-        vm_run(vm2, app2, empty_pool, chunk2, start_pc);
+        // Uses chunk2's OWN recovered start_pc, not the original's --
+        // proving bytecode_assemble's "START:" line round-trips this
+        // correctly, not just that reusing the original value happens
+        // to work.
+        vm_run(vm2, app2, empty_pool, chunk2, chunk2->start_pc);
         if (strcmp(captured_output, original_output) != 0) {
             failures++;
             printf("FAIL %s: output differs\n  original:   \"%s\"\n  reassembled: \"%s\"\n",
@@ -2033,6 +2117,10 @@ int main(void) {
     RUN(test_deletefile_removes_a_file);
     RUN(test_deletefile_of_missing_file_reports_error);
     RUN(test_directory_returns_a_list_without_crashing);
+    RUN(test_savebytecode_then_loadbytecode_round_trips_through_a_real_file);
+    RUN(test_loadbytecode_of_a_missing_file_reports_an_error);
+    RUN(test_loadbytecode_of_a_malformed_file_reports_the_assembler_error);
+    RUN(test_savebytecode_of_an_unwritable_path_reports_an_error);
     RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);
 
     if (failures == 0) {
