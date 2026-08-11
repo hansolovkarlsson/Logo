@@ -2475,54 +2475,70 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   suites pass; `bin/logo` builds warning-free and was confirmed live —
   both a normal launch and `examples/concurrent_agents.logo` (exercising
   the just-changed `Agent`/scheduler code) stayed alive with no crash.
-- **`INSTR_MAX_TEXT` word-literal truncation — scoped, not yet built**
-  (2026-08-10, found as a byproduct of debugging the LAUNCH-after-resume
-  fix — see `docs/CONCURRENT_AGENTS_DESIGN.md`'s own section of that
-  name; own memory entry `instr_max_text_truncation_bug.md`). Root
-  cause: `Instr.text` (`bytecode.h`) is shared by six opcodes for two
-  fundamentally different kinds of content — *identifiers*
+- **`INSTR_MAX_TEXT` word-literal truncation — fixed** (scoped
+  2026-08-10, built 2026-08-11, found as a byproduct of debugging the
+  LAUNCH-after-resume fix — see `docs/CONCURRENT_AGENTS_DESIGN.md`'s own
+  section of that name; own memory entry
+  `instr_max_text_truncation_bug.md`). Root cause: `Instr.text`
+  (`bytecode.h`) was shared by six opcodes for two fundamentally
+  different kinds of content — *identifiers*
   (`OP_PUSH_VAR`/`OP_SET_VAR`/`OP_CALL_BUILTIN`/`OP_CALL_PROC`/
   `OP_CHECK_OUTPUT`, plus `BytecodeChunk.proc_table[].name`) and
   *literal word data* (`OP_PUSH_WORD`). `INSTR_MAX_TEXT` (64) was sized
   for the former — and is already generous there, confirmed by checking
   the rest of the codebase: identifiers are consistently capped at just
   32 bytes elsewhere (`Variable.name`, `Procedure.name`,
-  `param_names`) — but silently applies the same 64-byte ceiling to the
-  latter too, where it doesn't belong: a literal word (especially a
+  `param_names`) — but silently applied the same 64-byte ceiling to the
+  latter too, where it didn't belong: a literal word (especially a
   `'raw text with spaces'` literal, which can be a full sentence) has
   no such natural bound, and the AST layer itself already budgets
   `AST_MAX_TEXT` = 512 for exactly this, matching `EvalValue.word[512]`/
   `Variable.word[512]`'s own established convention throughout the
-  runtime. `INSTR_MAX_TEXT` = 64 is the one place in the whole pipeline
-  that doesn't honor that 512-byte word budget.
-  **Resolved with the user**: leave `Instr.text[64]` untouched for
-  identifiers (no evidence it's ever a real problem there), and give
+  runtime. `INSTR_MAX_TEXT` = 64 was the one place in the whole pipeline
+  that didn't honor that 512-byte word budget.
+  **Resolved with the user**: left `Instr.text[64]` untouched for
+  identifiers (no evidence it's ever a real problem there), and gave
   `OP_PUSH_WORD` its own separate storage sized to the language's
   actual word budget (512) via a new `BytecodeChunk`-level side table
   (`word_literals[MAX_CHUNK_WORD_LITERALS][AST_MAX_TEXT]` +
-  `word_literal_count`, `bytecode.h`/`bytecode.c`) — the same pattern
-  `BytecodeChunk.proc_table` already established for `SEND`'s own
-  runtime-resolved calls. `OP_PUSH_WORD`'s own `Instr.a` (an existing
-  generic operand field, already reused per-opcode for jump targets/
-  argc/target pc elsewhere) becomes an index into this table instead of
-  inlining the text. `Instr` itself never grows, so every *other*
-  opcode's own memory footprint is untouched — chosen over simply
-  raising `INSTR_MAX_TEXT` to 512 directly (a one-line change, but one
-  that would grow *every* instruction in `MAX_INSTRUCTIONS` = 8192 by
-  448 bytes regardless of whether it ever carries text, ~3.5MB of waste
-  per chunk vs. this approach's ~1MB, paying for capacity almost no
-  instruction actually uses).
-  A new `bytecode_add_word_literal(chunk, text)` (mirroring
+  `word_literal_count`, `bytecode.h`/`bytecode.c`, `MAX_CHUNK_WORD_LITERALS`
+  = 2048) — the same pattern `BytecodeChunk.proc_table` already
+  established for `SEND`'s own runtime-resolved calls. `OP_PUSH_WORD`'s
+  own `Instr.a` (an existing generic operand field, already reused
+  per-opcode for jump targets/argc/target pc elsewhere) is now an index
+  into this table instead of inlining the text. `Instr` itself never
+  grows, so every *other* opcode's own memory footprint is untouched —
+  chosen over simply raising `INSTR_MAX_TEXT` to 512 directly (a
+  one-line change, but one that would grow *every* instruction in
+  `MAX_INSTRUCTIONS` = 8192 by 448 bytes regardless of whether it ever
+  carries text, ~3.5MB of waste per chunk vs. this approach's ~1MB,
+  paying for capacity almost no instruction actually uses).
+  `bytecode_add_word_literal(chunk, text)` (mirroring
   `bytecode_find_proc`'s own shape) registers a literal and returns its
   index, or `-1` if `MAX_CHUNK_WORD_LITERALS` is exhausted — same "loud
   return value, not a silent crash" convention `bytecode_emit` already
-  uses for chunk-full, and the same "not yet robustly reported" overflow
-  tolerance already accepted for that existing case (an extreme,
-  unlikely-to-hit edge case for a size chosen generously). `compiler.c`'s
-  `AST_WORD` case in `compile_expr` calls it instead of `snprintf`-ing
-  directly into `instr.text`; `vm.c`'s `OP_PUSH_WORD` handler reads
-  `chunk->word_literals[instr->a]` instead of `instr->text`. Not yet
-  implemented — this is the scoping record.
+  uses for chunk-full. All three `OP_PUSH_WORD` emission sites in
+  `compiler.c` (the `AST_WORD` case in `compile_expr`, plus `FOREVER`'s
+  and `FOR`'s own compiled-in error-message literals) now call it
+  instead of `snprintf`-ing directly into `instr.text`; `vm.c`'s
+  `OP_PUSH_WORD` handler reads `chunk->word_literals[instr->a]` instead
+  of `instr->text` (falling back to an empty word if `.a` is `-1`,
+  matching the overflow case above rather than reading out of bounds).
+  `bytecode.h` now includes `ast.h` for `AST_MAX_TEXT` — the one
+  dependency it needed to size the side table correctly; `ast.h` is
+  exactly as GTK/GLib-free as `bytecode.h` itself, so this doesn't
+  compromise the "no dependency on GTK/GLib/interpreter.h" property
+  either file claims.
+  New regression test:
+  `test_vm.c`'s
+  `test_a_word_literal_longer_than_the_old_63_byte_instr_text_limit_is_not_truncated`
+  (a 100-byte literal, with a marker byte right past the old 63-byte
+  ceiling, round-trips through `PRINT` byte-for-byte). Verified: warning-free
+  build, all 7 `make test` suites pass, and a standalone ASan build of
+  just this scenario (lex → parse → compile → `vm_run`, isolated from
+  `test_vm.c`'s own unrelated pre-existing `eval_logo`/ASan
+  deep-recursion stack overflow — confirmed identical against a
+  `git stash`d pre-change baseline) ran clean with the correct output.
   - **Next**: `PAUSE`'s own Ctrl+C-based force-unpause, the still-open
     `WHILE`/`FOR` iteration-cap gap, and the
     `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,

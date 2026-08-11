@@ -454,7 +454,7 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         int jf = emit(chunk, (Instr){.op = OP_JUMP_IF_FALSE, .a = -1});
         Instr msg = {0};
         msg.op = OP_PUSH_WORD;
-        snprintf(msg.text, sizeof(msg.text), "FOREVER: stopped after too many iterations");
+        msg.a = bytecode_add_word_literal(chunk, "FOREVER: stopped after too many iterations");
         emit(chunk, msg);
         Instr print_instr = {0};
         print_instr.op = OP_CALL_BUILTIN;
@@ -732,7 +732,7 @@ static void compile_expr(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         case AST_WORD: {
             Instr instr = {0};
             instr.op = OP_PUSH_WORD;
-            snprintf(instr.text, sizeof(instr.text), "%s", node->text);
+            instr.a = bytecode_add_word_literal(chunk, node->text);
             emit(chunk, instr);
             return;
         }
@@ -962,7 +962,7 @@ static void compile_for(Compiler *c, AstPool *pool, int for_node, BytecodeChunk 
     int step_ok_jf = emit(chunk, (Instr){.op = OP_JUMP_IF_FALSE, .a = -1});
     Instr msg = {0};
     msg.op = OP_PUSH_WORD;
-    snprintf(msg.text, sizeof(msg.text), "FOR: step must not be 0");
+    msg.a = bytecode_add_word_literal(chunk, "FOR: step must not be 0");
     emit(chunk, msg);
     Instr print_instr = {0};
     print_instr.op = OP_CALL_BUILTIN;

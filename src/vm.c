@@ -1235,7 +1235,12 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 pc++;
                 break;
             case OP_PUSH_WORD:
-                push(vm, word_val(instr->text));
+                // .a is an index into chunk->word_literals (see
+                // bytecode.h) -- -1 only if compile-time
+                // bytecode_add_word_literal ever overflowed
+                // MAX_CHUNK_WORD_LITERALS, which pushes an empty word
+                // rather than reading out of bounds.
+                push(vm, word_val(instr->a >= 0 ? chunk->word_literals[instr->a] : ""));
                 pc++;
                 break;
             case OP_PUSH_VAR: {

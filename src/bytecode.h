@@ -29,9 +29,11 @@
 // check in this codebase already uses. No fused compare-and-jump
 // instructions needed.
 
+#include "ast.h" // AST_MAX_TEXT -- the one size word_literals[] below needs to match
+
 typedef enum {
     OP_PUSH_NUMBER,   // .number -> push num_val(.number)
-    OP_PUSH_WORD,     // .text -> push word_val(.text)
+    OP_PUSH_WORD,     // .a -> index into chunk->word_literals[]; push word_val(...)
     OP_PUSH_VAR,      // .text (variable name) -> push its current value (num_val(0) if unbound, matching eval_expr's own AST_VARREF default)
     OP_SET_VAR,       // .text (variable name); pop 1 -> MAKE-equivalent assignment
     OP_POP,           // discard the top of the value stack
@@ -275,7 +277,7 @@ typedef struct {
     OpCode op;
     int a, b;              // generic integer operands: jump targets, argc, a procedure's own target pc
     double number;           // OP_PUSH_NUMBER's literal
-    char text[INSTR_MAX_TEXT]; // OP_PUSH_WORD/OP_PUSH_VAR/OP_SET_VAR/OP_CALL_BUILTIN/OP_CALL_PROC/OP_CHECK_OUTPUT's own name
+    char text[INSTR_MAX_TEXT]; // OP_PUSH_VAR/OP_SET_VAR/OP_CALL_BUILTIN/OP_CALL_PROC/OP_CHECK_OUTPUT's own name -- NOT OP_PUSH_WORD, see .a/word_literals[] below
 } Instr;
 
 // A fixed-size pool of instructions, same "fixed pool, loud error if
@@ -304,12 +306,29 @@ typedef struct {
     int start_pc;
 } ProcAddr;
 
+// OP_PUSH_WORD's own literal text, kept off Instr entirely (see
+// INSTR_MAX_TEXT's own comment above): a literal word is unbounded in
+// principle the same way any other word value is (AST_MAX_TEXT=512
+// already budgets for this at the AST layer, matching
+// EvalValue.word[512]/Variable.word[512] everywhere else in the
+// runtime), so giving every one of MAX_INSTRUCTIONS instructions that
+// budget just for the few that are OP_PUSH_WORD would waste ~3.5MB per
+// chunk. 2048 entries * AST_MAX_TEXT costs ~1MB instead, and one entry
+// per literal word *token* in the source is already generous --
+// SETSPEED "medium and a "medium in another procedure are two
+// separate entries, never deduplicated, same as ProcAddr not
+// deduplicating anything either.
+#define MAX_CHUNK_WORD_LITERALS 2048
+
 typedef struct {
     Instr code[MAX_INSTRUCTIONS];
     int count;
 
     ProcAddr procs[MAX_CHUNK_PROCS];
     int proc_count;
+
+    char word_literals[MAX_CHUNK_WORD_LITERALS][AST_MAX_TEXT];
+    int word_literal_count;
 } BytecodeChunk;
 
 // Appends `instr` to `chunk`, returning its own index (the position a
@@ -325,5 +344,12 @@ int bytecode_emit(BytecodeChunk *chunk, Instr instr);
 // OP_SEND (resolving a message's target procedure at runtime, since
 // SEND's callee is never known at compile time at all).
 int bytecode_find_proc(const BytecodeChunk *chunk, const char *name);
+
+// Appends `text` to `chunk->word_literals`, returning its own index
+// (what OP_PUSH_WORD's own .a field stores), or -1 if the chunk's
+// word-literal table is full -- same "loud error, not silent
+// truncation" policy as bytecode_emit, and the whole reason this
+// table exists instead of just inlining into Instr.text.
+int bytecode_add_word_literal(BytecodeChunk *chunk, const char *text);
 
 #endif

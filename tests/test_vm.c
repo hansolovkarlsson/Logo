@@ -954,6 +954,34 @@ TEST(test_vm_recursion_goes_well_past_the_old_shared_200_limit) {
     end_vm_session(s);
 }
 
+// Regression for the INSTR_MAX_TEXT truncation bug (see
+// docs/BYTECODE_VM_DESIGN.md and bytecode.h's own word_literals[]
+// comment): a literal word longer than the old INSTR_MAX_TEXT-1 (63
+// bytes) used to be silently truncated by compile_expr's own
+// snprintf into Instr.text. It now lives in
+// BytecodeChunk.word_literals[] instead, sized to AST_MAX_TEXT (512),
+// so this 100-byte literal -- deliberately past the old 63-byte
+// ceiling, with a trailing marker character to catch any off-by-one
+// at that old boundary -- must come back out of PRINT byte-for-byte.
+TEST(test_a_word_literal_longer_than_the_old_63_byte_instr_text_limit_is_not_truncated) {
+    char long_word[101];
+    memset(long_word, 'a', 99);
+    long_word[99] = 'Z'; // past the old 63-byte ceiling -- truncation would drop this
+    long_word[100] = '\0';
+
+    char source[200];
+    snprintf(source, sizeof(source), "PRINT \"%s", long_word);
+
+    char expected[102];
+    snprintf(expected, sizeof(expected), "%s\n", long_word);
+
+    VmRunResult status;
+    VmTestSession s = start_vm_session(source, &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output(expected);
+    end_vm_session(s);
+}
+
 TEST(test_waitkey_suspends_then_resumes_with_the_pressed_key_and_completes) {
     VmRunResult status;
     VmTestSession s = start_vm_session("MAKE \"k WAITKEY\nPRINT :k", &status);
@@ -1879,6 +1907,7 @@ int main(void) {
     RUN(test_wait_suspends_with_the_right_duration_then_resumes_and_completes);
     RUN(test_wait_with_a_non_positive_duration_never_suspends_at_all);
     RUN(test_vm_recursion_goes_well_past_the_old_shared_200_limit);
+    RUN(test_a_word_literal_longer_than_the_old_63_byte_instr_text_limit_is_not_truncated);
     RUN(test_waitkey_suspends_then_resumes_with_the_pressed_key_and_completes);
     RUN(test_waitkey_suspends_and_resumes_correctly_through_several_nested_procedure_calls);
     RUN(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_suspending);

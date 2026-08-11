@@ -141,21 +141,26 @@ instruction-set/frame-layout detail behind each of these.
   each `Agent`'s own `Vm` already isolates it). The VM's real recursion
   depth is now ~10x the old shared ceiling, proven via a new 1000-level
   test, not just claimed.
-- [ ] **`INSTR_MAX_TEXT` word-literal truncation fix** (scoped
-  2026-08-10, not yet built — see `docs/BYTECODE_VM_DESIGN.md`'s own
+- [x] **`INSTR_MAX_TEXT` word-literal truncation fix** (scoped
+  2026-08-10, built 2026-08-11 — see `docs/BYTECODE_VM_DESIGN.md`'s own
   entry of the same name for the full writeup): a word literal (e.g. a
   long `OPENWRITE` path, or a `'raw text'` sentence) longer than 63
-  characters is silently truncated at compile time — `Instr.text` (64
-  bytes) is shared by both short identifiers (already generous — real
-  identifiers cap at 32 bytes elsewhere in this codebase) and unbounded
-  literal word data, which the AST layer itself already budgets 512
-  bytes for. Fix: a new `BytecodeChunk`-level `word_literals[][512]`
-  side table (mirroring the existing `proc_table`) for `OP_PUSH_WORD`
-  specifically, leaving `Instr.text` untouched for every other opcode —
-  chosen over uniformly raising `INSTR_MAX_TEXT` to 512, which would
-  cost ~3.5MB of waste per chunk (every one of `MAX_INSTRUCTIONS` =
-  8192 instructions, not just the ones that need it) instead of this
-  approach's ~1MB.
+  characters used to be silently truncated at compile time —
+  `Instr.text` (64 bytes) was shared by both short identifiers (already
+  generous — real identifiers cap at 32 bytes elsewhere in this
+  codebase) and unbounded literal word data, which the AST layer itself
+  already budgets 512 bytes for. Fix: a new `BytecodeChunk`-level
+  `word_literals[][512]` side table (mirroring the existing
+  `proc_table`) for `OP_PUSH_WORD` specifically, leaving `Instr.text`
+  untouched for every other opcode — chosen over uniformly raising
+  `INSTR_MAX_TEXT` to 512, which would have cost ~3.5MB of waste per
+  chunk (every one of `MAX_INSTRUCTIONS` = 8192 instructions, not just
+  the ones that need it) instead of this approach's ~1MB. New
+  regression test in `test_vm.c` proves a 100-byte literal, past the
+  old 63-byte ceiling, now round-trips exactly; verified clean under a
+  standalone ASan run isolated from an unrelated pre-existing
+  `eval_logo` deep-recursion overflow already present in `test_vm.c`
+  before this fix.
 - [x] Grow instruction coverage the same way Stage 1 grew
   `BUILTIN_SIGNATURES` — incremental batches, each shadow-diffed
   against `ast_eval` before moving to the next.
