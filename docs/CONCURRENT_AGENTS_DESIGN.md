@@ -463,3 +463,74 @@ suites, all pass), standalone ASan builds of `test_vm`/`test_agent`
 (both fully clean), a warning-free full `make`/`make logi` build, and a
 live `bin/logo examples/concurrent_agents.logo` launch confirmed alive
 with no crash.
+
+## Mixing top-level suspend/resume with a later LAUNCH (scoped and
+shipped 2026-08-10)
+
+The second item off the first slice's own deferred list. A script whose
+*first* suspend is `WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/`ANIMATESPRITE`,
+which later (after resuming) reaches a `LAUNCH`, used to have that whole
+run torn down with `"LAUNCH/AWAIT/YIELD after an earlier WAIT/WAITKEY/
+PAUSE/ANIMATESPRITE are not yet supported"` — not a crash, but the
+script simply stopped there, `LAUNCH` and everything after it silently
+never ran.
+
+**Root cause**: `handle_vm_result` (`ui.c`) is the single, uniform
+dispatch point every resume path (`on_wait_timeout`, `on_entry_key_
+pressed`'s `WAITKEY`/`INPUT` branches, `on_animatesprite_timeout`,
+`maybe_resume_paused_runs`) already funneled through — confirmed by
+reading each one, and each detaches its own `SuspendedRun*` from global
+state before calling in, so there's no dangling-reference risk in
+reusing it. But the Agent-wrapping logic that turns a `VM_RUN_
+SUSPENDED_LAUNCH` result into a live `scheduler_run` call only existed
+in one place: a special early-return branch in `run_logo_script`, which
+only ever saw a script's *very first* `vm_run` call. A `LAUNCH` reached
+later fell into `handle_vm_result`'s own generic `default:` case
+instead.
+
+**The fix**: moved the Agent-wrapping logic into `handle_vm_result`
+itself as a proper `case VM_RUN_SUSPENDED_LAUNCH:` (the exact same code
+that used to live in `run_logo_script`, just reading from `run->vm`/
+`run->chunk`/`run->result->pool` instead of locals), and deleted
+`run_logo_script`'s own special branch entirely — it now falls through
+to the ordinary `SuspendedRun`-wrap-and-dispatch path uniformly, like
+every other status. A genuine simplification, not just a patch: one
+dispatch path now handles "`LAUNCH` is the first suspend" and "`LAUNCH`
+reached after a resume" identically, where there used to be two. One
+behavioral detail carried over deliberately: the new case redraws the
+canvas *after* `scheduler_run` returns (reflecting the whole concurrent
+run's final state), in addition to `handle_vm_result`'s own unconditional
+redraw at the top of the function (which only reflects state as of the
+moment of suspending into `LAUNCH`, before `scheduler_run` even starts).
+
+**Deliberately left alone**: a bare top-level `AWAIT`/`YIELD` with no
+`LAUNCH` ever having run stays an explicit, reported error (now reworded
+to `"AWAIT/YIELD outside a concurrent-agent run (started by LAUNCH) are
+not supported"`, since it's the only case the remaining `default:`
+branch can still reach) — `AWAIT`/`YIELD` only have well-defined meaning
+inside `agent.c`'s own scheduler; used bare, there's no scheduler and no
+sibling agents for either to mean anything against.
+
+No changes needed anywhere outside `ui.c` — `vm.c`/`agent.c`/`bytecode.h`
+are untouched. Verified against the real `bin/logo` app (not just a
+headless reproduction) two ways: a script that does `WAIT` then, after
+resuming, `LAUNCH`s an agent and `AWAIT`s it, writing progress markers to
+a file via `OPENWRITE`/`FILEPRINT`/`CLOSE` at each step (since this path
+can't be exercised by any headless test binary — it's GTK-timer-driven)
+confirmed the full sequence lands in the file in the correct order
+(`before-wait`, `worker-ran`, `after-await`); a bare `AWAIT` with no
+`LAUNCH` confirmed the process stays alive with the file never created
+(the run correctly torn down before `CLOSE` could run).
+
+**A real, separate bug found as a byproduct of this investigation, not
+part of this fix**: while debugging an apparent failure in the fix
+above, traced it down to a genuine, pre-existing, unrelated compiler
+bug — any word literal appearing directly in source text longer than 63
+characters (e.g. a long file path passed to `OPENWRITE`) is silently
+truncated by `compile_expr`'s own `AST_WORD` case, which copies the
+literal into `Instr.text` (`bytecode.h`'s `INSTR_MAX_TEXT`, 64 bytes)
+via `snprintf` — no error, no warning, just quietly wrong data. This has
+nothing to do with `LAUNCH`, agents, or this session's own recent
+changes; it's been present since `OP_PUSH_WORD` was first written in
+Stage 2's own vertical slice. Reported to the user as a separate finding
+rather than fixed inline, since it's out of scope for what was asked.

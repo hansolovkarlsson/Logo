@@ -1016,6 +1016,28 @@ every other `vm_run_depth`-gated refusal.
   fix. Verified via `make test` (7 suites), standalone ASan builds of
   `test_vm`/`test_agent` (both fully clean), a warning-free full build,
   and a live `bin/logo` launch of the redesigned demo.
+- [x] **Mixing top-level suspend/resume with a later LAUNCH** (scoped
+  and shipped 2026-08-10 — see `docs/CONCURRENT_AGENTS_DESIGN.md`'s own
+  section of the same name): moved the `LAUNCH`-to-`scheduler_run`
+  hand-off from a special early-return branch in `run_logo_script`
+  (which only ever saw a script's very first `vm_run` call) into
+  `handle_vm_result` itself — the one dispatch point every resume path
+  (`on_wait_timeout`, `on_entry_key_pressed`, `on_animatesprite_timeout`,
+  `maybe_resume_paused_runs`) already funnels through, so `LAUNCH`
+  reached after an earlier `WAIT`/`WAITKEY`/`INPUT`/`PAUSE`/
+  `ANIMATESPRITE` resumes is now handled identically to `LAUNCH` as a
+  script's first suspend, not refused. `ui.c`-only change; `vm.c`/
+  `agent.c` untouched. Verified against the real `bin/logo` app (this
+  path is GTK-timer-driven, so no headless test can reach it) via a
+  file-I/O progress trace (`OPENWRITE`/`FILEPRINT`/`CLOSE`) proving the
+  full `WAIT` → resume → `LAUNCH` → `AWAIT` → continue sequence lands
+  correctly, and confirming a bare `AWAIT` with no `LAUNCH` still
+  reports its own (reworded) explicit error rather than hanging or
+  crashing. A real, separate, pre-existing bug was found and reported
+  (not fixed, out of scope) while debugging this: any word literal over
+  63 characters in source text is silently truncated by `INSTR_MAX_TEXT`
+  (`bytecode.h`, 64 bytes) — unrelated to `LAUNCH` or agents, present
+  since `OP_PUSH_WORD` was first written.
 
 ### CLI ergonomics
 

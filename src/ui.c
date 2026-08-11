@@ -1000,18 +1000,56 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             g_suspended_run = run;
             g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
             break;
+        case VM_RUN_SUSPENDED_LAUNCH: {
+            // Phase 6's own first slice (see docs/CONCURRENT_AGENTS_
+            // DESIGN.md): a LAUNCH hands off to agent.c's own
+            // synchronous scheduler instead of any of the ordinary
+            // suspend/resume cases above -- reached identically whether
+            // this is a script's own very first vm_run call (via
+            // run_logo_script's own ordinary SuspendedRun-wrap-and-
+            // dispatch, ever since it stopped special-casing this
+            // itself) or a LATER one, after an earlier WAIT/WAITKEY/
+            // INPUT/PAUSE/ANIMATESPRITE already suspended and resumed
+            // once (or several times) -- handle_vm_result is the one
+            // dispatch point every resume path already funnels through,
+            // so a single case here covers both, no special-casing
+            // needed at either call site. Wraps `run`'s own vm (its
+            // already-live scope/throw/run_depth/turtle state captured
+            // exactly as it stood the moment LAUNCH suspended it) as the
+            // scheduler's "initial" Agent, plus every other agent it or
+            // its own descendants LAUNCH along the way, and runs them
+            // all to completion before returning -- no further GTK
+            // re-entry needed, since this slice never needs a real
+            // timer/keypress (see agent.h's own file comment).
+            Agent *initial_agent = calloc(1, sizeof(Agent));
+            initial_agent->vm = *run->vm; // includes vm's own scopes/scope_depth already -- nothing left to copy separately, see agent.h's own comment
+            free(run->vm);
+            initial_agent->turtle_index = app->current_turtle;
+            initial_agent->throw_requested = app->throw_requested;
+            snprintf(initial_agent->throw_tag, sizeof(initial_agent->throw_tag), "%s", app->throw_tag);
+            initial_agent->run_depth = app->run_depth;
+            initial_agent->state = AGENT_READY;
+            initial_agent->started = TRUE;
+            scheduler_run(app, &run->result->pool, run->chunk, initial_agent);
+            parse_result_destroy(run->result);
+            free(run->chunk);
+            free(run); // not free_suspended_run -- run->vm already freed above, not double-freed
+            // A second redraw, after the whole concurrent run finishes
+            // -- the one at this function's own top already fired
+            // before scheduler_run even started, reflecting only
+            // whatever the script drew before LAUNCH suspended it.
+            gtk_widget_queue_draw(app->drawing_area);
+            break;
+        }
         default:
-            // VM_RUN_SUSPENDED_LAUNCH/AWAIT/YIELD (Phase 6's own first
-            // slice, docs/CONCURRENT_AGENTS_DESIGN.md) reached via a
-            // RESUMED script -- after an earlier WAIT/WAITKEY/PAUSE/
-            // ANIMATESPRITE already suspended once -- rather than a
-            // script's own very first vm_run call, which is the only
-            // case run_logo_script's own dedicated branch catches.
-            // Mixing ordinary top-level suspend/resume with a LATER
-            // LAUNCH isn't supported yet either, matching this slice's
-            // own deliberately narrow scope -- an explicit, reported
-            // error here, not a crash or a silent hang.
-            append_output(app, "LAUNCH/AWAIT/YIELD after an earlier WAIT/WAITKEY/PAUSE/ANIMATESPRITE are not yet supported\n");
+            // VM_RUN_SUSPENDED_AWAIT/YIELD reached with no LAUNCH ever
+            // having run first -- AWAIT/YIELD only have well-defined
+            // meaning inside agent.c's own scheduler (see the LAUNCH
+            // case above); used bare at an ordinary top level, there's
+            // no scheduler and no sibling agents for either to mean
+            // anything against. An explicit, reported error, not a
+            // crash or a silent no-op.
+            append_output(app, "AWAIT/YIELD outside a concurrent-agent run (started by LAUNCH) are not supported\n");
             free_suspended_run(run);
             break;
     }
@@ -1120,36 +1158,12 @@ static void run_logo_script(LogoApp *app, const char *source) {
     Vm *vm = calloc(1, sizeof(Vm));
     VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
 
-    // Phase 6's own first slice (see docs/CONCURRENT_AGENTS_DESIGN.md):
-    // a LAUNCH hands off to agent.c's own synchronous scheduler instead
-    // of the ordinary suspend/resume dispatch below -- it owns this
-    // script's own Vm (wrapped as its "initial" Agent, its own already-
-    // live scope/throw/run_depth/turtle state captured exactly as it
-    // stood the moment LAUNCH first suspended it) plus every other
-    // agent it or its own descendants LAUNCH along the way, and runs
-    // them all to completion before this function returns -- no GTK
-    // re-entry needed at all, since this first slice never needs a
-    // real timer/keypress (see agent.h's own file comment). Everything
-    // below this branch (g_suspended_run/g_paused_runs/
-    // handle_vm_result) stays untouched: a concurrent-agent run can't
-    // reach any of ui.c's own other suspend paths in this slice.
-    if (status == VM_RUN_SUSPENDED_LAUNCH) {
-        Agent *initial_agent = calloc(1, sizeof(Agent));
-        initial_agent->vm = *vm; // includes vm's own scopes/scope_depth already -- nothing left to copy separately, see agent.h's own comment
-        free(vm);
-        initial_agent->turtle_index = app->current_turtle;
-        initial_agent->throw_requested = app->throw_requested;
-        snprintf(initial_agent->throw_tag, sizeof(initial_agent->throw_tag), "%s", app->throw_tag);
-        initial_agent->run_depth = app->run_depth;
-        initial_agent->state = AGENT_READY;
-        initial_agent->started = TRUE;
-        scheduler_run(app, &result->pool, chunk, initial_agent);
-        parse_result_destroy(result);
-        free(chunk);
-        gtk_widget_queue_draw(app->drawing_area);
-        return;
-    }
-
+    // A LAUNCH (Phase 6, see docs/CONCURRENT_AGENTS_DESIGN.md) is just
+    // another SUSPENDED result here, same as WAIT/PAUSE/etc -- handled
+    // uniformly by handle_vm_result's own VM_RUN_SUSPENDED_LAUNCH case,
+    // whether this is the script's own very first vm_run call (this
+    // one) or a later one reached after an earlier WAIT/WAITKEY/INPUT/
+    // PAUSE/ANIMATESPRITE already suspended and resumed.
     SuspendedRun *run = calloc(1, sizeof(SuspendedRun));
     run->result = result;
     run->chunk = chunk;
