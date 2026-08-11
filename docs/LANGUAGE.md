@@ -375,8 +375,10 @@ outer calls on the stack, then the globals — so:
   outer call's local `x` if one is active. Only when no matching binding
   exists anywhere on the call stack does `MAKE` fall back to creating a
   global.
-- Recursion is capped at 200 nested calls; going deeper prints "Recursion
-  too deep, call ignored" instead of crashing.
+- Recursion is capped at ~2000 nested calls (`MAX_VM_SCOPE_DEPTH`,
+  `src/vm.h` — raised from an original 200 once the VM got its own
+  scope storage, see `docs/BYTECODE_VM_DESIGN.md`); going deeper prints
+  "Recursion too deep, call ignored" instead of crashing.
 
 ```
 TO uselocal
@@ -452,8 +454,8 @@ SETPROP "animal "sound "generic
 NEW "dog "animal
 SETPROP "dog "sound "Woof
 
-SEND "dog "speak      -> dog Woof
-SEND "animal "speak   -> animal generic
+SEND "dog "speak []      -> dog Woof
+SEND "animal "speak []   -> animal generic
 ```
 
 No classes, no new value type — an "object" is just a property list
@@ -1649,7 +1651,7 @@ silently doing nothing (or, in one case that's now fixed, crashing):
 - `MAKE: too many variables defined, not set` if the global variable
   table (100 entries) is full and `MAKE "name` would need to create a
   new one — an existing variable can still be updated either way.
-- Recursion past 200 nested calls prints `Recursion too deep, call
+- Recursion past ~2000 nested calls prints `Recursion too deep, call
   ignored` (see Variables & scoping above); a `WHILE` past 1,000,000
   iterations prints `WHILE: stopped after too many iterations`.
 - `WORD` prints `WORD: expected words, not a list` if given a list
