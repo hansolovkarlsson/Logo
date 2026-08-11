@@ -15,6 +15,12 @@ All commands are case-insensitive. `expr` means any numeric/word/list
 expression, evaluated the same way everywhere (see "Expressions"
 below); `word`/`list` mean a value of that specific kind is expected.
 
+**Keep this in sync**: whenever a new command is added to
+`parser.c`'s `BUILTIN_SIGNATURES` (or an existing one's grammar
+changes), add/update its row and example here in the same batch — and
+check whether the change also touches `docs/BYTECODE_REFERENCE.md`
+(a new opcode, or an existing one's compiled shape changing).
+
 ## Contents
 
 - [Turtle motion & state](#turtle-motion--state)
