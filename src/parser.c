@@ -308,7 +308,7 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     // AST to mutate, unlike ERASE/LOAD's compile-time-literal
     // ARG_QUOTED_WORD shape); no argument list in this first slice, a
     // launched agent's own procedure must take no inputs.
-    { "LAUNCH", 1, { ARG_EXPR } },
+    { "LAUNCH", 2, { ARG_EXPR, ARG_EXPR } },
     { "AWAIT", 0, { 0 } },
     { "YIELD", 0, { 0 } },
 

@@ -112,7 +112,7 @@ TEST(test_launch_runs_a_procedure_to_completion) {
         "TO walker\n"
         "  PRINT \"walker-ran\n"
         "END\n"
-        "LAUNCH \"walker\n"
+        "LAUNCH \"walker []\n"
         "AWAIT\n"
         "PRINT \"main-done");
     expect_output("walker-ran\nmain-done\n");
@@ -127,8 +127,8 @@ TEST(test_await_blocks_until_every_launched_agent_finishes) {
     run_agent_script(app,
         "TO a\n  PRINT \"a-ran\nEND\n"
         "TO b\n  PRINT \"b-ran\nEND\n"
-        "LAUNCH \"a\n"
-        "LAUNCH \"b\n"
+        "LAUNCH \"a []\n"
+        "LAUNCH \"b []\n"
         "AWAIT\n"
         "PRINT \"main-done");
     expect_output("a-ran\nb-ran\nmain-done\n");
@@ -137,7 +137,7 @@ TEST(test_await_blocks_until_every_launched_agent_finishes) {
 
 TEST(test_launch_of_unknown_procedure_reports_an_error) {
     LogoApp *app = new_app();
-    run_agent_script(app, "LAUNCH \"nosuch\nPRINT \"main-done");
+    run_agent_script(app, "LAUNCH \"nosuch []\nPRINT \"main-done");
     if (strstr(captured_output, "LAUNCH: no such procedure \"nosuch") == NULL) {
         failures++;
         printf("FAIL %s: expected \"no such procedure\", got \"%s\"\n", current_test, captured_output);
@@ -145,14 +145,82 @@ TEST(test_launch_of_unknown_procedure_reports_an_error) {
     free(app);
 }
 
-TEST(test_launch_of_a_procedure_with_parameters_reports_an_error) {
+TEST(test_launch_with_wrong_argument_count_reports_an_error) {
     LogoApp *app = new_app();
     run_agent_script(app,
         "TO greet :name\n  PRINT :name\nEND\n"
-        "LAUNCH \"greet\nPRINT \"main-done");
-    if (strstr(captured_output, "LAUNCH: procedure \"greet\" must take no inputs") == NULL) {
+        "LAUNCH \"greet []\nPRINT \"main-done");
+    if (strstr(captured_output, "LAUNCH: wrong number of inputs for procedure \"greet") == NULL) {
         failures++;
-        printf("FAIL %s: expected \"must take no inputs\", got \"%s\"\n", current_test, captured_output);
+        printf("FAIL %s: expected \"wrong number of inputs\", got \"%s\"\n", current_test, captured_output);
+    }
+    free(app);
+}
+
+TEST(test_launch_passes_arguments_to_the_launched_procedure) {
+    LogoApp *app = new_app();
+    run_agent_script(app,
+        "TO greet :name\n  PRINT :name\nEND\n"
+        "LAUNCH \"greet [Alice]\n"
+        "AWAIT\n"
+        "PRINT \"main-done");
+    expect_output("Alice\nmain-done\n");
+    free(app);
+}
+
+TEST(test_launch_binds_multiple_arguments_positionally) {
+    LogoApp *app = new_app();
+    run_agent_script(app,
+        "TO add :a :b\n  PRINT :a + :b\nEND\n"
+        "LAUNCH \"add [3 4]\n"
+        "AWAIT\n"
+        "PRINT \"main-done");
+    expect_output("7\nmain-done\n");
+    free(app);
+}
+
+TEST(test_launch_with_a_bare_scalar_binds_it_as_a_single_argument) {
+    // Matches APPLY's own convention (see exec_apply): a non-list
+    // second argument is treated as one arg, not an error, same as
+    // APPLY "proc 5 already works without needing APPLY "proc [5].
+    LogoApp *app = new_app();
+    run_agent_script(app,
+        "TO double_it :n\n  PRINT :n * 2\nEND\n"
+        "LAUNCH \"double_it 21\n"
+        "AWAIT\n"
+        "PRINT \"main-done");
+    expect_output("42\nmain-done\n");
+    free(app);
+}
+
+// The actual bug found while scoping this feature (see
+// docs/CONCURRENT_AGENTS_DESIGN.md's own "Agent arguments" section):
+// exec_launch never used to push ANY scope for a zero-argument launch,
+// so LOCAL used directly inside a launched procedure's own top level
+// (not through a further nested call) fell back to silently creating a
+// GLOBAL instead of erroring or working correctly -- leaking across
+// every agent. Now that every launch gets a real scope pushed (even a
+// zero-argument one, via exec_launch's own eval_push_scope_for_call
+// call), LOCAL works there exactly like it already does inside an
+// ordinary procedure call.
+TEST(test_local_works_directly_inside_a_launched_procedures_own_top_level) {
+    LogoApp *app = new_app();
+    run_agent_script(app,
+        "TO worker\n"
+        "  LOCAL \"x\n"
+        "  MAKE \"x 42\n"
+        "  PRINT :x\n"
+        "END\n"
+        "LAUNCH \"worker []\n"
+        "AWAIT");
+    expect_output("42\n");
+    // The actual proof: if LOCAL had silently fallen back to a global
+    // (the bug this fix closes), app->var_count would be 1 (a leaked
+    // global "x") instead of 0 -- checked directly at the C level, not
+    // by scraping NAMES' own PRINT-rendered text.
+    if (app->var_count != 0) {
+        failures++;
+        printf("FAIL %s: expected 0 globals, got %d -- LOCAL fell back to a global\n", current_test, app->var_count);
     }
     free(app);
 }
@@ -175,8 +243,8 @@ TEST(test_two_agents_dont_leak_local_variables_into_each_other) {
         "END\n"
         "TO agent_a\n  helper \"A\nEND\n"
         "TO agent_b\n  helper \"B\nEND\n"
-        "LAUNCH \"agent_a\n"
-        "LAUNCH \"agent_b\n"
+        "LAUNCH \"agent_a []\n"
+        "LAUNCH \"agent_b []\n"
         "AWAIT");
     if (strstr(captured_output, "says-A") == NULL || strstr(captured_output, "says-B") == NULL) {
         failures++;
@@ -201,8 +269,8 @@ TEST(test_two_agents_dont_leak_turtle_selection_into_each_other) {
         "TO mover_b\n"
         "  REPEAT 3 [ FD 20 YIELD ]\n"
         "END\n"
-        "LAUNCH \"mover_a\n"
-        "LAUNCH \"mover_b\n"
+        "LAUNCH \"mover_a []\n"
+        "LAUNCH \"mover_b []\n"
         "AWAIT");
     if (app->turtle_count != 3) {
         failures++;
@@ -229,7 +297,7 @@ TEST(test_wait_inside_an_agent_reports_the_deferred_support_error) {
         "  WAIT 1\n"
         "  PRINT \"unreachable\n"
         "END\n"
-        "LAUNCH \"waiter\n"
+        "LAUNCH \"waiter []\n"
         "AWAIT\n"
         "PRINT \"main-done");
     if (strstr(captured_output, "not yet supported inside a concurrent agent") == NULL) {
@@ -262,7 +330,7 @@ TEST(test_setspeed_inside_an_agent_does_not_tear_it_down) {
         "  FD 10\n"
         "  PRINT \"mover-done\n"
         "END\n"
-        "LAUNCH \"mover\n"
+        "LAUNCH \"mover []\n"
         "AWAIT\n"
         "PRINT \"main-done");
     expect_output("mover-done\nmain-done\n");
@@ -273,7 +341,11 @@ int main(void) {
     RUN(test_launch_runs_a_procedure_to_completion);
     RUN(test_await_blocks_until_every_launched_agent_finishes);
     RUN(test_launch_of_unknown_procedure_reports_an_error);
-    RUN(test_launch_of_a_procedure_with_parameters_reports_an_error);
+    RUN(test_launch_with_wrong_argument_count_reports_an_error);
+    RUN(test_launch_passes_arguments_to_the_launched_procedure);
+    RUN(test_launch_binds_multiple_arguments_positionally);
+    RUN(test_launch_with_a_bare_scalar_binds_it_as_a_single_argument);
+    RUN(test_local_works_directly_inside_a_launched_procedures_own_top_level);
     RUN(test_two_agents_dont_leak_local_variables_into_each_other);
     RUN(test_two_agents_dont_leak_turtle_selection_into_each_other);
     RUN(test_wait_inside_an_agent_reports_the_deferred_support_error);

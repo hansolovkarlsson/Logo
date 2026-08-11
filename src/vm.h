@@ -203,12 +203,20 @@ typedef struct {
     // OP_LAUNCH's own already-resolved target procedure's compiled
     // start pc (via bytecode_find_proc, the same lookup OP_APPLY/OP_SEND
     // already do), for agent.c's own scheduler to start a fresh Agent's
-    // own Vm at (see docs/CONCURRENT_AGENTS_DESIGN.md).
+    // own Vm at (see docs/CONCURRENT_AGENTS_DESIGN.md). `launch_scope`
+    // is valid at the same time -- OP_LAUNCH's own already-bound Scope
+    // (built via eval_push_scope_for_call against a scratch one-slot
+    // ScopeStack, exactly the same binding logic OP_CALL_PROC uses for
+    // an ordinary call), for agent.c's scheduler to install directly as
+    // the new Agent's own vm.scopes[0] (vm.scope_depth = 1) before its
+    // first turn runs -- see docs/CONCURRENT_AGENTS_DESIGN.md's own
+    // "Agent arguments" section.
     int pc;
     double suspend_seconds;
     int pause_level;
     int suspend_frames_remaining;
     int launch_target_pc;
+    Scope launch_scope;
 
     // How many nested vm_run calls are currently on the C stack for
     // this one Vm -- 1 for an ordinary top-level run, >1 inside a

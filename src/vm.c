@@ -797,17 +797,26 @@ static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk
     *pc = target_pc;
 }
 
-// OP_LAUNCH -- resolves its own procedure name exactly like exec_apply
-// above (find_proc_def, then bytecode_find_proc), including its own
-// eager "no such procedure"/"must take no inputs" failure paths (push a
-// throwaway value, advance pc, return FALSE: not suspended). Unlike
-// APPLY, a *successful* resolution doesn't push a VmFrame and jump
-// itself -- it returns TRUE (with vm->launch_target_pc/vm->pc already
-// set), leaving vm_run's own OP_LAUNCH case to do the actual suspend,
-// since only vm_run itself can return a VmRunResult. The vm_run_depth
-// guard lives here, first thing after popping (matching WAIT's own
-// pop-then-check order), not as a separate check in vm_run's case.
+// OP_LAUNCH -- resolves its own procedure name and unpacks its own
+// arglist exactly like exec_apply above (find_proc_def, then the same
+// list-unpacks-positionally/scalar-becomes-one-arg logic, then
+// bytecode_find_proc), including its own eager "no such procedure"/
+// "wrong number of inputs" failure paths (push a throwaway value,
+// advance pc, return FALSE: not suspended). Unlike APPLY, a
+// *successful* resolution doesn't push a VmFrame and jump itself -- it
+// builds the resolved call's own bound Scope directly (via
+// eval_push_scope_for_call, the same function OP_CALL_PROC itself uses,
+// against a scratch one-slot ScopeStack whose own scope_depth is a
+// throwaway local -- this Vm's own real scope_depth is untouched, since
+// this scope belongs to the AGENT THIS WILL BECOME, not this call's
+// own caller) and returns TRUE (with vm->launch_target_pc/vm->launch_scope/
+// vm->pc already set), leaving vm_run's own OP_LAUNCH case to do the
+// actual suspend, since only vm_run itself can return a VmRunResult.
+// The vm_run_depth guard lives here, first thing after popping
+// (matching WAIT's own pop-then-check order), not as a separate check
+// in vm_run's case.
 static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int *pc) {
+    EvalValue arglist_val = pop(vm);
     EvalValue name_val = pop(vm);
     if (vm->vm_run_depth > 1) {
         append_output(app, "LAUNCH: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
@@ -828,13 +837,21 @@ static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *
         return FALSE;
     }
     AstNode *def = &pool->nodes[def_node];
-    if (def->param_count != 0) {
-        // No argument-passing to a launched agent in this first slice
-        // (see docs/CONCURRENT_AGENTS_DESIGN.md) -- a launched procedure
-        // must take no inputs at all, not just "wrong count".
-        append_output(app, "LAUNCH: procedure \"");
+
+    EvalValue arg_vals[AST_MAX_PARAMS];
+    int n = 0;
+    if (arglist_val.type == VALUE_LIST) {
+        for (int idx = arglist_val.list_head; idx != -1 && n < AST_MAX_PARAMS; idx = app->list_pool[idx].next) {
+            arg_vals[n++] = node_to_value(&app->list_pool[idx]);
+        }
+    } else if (n < AST_MAX_PARAMS) {
+        arg_vals[n++] = arglist_val;
+    }
+
+    if (n != def->param_count) {
+        append_output(app, "LAUNCH: wrong number of inputs for procedure \"");
         append_output(app, name_text);
-        append_output(app, "\" must take no inputs\n");
+        append_output(app, "\n");
         push(vm, num_val(0));
         *pc = *pc + 1;
         return FALSE;
@@ -847,6 +864,9 @@ static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *
         *pc = *pc + 1;
         return FALSE;
     }
+    int scratch_depth = 0;
+    ScopeStack launch_ss = {&vm->launch_scope, &scratch_depth, 1};
+    eval_push_scope_for_call(app, launch_ss, def, arg_vals, n); // always succeeds -- capacity 1, scratch_depth starts at 0
     vm->launch_target_pc = target_pc;
     vm->pc = *pc + 1;
     return TRUE;

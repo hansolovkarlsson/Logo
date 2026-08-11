@@ -47,14 +47,17 @@ static gboolean every_other_agent_finished(Agent **agents, int agent_count, Agen
 }
 
 // Creates a fresh Agent to run `target_pc` from, assigning it the next
-// unused turtle (decision #2), and adds it to `agents`/`*agent_count`
-// -- or, if every MAX_TURTLES turtle is already taken, reports a clear
-// message and creates nothing. Shared by scheduler_run's own two
-// spawn sites: the very first LAUNCH (the one that got the caller into
-// multi-agent mode at all, handled once up front below) and every
-// later one reached during the round-robin itself, both of which need
-// the exact same "make a new agent for this resolved target" logic.
-static void spawn_agent(LogoApp *app, Agent **agents, int *agent_count, int target_pc) {
+// unused turtle (decision #2) and installing `launch_scope` as its own
+// first scope (already bound by exec_launch via eval_push_scope_for_call
+// -- see docs/CONCURRENT_AGENTS_DESIGN.md's own "Agent arguments"
+// section), and adds it to `agents`/`*agent_count` -- or, if every
+// MAX_TURTLES turtle is already taken, reports a clear message and
+// creates nothing. Shared by scheduler_run's own two spawn sites: the
+// very first LAUNCH (the one that got the caller into multi-agent mode
+// at all, handled once up front below) and every later one reached
+// during the round-robin itself, both of which need the exact same
+// "make a new agent for this resolved target" logic.
+static void spawn_agent(LogoApp *app, Agent **agents, int *agent_count, int target_pc, const Scope *launch_scope) {
     if (app->turtle_count >= MAX_TURTLES) {
         append_output(app, "LAUNCH: no more turtles available, agent not started\n");
         return;
@@ -64,6 +67,8 @@ static void spawn_agent(LogoApp *app, Agent **agents, int *agent_count, int targ
     init_turtle(app, &app->turtles[app->turtle_count]);
     app->turtle_count++;
     new_agent->vm.launch_target_pc = target_pc;
+    new_agent->vm.scopes[0] = *launch_scope;
+    new_agent->vm.scope_depth = 1;
     new_agent->state = AGENT_READY;
     agents[(*agent_count)++] = new_agent;
 }
@@ -85,7 +90,7 @@ void scheduler_run(LogoApp *app, AstPool *pool, BytecodeChunk *chunk, Agent *ini
     // spawned inline below, as part of the round-robin itself; this
     // first one needs the identical treatment once, up front, before
     // the loop starts.
-    spawn_agent(app, agents, &agent_count, initial_agent->vm.launch_target_pc);
+    spawn_agent(app, agents, &agent_count, initial_agent->vm.launch_target_pc, &initial_agent->vm.launch_scope);
     initial_agent->state = AGENT_READY;
 
     for (;;) {
@@ -118,7 +123,7 @@ void scheduler_run(LogoApp *app, AstPool *pool, BytecodeChunk *chunk, Agent *ini
                 case VM_RUN_SUSPENDED_LAUNCH:
                     // LAUNCH never blocks its own caller, success or
                     // failure -- `a` keeps going regardless.
-                    spawn_agent(app, agents, &agent_count, a->vm.launch_target_pc);
+                    spawn_agent(app, agents, &agent_count, a->vm.launch_target_pc, &a->vm.launch_scope);
                     a->state = AGENT_READY;
                     break;
                 case VM_RUN_SUSPENDED_AWAIT:

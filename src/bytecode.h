@@ -203,20 +203,29 @@ typedef enum {
     // reported error, not a silent hang) rather than given a guessed-at
     // multi-agent semantic.
     //
-    // OP_LAUNCH resolves its own procedure name via find_proc_def/
-    // bytecode_find_proc, mirroring OP_APPLY's own resolution exactly
-    // (including its own "no such procedure"/"must take no inputs"
+    // OP_LAUNCH resolves its own procedure name and unpacks its own
+    // arglist via find_proc_def/bytecode_find_proc, mirroring OP_APPLY's
+    // own resolution and argument-unpacking exactly (a list unpacks
+    // positionally into up to AST_MAX_PARAMS args, a bare scalar becomes
+    // a single arg; same "no such procedure"/"wrong number of inputs"
     // eager-failure paths, pushing a throwaway value and falling
     // through rather than suspending on failure) -- but unlike APPLY,
     // a *successful* resolution doesn't push a VmFrame and jump: it
-    // suspends (VM_RUN_SUSPENDED_LAUNCH, vm->launch_target_pc set) so
-    // agent.c's own scheduler -- not this Vm -- is what actually starts
-    // a fresh Agent running that procedure. `.text` carries nothing of
-    // its own -- the procedure name is an ordinary ARG_EXPR argument,
-    // same as APPLY's own name argument (not ERASE/LOAD's compile-time-
-    // literal ARG_QUOTED_WORD shape: there's no AST to mutate and no
-    // compile-time backpatching involved, so a computed name is fine),
-    // popped like any other already-evaluated value.
+    // builds the resolved call's own bound Scope directly (via
+    // eval_push_scope_for_call against a scratch one-slot ScopeStack,
+    // stashed on vm->launch_scope) and suspends (VM_RUN_SUSPENDED_LAUNCH,
+    // vm->launch_target_pc/vm->launch_scope both set) so agent.c's own
+    // scheduler -- not this Vm -- is what actually starts a fresh Agent
+    // running that procedure, installing vm->launch_scope as that
+    // agent's own first scope before its first turn. `.text` carries
+    // nothing of its own -- both the procedure name and its arglist are
+    // ordinary ARG_EXPR arguments, same as APPLY's own two arguments
+    // (not ERASE/LOAD's compile-time-literal ARG_QUOTED_WORD shape:
+    // there's no AST to mutate and no compile-time backpatching
+    // involved, so a computed name/arglist is fine), popped like any
+    // other already-evaluated values (arglist first, name second,
+    // matching APPLY's own pop order -- compiled in name-then-arglist
+    // push order).
     OP_LAUNCH,
     // OP_AWAIT/OP_YIELD suspend unconditionally, no payload of their
     // own -- agent.c's own scheduler distinguishes them purely by which

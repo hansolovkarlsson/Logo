@@ -1,8 +1,8 @@
 # MultiLogo-style concurrent turtle agents
 
-Status: **scoped, not started.** Four design decisions resolved with the
-user 2026-08-10 (see "Decisions" and "Proposed first slice" below); no
-code written yet.
+Status: **first slice shipped 2026-08-10** (see "Progress" below).
+Agent arguments — the first item off the first slice's own deferred
+list — shipped the same day (see "Agent arguments" below).
 
 ## Why
 
@@ -353,3 +353,113 @@ inside an agent; automatic per-loop-iteration yielding; passing
 arguments to a launched agent; mixing ordinary top-level suspend/resume
 with a later `LAUNCH`; any way to inspect a running agent's own state
 from outside it.
+
+## Agent arguments (scoped 2026-08-10)
+
+The first item off the first slice's own deferred list. `LAUNCH`
+currently requires a zero-input procedure — worth fixing since it's a
+real, common limitation (most agent bodies want to know *which* turtle
+they are, or start with different parameters), and, while auditing the
+mechanism to scope it, surfaced a genuine bug worth fixing at the same
+time, not just the feature itself.
+
+**Root cause of today's zero-arg restriction**: `exec_launch` (`vm.c`)
+never pushes a scope for the launched procedure at all — it resolves
+`target_pc` and jumps straight into the compiled body, the same way a
+top-level script starts, unlike an ordinary call (`OP_CALL_PROC`),
+which always pushes a scope via `eval_push_scope_for_call` even for a
+zero-param procedure. There's nowhere for `LAUNCH` to bind arguments
+into today, which is *why* it was restricted to zero-param procedures
+in the first slice, not an arbitrary limitation.
+
+**A real bug this same fix closes, found by actually running it, not
+guessed**: since no scope is ever pushed, `LOCAL` used directly inside
+a launched procedure's own top level currently fails with `"LOCAL: can
+only be used inside a procedure"` and silently falls back to writing a
+*global* instead — a "local" variable in a launched agent's own
+top-level body currently leaks across every agent. The first slice's
+own isolation test (`test_two_agents_dont_leak_local_variables_into_
+each_other`) never caught this because it only exercises `LOCAL`/
+parameters inside a call *nested inside* the launched procedure, never
+the launched procedure's own top level.
+
+**Resolved with the user**: `LAUNCH` becomes a breaking change,
+matching `APPLY`'s own already-established convention exactly rather
+than adding a second, parallel way to `LAUNCH` — `LAUNCH "procname
+arglist` (`{ "LAUNCH", 2, { ARG_EXPR, ARG_EXPR } }` in `parser.c`,
+up from 1), `[]` for no arguments, same eager unpacking `APPLY` already
+has (a list unpacks positionally into up to `AST_MAX_PARAMS` args, a
+bare scalar becomes a single arg), same `"LAUNCH: wrong number of
+inputs for procedure \"X\""` wording replacing today's `"must take no
+inputs"`. Every existing `LAUNCH "name` call site (`examples/
+concurrent_agents.logo`, `tests/test_agent.c`'s own corpus) needs `[]`
+added — mechanical, ~6 sites total.
+
+**Mechanism**: `exec_launch` builds the bound `Scope` itself, reusing
+`eval_push_scope_for_call` (the exact function `OP_CALL_PROC` already
+uses) against a scratch one-slot `ScopeStack` — no new binding logic to
+get subtly wrong or drift from an ordinary call's own semantics. The
+built `Scope` is stashed on a new `Vm.launch_scope` field, the same
+"suspend, carry a payload, let the driver act on it" shape
+`launch_target_pc`/`suspend_seconds`/`pause_level` already established.
+`agent.c`'s `spawn_agent` installs it directly as the new agent's own
+`vm.scopes[0]` (`vm.scope_depth = 1`) before that agent's first turn
+runs — both of `spawn_agent`'s own call sites (the very first `LAUNCH`,
+handled once up front in `scheduler_run`, and every later one reached
+inside the round-robin itself) already have their own agent's
+`vm.launch_scope` ready by construction. `ui.c`'s `run_logo_script` and
+`tests/test_agent.c`'s mirrored helper need **no changes at all** for
+this — both already copy the whole `Vm` by value (`initial_agent->vm =
+*vm;`) into the initial agent, so the new field rides along for free.
+
+Because every launched call now gets exactly one real scope pushed —
+even a zero-argument one, matching how an ordinary zero-param
+`OP_CALL_PROC` call always pushes one too — the `LOCAL`-leaks-to-global
+bug above is fixed as a strict side effect of the same change, for
+every launch, not just argument-taking ones.
+
+No new opcode needed: `OP_LAUNCH` stays the same opcode, only its own
+compiled argument count changes (`compile_call`'s existing `LAUNCH`
+special form compiles a second `compile_expr` for the arglist before
+emitting `OP_LAUNCH`, mirroring how `compile_call`'s generic dispatch
+already compiles multiple args for any ordinary call). `OP_VOID_RESULT`
+still follows unconditionally, unchanged — `LAUNCH` never hands back a
+value regardless of arguments, same as today.
+
+**Shipped 2026-08-10, same day as the scoping above** (user: "yes, build
+it"). Built exactly as scoped: `parser.c`'s `LAUNCH` signature is now
+`{ "LAUNCH", 2, { ARG_EXPR, ARG_EXPR } }`; `compiler.c`'s `LAUNCH`
+special form compiles a second `compile_expr` for the arglist;
+`exec_launch` (`vm.c`) unpacks it exactly like `exec_apply` (a list
+unpacks positionally, a bare scalar becomes one arg), checks arity with
+`APPLY`'s own `"wrong number of inputs"` wording, and builds the bound
+`Scope` via `eval_push_scope_for_call` against a scratch one-slot
+`ScopeStack`, stashed on the new `Vm.launch_scope` field;
+`agent.c`'s `spawn_agent` installs it as the new agent's own
+`vm.scopes[0]` (`vm.scope_depth = 1`). `ui.c`/`test_agent.c` needed
+zero changes, exactly as predicted — both already copy the whole `Vm`
+by value into the initial agent.
+
+`examples/concurrent_agents.logo` was redesigned, not just migrated, to
+actually demonstrate the new capability: the three colored-polygon
+wrapper procedures (`triangle`/`square`/`hexagon`) are gone, replaced by
+one `polygon :sides :length :start_x :start_y :r :g :b` launched three
+times with different argument lists (`LAUNCH "polygon [3 90 120 350 220
+40 40]`, etc.) — verified end-to-end against the real VM+scheduler
+(all three polygons still close exactly, with the right colors).
+
+6 new `tests/test_agent.c` cases: wrong-argument-count reports the new
+message, a single string argument is correctly bound and read, two
+numeric arguments bind positionally (`add :a :b` computing `3 + 4`), a
+bare scalar (not list-wrapped) binds as one argument matching `APPLY`'s
+own convention, and — the most important one — a direct test of the
+`LOCAL`-leaks-to-a-global bug this same change closes: a launched
+procedure's own top-level `LOCAL "x` now correctly stays local
+(`app->var_count == 0` after the run, checked directly at the C level,
+not by scraping `PRINT NAMES`' own rendered text). All existing
+zero-argument `LAUNCH "name` call sites across the test corpus and the
+demo migrated to `LAUNCH "name []`. Verified via `make test` (still 7
+suites, all pass), standalone ASan builds of `test_vm`/`test_agent`
+(both fully clean), a warning-free full `make`/`make logi` build, and a
+live `bin/logo examples/concurrent_agents.logo` launch confirmed alive
+with no crash.

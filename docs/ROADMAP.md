@@ -999,6 +999,23 @@ every other `vm_run_depth`-gated refusal.
   and a warning-free full build. Still deferred, not silently dropped:
   passing arguments to a launched agent, automatic per-loop yielding,
   and mixing an ordinary top-level suspend/resume with a later `LAUNCH`.
+- [x] **Agent arguments** (scoped and shipped 2026-08-10 — see
+  `docs/CONCURRENT_AGENTS_DESIGN.md`'s own "Agent arguments" section
+  for the full writeup): `LAUNCH "procname arglist` (breaking change,
+  matching `APPLY`'s own convention exactly, `[]` for none), built by
+  reusing `eval_push_scope_for_call` to construct the launched agent's
+  own first scope directly in `exec_launch` rather than teaching
+  `agent.c` any new binding logic. Also fixes a real bug found while
+  scoping this: `LOCAL` used directly inside a launched procedure's own
+  top level used to silently fall back to a global (no scope was ever
+  pushed for a zero-arg launch before this) — closed for every launch,
+  not just argument-taking ones, since every launch now gets a real
+  scope pushed. `examples/concurrent_agents.logo` redesigned (not just
+  migrated) to actually demonstrate argument passing. 6 new
+  `tests/test_agent.c` cases, including a direct test of the `LOCAL`
+  fix. Verified via `make test` (7 suites), standalone ASan builds of
+  `test_vm`/`test_agent` (both fully clean), a warning-free full build,
+  and a live `bin/logo` launch of the redesigned demo.
 
 ### CLI ergonomics
 

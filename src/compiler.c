@@ -656,11 +656,13 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         return;
     }
     if (strcasecmp(name, "LAUNCH") == 0) {
-        // Plain ARG_EXPR argument, matching APPLY -- see bytecode.h's
-        // own OP_LAUNCH comment for why (a computed procedure name is
-        // fine here, unlike LOAD's compile-time-literal path).
+        // Two plain ARG_EXPR arguments (name, arglist), matching APPLY
+        // exactly -- see bytecode.h's own OP_LAUNCH comment for why
+        // (both computed at runtime is fine here, unlike LOAD's
+        // compile-time-literal path).
         collect_children(pool, node_idx, args, AST_MAX_PARAMS);
         compile_expr(c, pool, args[0], chunk);
+        compile_expr(c, pool, args[1], chunk);
         emit(chunk, (Instr){.op = OP_LAUNCH});
         emit(chunk, (Instr){.op = OP_VOID_RESULT});
         finish_call(chunk, "LAUNCH", want_value);
