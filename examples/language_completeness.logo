@@ -1,0 +1,30 @@
+; 2026-08-11 Terrapin Logo comparison (docs/ROADMAP.md's "Language
+; completeness"): a tour of the small general-purpose builtins this
+; batch added -- math constants/RNG, char/case conversion, bitwise ops,
+; the rest of the trig family, clock reads, procedure/turtle
+; introspection, and list-generation helpers.
+
+PRINT SENTENCE "pi: PI
+RERANDOM
+PRINT SENTENCE "first-roll: RANDOM 100
+PRINT SENTENCE "ascii-A: ASCII "A
+PRINT SENTENCE "char-65: CHAR 65
+PRINT SENTENCE "upper: UPPERCASE "shout
+PRINT SENTENCE "lower: LOWERCASE "WHISPER
+PRINT SENTENCE "12-and-10: BITAND 12 10
+PRINT SENTENCE "1-shifted-left-4: LSHIFT 1 4
+PRINT SENTENCE "16-shifted-right-4: RSHIFT 16 4
+PRINT SENTENCE "arctan2-1-1: ARCTAN2 1 1
+PRINT SENTENCE "sec-60: SEC 60
+PRINT SENTENCE "the-time-is: TIME
+PRINT SENTENCE "the-date-is: DATE
+
+TO SQUARE :SIDE
+  REPEAT 4 [FD :SIDE RT 90]
+END
+PRINT SENTENCE "square-defined?: DEFINED? "square
+PRINT SENTENCE "bogus-defined?: DEFINED? "bogus
+
+PRINT SENTENCE "active-turtles: TURTLES
+PRINT SENTENCE "range-1-to-5: RANGE 1 5
+PRINT SENTENCE "spacedrange-0-to-10-in-3: SPACEDRANGE 0 10 3

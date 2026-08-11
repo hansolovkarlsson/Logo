@@ -177,16 +177,30 @@ static double mod_result(double a, double b) {
 // RANDOM n: a random integer in [0, n). Seeds the C library's RNG from
 // the current time on first use only — this is turtle-graphics
 // randomness (spirals, scattering, games), not anything needing a
-// cryptographic or reproducible sequence.
+// cryptographic or reproducible sequence. File-scope (not a function-
+// local static) so RERANDOM (vm.c's own exec_rerandom) can flip it too
+// -- without that, a RERANDOM called before RANDOM's own first use
+// would be silently undone the first time RANDOM finally seeds itself
+// from the clock.
+static gboolean g_random_seeded = FALSE;
+
 double random_below(double n) {
-    static gboolean seeded = FALSE;
-    if (!seeded) {
+    if (!g_random_seeded) {
         srand((unsigned int)time(NULL));
-        seeded = TRUE;
+        g_random_seeded = TRUE;
     }
     int limit = (int)n;
     if (limit <= 0) return 0;
     return rand() % limit;
+}
+
+// RERANDOM: reseeds to a fixed, reproducible value (1) rather than the
+// clock -- the same sequence every run until reseeded again, standard
+// Logo RERANDOM convention (a debugging/reproducibility tool, the
+// opposite of RANDOM's own "different every run" default).
+void logo_rerandom(void) {
+    srand(1);
+    g_random_seeded = TRUE;
 }
 
 // Where CLEAR and HOME send the turtle back to -- the canvas's current

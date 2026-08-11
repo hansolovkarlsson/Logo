@@ -229,6 +229,38 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "LOG", 1, { ARG_EXPR } },
     { "EXP", 1, { ARG_EXPR } },
 
+    // 2026-08-11 Terrapin Logo comparison (docs/ROADMAP.md's "Language
+    // completeness") -- VM-only (see vm.c's own call_builtin), same
+    // "no BytecodeChunk for ast_eval/eval_logo to run any of this
+    // against" reasoning as SAVEBYTECODE/ONKEY above, not touching
+    // eval.c's own separate dispatch chain at all.
+    { "PI", 0, { 0 } },
+    { "RERANDOM", 0, { 0 } },
+    { "ASCII", 1, { ARG_EXPR } },
+    { "CHAR", 1, { ARG_EXPR } },
+    { "UPPERCASE", 1, { ARG_EXPR } },
+    { "LOWERCASE", 1, { ARG_EXPR } },
+    { "BITAND", 2, { ARG_EXPR, ARG_EXPR } },
+    { "BITOR", 2, { ARG_EXPR, ARG_EXPR } },
+    { "BITXOR", 2, { ARG_EXPR, ARG_EXPR } },
+    { "BITNOT", 1, { ARG_EXPR } },
+    { "LSHIFT", 2, { ARG_EXPR, ARG_EXPR } },
+    { "RSHIFT", 2, { ARG_EXPR, ARG_EXPR } },
+    { "ARCTAN2", 2, { ARG_EXPR, ARG_EXPR } },
+    { "SEC", 1, { ARG_EXPR } },
+    { "CSC", 1, { ARG_EXPR } },
+    { "COT", 1, { ARG_EXPR } },
+    { "ASEC", 1, { ARG_EXPR } },
+    { "ACSC", 1, { ARG_EXPR } },
+    { "ACOT", 1, { ARG_EXPR } },
+    { "TIME", 0, { 0 } },
+    { "DATE", 0, { 0 } },
+    { "MILLISECONDS", 0, { 0 } },
+    { "DEFINED?", 1, { ARG_EXPR } },
+    { "RANGE", 2, { ARG_EXPR, ARG_EXPR } },
+    { "SPACEDRANGE", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
+    { "TURTLES", 0, { 0 } },
+
     // List/word operators (eval.c: list values are now real, built in
     // app->list_pool, the same pool interpreter.c's own list operators
     // build into). Not the higher-order MAP/FILTER/REDUCE/FOREACH yet

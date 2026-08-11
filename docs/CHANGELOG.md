@@ -1366,3 +1366,67 @@ saved to file, loaded back, and hand-assembled.
   of the new example. This closes out the mouse/keyboard side of event
   triggers entirely — only joystick support remains open, and it's a
   separate dependency decision, not more of the same shape.
+
+## Language completeness
+
+- [x] **The easy tier of the 2026-08-11 Terrapin comparison** (shipped
+  2026-08-11): 24 small general-purpose builtins, all VM-only
+  (`src/parser.c`'s `BUILTIN_SIGNATURES` + a matching `vm.c` dispatch
+  branch/helper each — no new opcodes, same generic `OP_CALL_BUILTIN`
+  path every ordinary math operator already uses), grouped by category:
+  - Math/RNG: `PI` (the constant), `RERANDOM` (reseed `RANDOM` to a
+    fixed, reproducible sequence instead of the clock).
+  - Char/case: `ASCII`/`CHAR` (single-character <-> code point, plain C
+    `char`, not full Unicode — this project's word/text handling is
+    byte-oriented throughout), `UPPERCASE`/`LOWERCASE`.
+  - Bitwise: `BITAND`/`BITOR`/`BITXOR`/`BITNOT`/`LSHIFT`/`RSHIFT`
+    (named for clarity rather than Terrapin's own cryptic `LOGAND`/
+    `LOGOR`/`LOGXOR`/`LOGNOT`/`LSH` — a deliberate user preference, not
+    a compatibility choice like the rest of this batch; `LSHIFT`/
+    `RSHIFT` are two separate, explicitly-directional operators rather
+    than Terrapin's single sign-overloaded `LSH`), truncating through a
+    64-bit integer (wide enough for real bit patterns, unlike `INT`'s
+    own fmod-precision-oriented trunc).
+  - Trig: `ARCTAN2`, `SEC`/`CSC`/`COT`/`ASEC`/`ACSC`/`ACOT` — degrees
+    in/out, matching `SIN`/`COS`/`TAN`/`ASIN`/`ACOS`/`ARCTAN`'s own
+    existing convention exactly.
+  - Clock: `TIME`/`DATE`/`MILLISECONDS` (`localtime`/`strftime`/
+    `clock_gettime` wrappers).
+  - Introspection: `DEFINED?` (looks the word up in the currently
+    executing chunk's own `procs[]`, same lookup `ONKEY`/`ONCLICK`
+    already use to validate a handler at registration), `TURTLES`
+    (`app->turtle_count`).
+  - List generation: `RANGE from to` (integers, counting by ±1),
+    `SPACEDRANGE from to count` (count equally-spaced numbers) — named
+    `RANGE`/`SPACEDRANGE` rather than Terrapin's own `ISEQ`/`RSEQ`, same
+    naming-clarity preference as the bitwise ops above. Both build real
+    `list_pool` chains via the existing `value_to_node` helper.
+
+  `RERANDOM` needed one real shared-state change: `random_below`'s own
+  "seeded?" flag was a function-local static in `interpreter.c`,
+  invisible to `vm.c`. Promoted to file scope with a new
+  `logo_rerandom()` setter, so a `RERANDOM` called *before* `RANDOM`'s
+  own first (lazy, clock-seeded) use doesn't get silently undone the
+  first time `RANDOM` finally seeds itself.
+
+  A real, pre-existing language quirk surfaced while testing the shift
+  operators, not a bug in this batch: an unparenthesized negative
+  literal in a *later* argument position (`RSHIFT 16 -4`) greedily
+  parses as binary subtraction continuing the *previous* argument
+  (`16 - 4 = 12`, then a missing/defaulted second argument), rather
+  than starting a fresh argument — parenthesizing (`RSHIFT 16 (-4)`) is
+  required, and is now called out explicitly in
+  `docs/COMMAND_REFERENCE.md`. (`LSHIFT`/`RSHIFT` do each still
+  tolerate a negative shift count by flipping direction, purely as a
+  fallback against undefined C shift behavior — not the intended way to
+  ask for the other direction.)
+
+  13 new `test_vm.c` cases (one per builtin or small logical group,
+  e.g. all six new trig functions share one test); a new
+  `examples/language_completeness.logo`; verified via `make test` (all
+  8 suites), a standalone ASan build of `test_vm` (clean, same raised
+  `ulimit -s` workaround as prior rounds), and a live `bin/logo`
+  process-liveness launch of the new example. `REPCOUNT`/`READWORD`/
+  `READCHAR`/`EVAL` remain open in `docs/ROADMAP.md` — each needs real
+  design work (VM loop-counter exposure, a stdin protocol, list-running
+  semantics respectively), not just a wrapper like this batch.

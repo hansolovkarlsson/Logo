@@ -39,26 +39,19 @@ Some more are naming differences, not real gaps: `XCOR`/`YCOR` = our
 `GETX`/`GETY`; `AGET`/`ASET` = our `ITEM`/`SETITEM`; `ARRAYP` = our
 `ARRAY?`; `MODULO` = our `MOD`.
 
-What's left is a real, if modest, list of general-purpose language
-primitives genuinely missing — ranked roughly easiest first:
+The easy tier of genuinely-missing general-purpose primitives shipped
+2026-08-11 — `PI`, `RERANDOM`, `ASCII`/`CHAR`, `UPPERCASE`/`LOWERCASE`,
+`BITAND`/`BITOR`/`BITXOR`/`BITNOT`/`LSHIFT`/`RSHIFT`, `ARCTAN2`/`SEC`/`CSC`/
+`COT`/`ASEC`/`ACSC`/`ACOT`, `TIME`/`DATE`/`MILLISECONDS`, `DEFINED?`,
+`RANGE`/`SPACEDRANGE`, `TURTLES` (see `docs/CHANGELOG.md`'s own entry
+for the full writeup, and `docs/COMMAND_REFERENCE.md` for day-to-day
+usage).
+What's left needs real design work, not just a wrapper:
 
-- [ ] `PI` — Pi constant
-- [ ] `RERANDOM` — seed the RNG
-- [ ] `ASCII`/`CHAR` — char <-> code point
-- [ ] `UPPERCASE`/`LOWERCASE` — case conversion
-- [ ] `LOGAND`/`LOGOR`/`LOGXOR`/`LOGNOT`/`LSH` — bitwise ops (direct C
-  operators, same shape as the existing `MOD`/`POWER`)
-- [ ] `ARCTAN2`, `SEC`/`CSC`/`COT`/`ASEC`/`ACSC`/`ACOT` — rest of the trig
-  family (math.h wrappers)
-- [ ] `TIME`/`DATE`/`MILLISECONDS` — clock reads
-- [ ] `DEFINED?` — does this procedure name exist
-- [ ] `ISEQ`/`RSEQ` — generate a list of sequential/spaced numbers
 - [ ] `REPCOUNT` — current `REPEAT` loop's counter (common idiom:
   `REPEAT 10 [FD REPCOUNT]`) — needs the VM to expose the loop counter;
   probably the single highest-value item here, since real Logo programs
   lean on it constantly
-- [ ] `TURTLES` — count of active turtles (worth it given this project's
-  own concurrent-agents model differs from Terrapin's turtle-fleet model)
 - [ ] `READWORD`/`READCHAR` — stdin reads finer-grained than the existing
   `READLINE`
 - [ ] `EVAL` — run a list, collect outputs as a list

@@ -24,10 +24,13 @@
 #include "lexer.h"
 #include "parser.h"
 #include "compiler.h"
+#include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 static void push(Vm *vm, EvalValue v) {
     if (vm->stack_top >= MAX_VM_STACK) return; // can't happen for this vertical slice's own test scripts; see this file's own note on MAX_INSTRUCTIONS overflow handling in compiler.c for the same "not yet robustly reported" tradeoff
@@ -423,6 +426,178 @@ static void exec_onrelease(LogoApp *app, BytecodeChunk *chunk, const char *proc_
     snprintf(app->onrelease_handler, sizeof(app->onrelease_handler), "%s", proc_name);
 }
 
+// 2026-08-11 Terrapin Logo comparison (docs/ROADMAP.md's "Language
+// completeness") -- 24 small general-purpose operators/commands found
+// genuinely missing, all VM-only (see parser.c's own note on this
+// batch), grouped below by category.
+
+// ASCII/CHAR: single-character <-> code-point conversion. Plain C char
+// (0-255), not full Unicode -- this project's word/text handling is
+// byte-oriented throughout (EvalValue.word/AST_MAX_TEXT), so this
+// deliberately doesn't attempt UTF-8 codepoint synthesis.
+static EvalValue eval_ascii_value(LogoApp *app, EvalValue v) {
+    char text[512];
+    eval_value_to_text(app, v, text, sizeof(text));
+    if (text[0] == '\0' || text[1] != '\0') {
+        append_output(app, "ASCII: expected a single character\n");
+        return num_val(0);
+    }
+    return num_val((unsigned char)text[0]);
+}
+static EvalValue eval_char_value(EvalValue v) {
+    char text[2] = { (char)(int)eval_to_number(v), '\0' };
+    return word_val(text);
+}
+
+static EvalValue eval_uppercase_value(LogoApp *app, EvalValue v) {
+    char text[512];
+    eval_value_to_text(app, v, text, sizeof(text));
+    for (char *p = text; *p != '\0'; p++) *p = (char)toupper((unsigned char)*p);
+    return word_val(text);
+}
+static EvalValue eval_lowercase_value(LogoApp *app, EvalValue v) {
+    char text[512];
+    eval_value_to_text(app, v, text, sizeof(text));
+    for (char *p = text; *p != '\0'; p++) *p = (char)tolower((unsigned char)*p);
+    return word_val(text);
+}
+
+// BITAND/BITOR/BITXOR/BITNOT/LSHIFT/RSHIFT: integer bitwise ops,
+// truncating through a 64-bit integer (wide enough for real bit
+// patterns, unlike INT's own fmod-precision-oriented trunc). Named
+// BIT*/*SHIFT rather than Terrapin's own LOGAND/LOGOR/LOGXOR/LOGNOT/LSH
+// (still the underlying convention these follow) for a more
+// self-explanatory, less cryptic name -- a deliberate user preference,
+// not a Terrapin-compatibility choice like most of the rest of this
+// batch. LSHIFT/RSHIFT are two separate, explicitly-directional
+// operators (Terrapin's own LSH instead overloads a single operator's
+// sign to mean direction) -- each still tolerates a negative shift
+// count by flipping direction rather than invoking undefined C
+// behavior, but that's a robustness fallback, not the intended way to
+// ask for the other direction; use the other operator instead.
+static EvalValue eval_bitand_value(EvalValue a, EvalValue b) {
+    return num_val((double)((long long)eval_to_number(a) & (long long)eval_to_number(b)));
+}
+static EvalValue eval_bitor_value(EvalValue a, EvalValue b) {
+    return num_val((double)((long long)eval_to_number(a) | (long long)eval_to_number(b)));
+}
+static EvalValue eval_bitxor_value(EvalValue a, EvalValue b) {
+    return num_val((double)((long long)eval_to_number(a) ^ (long long)eval_to_number(b)));
+}
+static EvalValue eval_bitnot_value(EvalValue a) {
+    return num_val((double)(~(long long)eval_to_number(a)));
+}
+static EvalValue eval_lshift_value(EvalValue a, EvalValue n) {
+    long long val = (long long)eval_to_number(a);
+    int shift = (int)eval_to_number(n);
+    return num_val((double)(shift >= 0 ? (val << shift) : (val >> -shift)));
+}
+static EvalValue eval_rshift_value(EvalValue a, EvalValue n) {
+    long long val = (long long)eval_to_number(a);
+    int shift = (int)eval_to_number(n);
+    return num_val((double)(shift >= 0 ? (val >> shift) : (val << -shift)));
+}
+
+// SEC/CSC/COT take degrees (like SIN/COS/TAN); ASEC/ACSC/ACOT/ARCTAN2
+// return degrees (like ASIN/ACOS/ARCTAN) -- see eval.c's own comment on
+// this project's degrees-not-radians convention throughout.
+static EvalValue eval_sec_value(EvalValue v) {
+    return num_val(1.0 / cos(eval_to_number(v) * M_PI / 180.0));
+}
+static EvalValue eval_csc_value(EvalValue v) {
+    return num_val(1.0 / sin(eval_to_number(v) * M_PI / 180.0));
+}
+static EvalValue eval_cot_value(EvalValue v) {
+    return num_val(1.0 / tan(eval_to_number(v) * M_PI / 180.0));
+}
+static EvalValue eval_asec_value(EvalValue v) {
+    return num_val(acos(1.0 / eval_to_number(v)) * 180.0 / M_PI);
+}
+static EvalValue eval_acsc_value(EvalValue v) {
+    return num_val(asin(1.0 / eval_to_number(v)) * 180.0 / M_PI);
+}
+static EvalValue eval_acot_value(EvalValue v) {
+    return num_val(atan(1.0 / eval_to_number(v)) * 180.0 / M_PI);
+}
+static EvalValue eval_arctan2_value(EvalValue y, EvalValue x) {
+    return num_val(atan2(eval_to_number(y), eval_to_number(x)) * 180.0 / M_PI);
+}
+
+// TIME/DATE: current wall-clock time/date as a word, localtime-
+// formatted. MILLISECONDS: raw epoch milliseconds as a number.
+static EvalValue eval_time_value(void) {
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    char buf[16];
+    strftime(buf, sizeof(buf), "%H:%M:%S", &local);
+    return word_val(buf);
+}
+static EvalValue eval_date_value(void) {
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    char buf[16];
+    strftime(buf, sizeof(buf), "%Y-%m-%d", &local);
+    return word_val(buf);
+}
+static EvalValue eval_milliseconds_value(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    double ms = (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+    return num_val(ms);
+}
+
+// DEFINED? -- looks the word up in the CURRENTLY EXECUTING chunk's own
+// procs[] table, same lookup exec_onkey/exec_onclick already use to
+// validate a handler at registration time.
+static EvalValue eval_definedp_value(LogoApp *app, BytecodeChunk *chunk, EvalValue v) {
+    char text[512];
+    eval_value_to_text(app, v, text, sizeof(text));
+    return word_val(bytecode_find_proc_entry(chunk, text) != NULL ? "TRUE" : "FALSE");
+}
+
+static EvalValue eval_turtles_value(LogoApp *app) {
+    return num_val(app->turtle_count);
+}
+
+// RANGE from to: integers from FROM to TO inclusive, counting by 1 if
+// FROM <= TO, otherwise by -1 -- standard Logo ISEQ convention, under a
+// more self-explanatory name (a deliberate user preference, same as
+// BITAND/etc above).
+static EvalValue eval_range_value(LogoApp *app, EvalValue from_val, EvalValue to_val) {
+    int from = (int)eval_to_number(from_val);
+    int to = (int)eval_to_number(to_val);
+    int step = (from <= to) ? 1 : -1;
+    int head = -1, tail = -1;
+    for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
+        int node = value_to_node(app, num_val(i));
+        if (node < 0) return list_pool_exhausted(app);
+        if (head < 0) head = node; else app->list_pool[tail].next = node;
+        tail = node;
+    }
+    return list_val(head);
+}
+
+// SPACEDRANGE from to count: COUNT equally spaced rational numbers
+// between FROM and TO inclusive (COUNT-1 equal intervals) -- standard
+// Logo RSEQ convention, under a more self-explanatory name.
+static EvalValue eval_spacedrange_value(LogoApp *app, EvalValue from_val, EvalValue to_val, EvalValue count_val) {
+    double from = eval_to_number(from_val);
+    double to = eval_to_number(to_val);
+    int count = (int)eval_to_number(count_val);
+    if (count < 1) return list_val(-1);
+    int head = -1, tail = -1;
+    for (int i = 0; i < count; i++) {
+        double v = (count == 1) ? from : from + (to - from) * i / (count - 1);
+        int node = value_to_node(app, num_val(v));
+        if (node < 0) return list_pool_exhausted(app);
+        if (head < 0) head = node; else app->list_pool[tail].next = node;
+        tail = node;
+    }
+    return list_val(head);
+}
+
 static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
@@ -538,6 +713,36 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
         *produced = 0;
         return num_val(0);
     }
+    if (strcasecmp(name, "PI") == 0) return num_val(M_PI);
+    if (strcasecmp(name, "RERANDOM") == 0) {
+        logo_rerandom();
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ASCII") == 0) return eval_ascii_value(app, args[0]);
+    if (strcasecmp(name, "CHAR") == 0) return eval_char_value(args[0]);
+    if (strcasecmp(name, "UPPERCASE") == 0) return eval_uppercase_value(app, args[0]);
+    if (strcasecmp(name, "LOWERCASE") == 0) return eval_lowercase_value(app, args[0]);
+    if (strcasecmp(name, "BITAND") == 0) return eval_bitand_value(args[0], args[1]);
+    if (strcasecmp(name, "BITOR") == 0) return eval_bitor_value(args[0], args[1]);
+    if (strcasecmp(name, "BITXOR") == 0) return eval_bitxor_value(args[0], args[1]);
+    if (strcasecmp(name, "BITNOT") == 0) return eval_bitnot_value(args[0]);
+    if (strcasecmp(name, "LSHIFT") == 0) return eval_lshift_value(args[0], args[1]);
+    if (strcasecmp(name, "RSHIFT") == 0) return eval_rshift_value(args[0], args[1]);
+    if (strcasecmp(name, "ARCTAN2") == 0) return eval_arctan2_value(args[0], args[1]);
+    if (strcasecmp(name, "SEC") == 0) return eval_sec_value(args[0]);
+    if (strcasecmp(name, "CSC") == 0) return eval_csc_value(args[0]);
+    if (strcasecmp(name, "COT") == 0) return eval_cot_value(args[0]);
+    if (strcasecmp(name, "ASEC") == 0) return eval_asec_value(args[0]);
+    if (strcasecmp(name, "ACSC") == 0) return eval_acsc_value(args[0]);
+    if (strcasecmp(name, "ACOT") == 0) return eval_acot_value(args[0]);
+    if (strcasecmp(name, "TIME") == 0) return eval_time_value();
+    if (strcasecmp(name, "DATE") == 0) return eval_date_value();
+    if (strcasecmp(name, "MILLISECONDS") == 0) return eval_milliseconds_value();
+    if (strcasecmp(name, "DEFINED?") == 0) return eval_definedp_value(app, chunk, args[0]);
+    if (strcasecmp(name, "RANGE") == 0) return eval_range_value(app, args[0], args[1]);
+    if (strcasecmp(name, "SPACEDRANGE") == 0) return eval_spacedrange_value(app, args[0], args[1], args[2]);
+    if (strcasecmp(name, "TURTLES") == 0) return eval_turtles_value(app);
     if (strcasecmp(name, "OPENREAD") == 0) return eval_openread_value(app, args[0]);
     if (strcasecmp(name, "OPENWRITE") == 0) return eval_openwrite_value(app, args[0]);
     if (strcasecmp(name, "OPENAPPEND") == 0) return eval_openappend_value(app, args[0]);

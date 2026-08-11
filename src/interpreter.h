@@ -107,6 +107,10 @@ ScopeStack app_scope_stack(LogoApp *app);
 // RANDOM n's own RNG (seeded from the current time on first use).
 double random_below(double n);
 
+// RERANDOM: reseeds random_below's own RNG to a fixed, reproducible
+// value instead of the clock.
+void logo_rerandom(void);
+
 // Allocates a fresh node from app->list_pool (see ListNode in
 // logo_types.h), or -1 if the pool is full. list_node_copy copies an
 // existing node's payload (type/number/word/sublist_head) into a

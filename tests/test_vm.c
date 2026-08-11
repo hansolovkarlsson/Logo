@@ -2075,6 +2075,146 @@ TEST(test_offrelease_clears_a_registered_handler) {
     end_vm_session(s);
 }
 
+// 2026-08-11 Terrapin Logo comparison (docs/ROADMAP.md's "Language
+// completeness"): the 24-builtin easy-tier batch, one test per builtin
+// (or small logical group), same VM-only headless style as the event
+// triggers above.
+
+TEST(test_pi_reports_the_constant) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT PI", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("3.14159\n");
+    end_vm_session(s);
+}
+
+TEST(test_rerandom_makes_random_reproducible) {
+    VmRunResult status1;
+    VmTestSession s1 = start_vm_session("RERANDOM\nPRINT RANDOM 1000000\nPRINT RANDOM 1000000", &status1);
+    expect_status(status1, VM_RUN_HALTED, "run 1");
+    char first_run[64];
+    snprintf(first_run, sizeof(first_run), "%s", captured_output);
+    end_vm_session(s1);
+
+    VmRunResult status2;
+    VmTestSession s2 = start_vm_session("RERANDOM\nPRINT RANDOM 1000000\nPRINT RANDOM 1000000", &status2);
+    expect_status(status2, VM_RUN_HALTED, "run 2");
+    if (strcmp(first_run, captured_output) != 0) {
+        failures++;
+        printf("FAIL %s: RERANDOM -- expected the same sequence both times, got \"%s\" then \"%s\"\n", current_test, first_run, captured_output);
+    }
+    end_vm_session(s2);
+}
+
+TEST(test_ascii_and_char_round_trip) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT ASCII \"A\nPRINT CHAR 65", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("65\nA\n");
+    end_vm_session(s);
+}
+
+TEST(test_ascii_of_more_than_one_character_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT ASCII \"AB", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ASCII: expected a single character\n0\n");
+    end_vm_session(s);
+}
+
+TEST(test_uppercase_and_lowercase) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT UPPERCASE \"MixedCase\nPRINT LOWERCASE \"MixedCase", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("MIXEDCASE\nmixedcase\n");
+    end_vm_session(s);
+}
+
+TEST(test_bitwise_operators) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "PRINT BITAND 12 10\nPRINT BITOR 12 10\nPRINT BITXOR 12 10\nPRINT BITNOT 0\nPRINT LSHIFT 1 4\nPRINT RSHIFT 16 4", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("8\n14\n6\n-1\n16\n1\n");
+    end_vm_session(s);
+}
+
+TEST(test_shift_operators_tolerate_a_negative_count_by_flipping_direction) {
+    // LSHIFT 16 (-4), not LSHIFT 16 -4 -- unparenthesized, the trailing
+    // -4 greedily continues as binary subtraction (16 - 4 = 12) instead
+    // of starting a fresh second argument, the same general "unary
+    // minus needs disambiguating" quirk docs/LANGUAGE.md's own MOD
+    // example sidesteps by only ever showing a negative *first*
+    // argument.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT LSHIFT 16 (-4)\nPRINT RSHIFT 1 (-4)", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n16\n");
+    end_vm_session(s);
+}
+
+TEST(test_arctan2_and_the_rest_of_the_trig_family) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "PRINT ARCTAN2 1 1\nPRINT SEC 60\nPRINT CSC 90\nPRINT COT 45\nPRINT ASEC 2\nPRINT ACSC 1\nPRINT ACOT 1", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("45\n2\n1\n1\n60\n90\n45\n");
+    end_vm_session(s);
+}
+
+TEST(test_time_date_milliseconds_report_plausible_values) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT TIME\nPRINT DATE\nPRINT MILLISECONDS", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    // TIME is HH:MM:SS, DATE is YYYY-MM-DD -- checked structurally
+    // (colon/dash positions, right lengths), not against a specific
+    // clock reading, which would make this test flaky. MILLISECONDS is
+    // checked as a plausible epoch value directly in C (relational
+    // operators like > only work in ARG_CONDITION position, e.g. IF's
+    // own argument -- not in PRINT's plain ARG_EXPR position).
+    char time_part[16], date_part[16], ms_part[32];
+    if (sscanf(captured_output, "%15[^\n]\n%15[^\n]\n%31s", time_part, date_part, ms_part) != 3 ||
+        strlen(time_part) != 8 || time_part[2] != ':' || time_part[5] != ':' ||
+        strlen(date_part) != 10 || date_part[4] != '-' || date_part[7] != '-' ||
+        atof(ms_part) < 1.7e12) {
+        failures++;
+        printf("FAIL %s: unexpected TIME/DATE/MILLISECONDS output \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_definedp_reports_whether_a_procedure_exists) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO FOO\nEND\nPRINT DEFINED? \"foo\nPRINT DEFINED? \"bar", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("TRUE\nFALSE\n");
+    end_vm_session(s);
+}
+
+TEST(test_turtles_reports_the_active_turtle_count) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT TURTLES", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n");
+    end_vm_session(s);
+}
+
+TEST(test_range_counts_up_or_down_by_one) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT RANGE 1 5\nPRINT RANGE 5 1", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1 2 3 4 5\n5 4 3 2 1\n");
+    end_vm_session(s);
+}
+
+TEST(test_spacedrange_generates_equally_spaced_numbers) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT SPACEDRANGE 0 10 3", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("0 5 10\n");
+    end_vm_session(s);
+}
+
 // Stage C of the bytecode save/load/assembler initiative
 // (docs/ROADMAP.md): disassembles a normally-compiled chunk, feeds the
 // resulting text straight back through bytecode_assemble into a FRESH
@@ -2334,6 +2474,19 @@ int main(void) {
     RUN(test_onrelease_registers_a_valid_three_param_handler);
     RUN(test_onrelease_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offrelease_clears_a_registered_handler);
+    RUN(test_pi_reports_the_constant);
+    RUN(test_rerandom_makes_random_reproducible);
+    RUN(test_ascii_and_char_round_trip);
+    RUN(test_ascii_of_more_than_one_character_reports_an_error);
+    RUN(test_uppercase_and_lowercase);
+    RUN(test_bitwise_operators);
+    RUN(test_shift_operators_tolerate_a_negative_count_by_flipping_direction);
+    RUN(test_arctan2_and_the_rest_of_the_trig_family);
+    RUN(test_time_date_milliseconds_report_plausible_values);
+    RUN(test_definedp_reports_whether_a_procedure_exists);
+    RUN(test_turtles_reports_the_active_turtle_count);
+    RUN(test_range_counts_up_or_down_by_one);
+    RUN(test_spacedrange_generates_equally_spaced_numbers);
     RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);
 
     if (failures == 0) {

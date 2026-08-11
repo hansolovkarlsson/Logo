@@ -47,6 +47,7 @@ check whether the change also touches `docs/BYTECODE_REFERENCE.md`
 - [Resizable canvas](#resizable-canvas)
 - [Suspend/resume](#suspendresume)
 - [Concurrent agents](#concurrent-agents)
+- [Clock](#clock)
 - [Event triggers](#event-triggers)
 - [Appendix: documented elsewhere, not available in `bin/logo`](#appendix-documented-elsewhere-not-available-in-binlogo)
 
@@ -103,6 +104,7 @@ heading convention.
 |---|---|---|
 | `TELL` | `expr` (0-9) | Switch which turtle is current, creating it on first use |
 | `WHO` | — (operator) | Current turtle's index |
+| `TURTLES` | — (operator) | Count of turtles that exist so far (`TELL`'d or `LAUNCH`'d) |
 
 ```
 TELL 1
@@ -110,6 +112,7 @@ FD 100
 TELL 0
 RT 90 FD 50
 PRINT WHO   -> 0
+PRINT TURTLES -> 2
 ```
 
 A script that never calls `TELL` behaves as if there were only ever
@@ -201,10 +204,18 @@ precedence, unary `+`/`-`), parentheses (`(1 + 2) * 3`), variables
 | `ROUND` | `a` | Round to nearest integer |
 | `INT` | `a` | Truncate toward zero (`INT -2.9` is `-2`, unlike `ROUND -2.9` = `-3`) |
 | `SIN` `COS` `TAN` `ASIN` `ACOS` `ARCTAN` | `a` | Trig, degrees not radians |
+| `SEC` `CSC` `COT` | `a` | Secant/cosecant/cotangent, degrees (`1/COS`, `1/SIN`, `1/TAN`) |
+| `ASEC` `ACSC` `ACOT` | `a` | Their inverses, returning degrees |
+| `ARCTAN2` | `y x` | Two-argument arctangent (full-circle heading), degrees |
 | `LOG` | `a` | Base-10 logarithm |
 | `LN` | `a` | Natural logarithm |
 | `EXP` | `a` | `e` raised to a power (`LN`'s inverse) |
+| `PI` | — (operator) | The constant π |
 | `RANDOM` | `n` | Random integer in `[0, n)` |
+| `RERANDOM` | — | Reseed `RANDOM` to a fixed, reproducible sequence (instead of the clock) |
+| `BITAND` `BITOR` `BITXOR` | `a b` | Bitwise AND/OR/XOR |
+| `BITNOT` | `a` | Bitwise complement |
+| `LSHIFT` `RSHIFT` | `a n` | Bit-shift `a` left/right by `n` |
 
 ```
 PRINT MOD 7 3            -> 1
@@ -215,12 +226,28 @@ PRINT ABS -5                -> 5
 PRINT ROUND 2.6             -> 3
 PRINT INT -2.9               -> -2
 PRINT SIN 90                  -> 1
+PRINT SEC 60                   -> 2
+PRINT ARCTAN2 1 1                -> 45
+PRINT PI                          -> 3.14159
 REPEAT 5 [PRINT RANDOM 10]
+PRINT BITAND 12 10                 -> 8
+PRINT LSHIFT 1 4                    -> 16
+PRINT RSHIFT 16 4                    -> 1
 ```
 
 Division by zero evaluates to `0`. `SQRT` of a negative, `ASIN`/`ACOS`
 outside `[-1, 1]`, and `LOG`/`LN` of a non-positive number all return
-`nan` rather than erroring.
+`nan` rather than erroring. `BITAND`/`BITOR`/`BITXOR`/`BITNOT`/
+`LSHIFT`/`RSHIFT` truncate through a 64-bit integer first, same as
+`INT`'s own truncate-toward-zero, just wide enough for real bit
+patterns. `LSHIFT`/`RSHIFT` each also tolerate a negative `n` by
+flipping direction (so `LSHIFT a (-n)` behaves like `RSHIFT a n`), a
+robustness fallback rather than the intended way to ask for the other
+direction — use the other operator instead. A negative literal written
+as a *later* argument to a prefix operator needs parentheses
+(`RSHIFT 16 (-4)`, not `RSHIFT 16 -4`) — unparenthesized, the trailing
+`-4` greedily continues as binary subtraction on the argument before it
+instead of starting a fresh one.
 
 ## Variables
 
@@ -281,6 +308,7 @@ are, since that's the only way to tell elements apart) — see
 | `ERASE` | `"name` | Delete a procedure definition |
 | `TEXT` | `"name` (operator) | Procedure's raw body, tokenized into a list of words |
 | `SHOW` | `"name` | Print a procedure's own definition back out |
+| `DEFINED?` | `word` (operator) | Whether a procedure by this name currently exists |
 
 ```
 TO rect :w :h
@@ -293,6 +321,9 @@ TO fact :n
   OUTPUT :n * fact :n - 1
 END
 PRINT fact 5     -> 120
+
+PRINT DEFINED? "rect   -> TRUE
+PRINT DEFINED? "bogus  -> FALSE
 ```
 
 Defining a `TO` with an existing name overwrites it in place. Calling
@@ -373,6 +404,11 @@ runaway-loop safety net.
 | `FLATTEN` | `thing` (operator) | Collapse every level of nesting into one flat list |
 | `PARSE` | `thing` (operator) | Tokenize printed text by whitespace into a list of words |
 | `SUBST` | `old new thing` (operator) | Replace every element equal to `old` with `new` |
+| `ASCII` | `word` (operator) | A single character's code point (0-255, plain C `char`, not Unicode) |
+| `CHAR` | `n` (operator) | The inverse of `ASCII` — code point to single-character word |
+| `UPPERCASE` `LOWERCASE` | `word` (operator) | Case-convert every character |
+| `RANGE` | `from to` (operator) | List of integers from `from` to `to` inclusive, counting by ±1 |
+| `SPACEDRANGE` | `from to count` (operator) | `count` equally-spaced numbers from `from` to `to` inclusive |
 
 ```
 MAKE "colors [red green blue]
@@ -389,6 +425,12 @@ PRINT FPUT "red [green blue] -> red green blue
 PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]  -> 1 2 3 4 5 6 7
 PRINT PARSE "hello                    -> hello
 PRINT SUBST "b "x [a b c b]           -> a x c x
+
+PRINT ASCII "A          -> 65
+PRINT CHAR 65            -> A
+PRINT UPPERCASE "shout    -> SHOUT
+PRINT RANGE 1 5                       -> 1 2 3 4 5
+PRINT SPACEDRANGE 0 10 3              -> 0 5 10
 ```
 
 A word is a sequence of characters, so `FIRST`/`BUTFIRST`/`LAST`/
@@ -749,6 +791,20 @@ PRINT "all-agents-done
 agent are deliberately deferred (an explicit, reported error, not a
 silent hang). `SETSPEED` has no visible slow-motion effect on agents
 yet. See `examples/concurrent_agents.logo` for a full working demo.
+
+## Clock
+
+| Command | Args | Description |
+|---|---|---|
+| `TIME` | — (operator) | Current wall-clock time, `HH:MM:SS` |
+| `DATE` | — (operator) | Current date, `YYYY-MM-DD` |
+| `MILLISECONDS` | — (operator) | Milliseconds since the Unix epoch (1970-01-01) |
+
+```
+PRINT TIME    -> 14:32:07
+PRINT DATE    -> 2026-08-11
+PRINT MILLISECONDS -> 1.78649e+12
+```
 
 ## Event triggers
 
