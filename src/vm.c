@@ -6,9 +6,10 @@
 // exec_block/eval_expr are -- that's the entire point of Stage 2 (see
 // docs/BYTECODE_VM_DESIGN.md's own "Why"): a Logo-level call becomes a
 // VmFrame push and a `pc` jump, not a new C stack frame, so Logo-level
-// recursion depth stops being coupled to C stack depth (still coupled
-// to app->scopes[]/MAX_SCOPE_DEPTH for this vertical slice -- see
-// vm.h's own note -- but no longer to the C stack at all).
+// recursion depth stops being coupled to C stack depth -- and, since
+// Vm.scopes/Vm.scope_depth own their own storage (see MAX_VM_SCOPE_DEPTH's
+// own comment in vm.h), no longer coupled to eval_logo/ast_eval's own
+// app->scopes[]/MAX_SCOPE_DEPTH ceiling either.
 //
 // Every opcode handler below is a deliberate, checked-against-the-
 // source-code replica of the matching eval.c logic (eval_expr's
@@ -54,6 +55,16 @@ static void poke(Vm *vm, int depth, EvalValue v) {
     int idx = vm->stack_top - 1 - depth;
     if (idx < 0 || idx >= vm->stack_top) return;
     vm->stack[idx] = v;
+}
+
+// `vm`'s own scope stack, wrapped as a ScopeStack -- what every
+// opcode/helper below passes to find_var/set_var*/eval_local_declare/
+// eval_push_scope_for_call, in place of interpreter.h's own
+// app_scope_stack(app) (which eval_logo/ast_eval still use). See
+// ScopeStack's own comment in logo_types.h and MAX_VM_SCOPE_DEPTH's own
+// comment in vm.h.
+static ScopeStack vm_scope_stack(Vm *vm) {
+    return (ScopeStack){vm->scopes, &vm->scope_depth, MAX_VM_SCOPE_DEPTH};
 }
 
 // Binary arithmetic (OP_ADD/OP_SUB/OP_MUL/OP_DIV): pop right then left
@@ -224,7 +235,7 @@ static void exec_stampsprite(LogoApp *app) {
     }
 }
 
-static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, EvalValue *args, int *produced) {
+static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
         eval_print_value(app, args[0]);
@@ -295,7 +306,7 @@ static EvalValue call_builtin(LogoApp *app, AstPool *pool, const char *name, Eva
         *produced = 0;
         return num_val(0);
     }
-    if (strcasecmp(name, "THING") == 0) return eval_thing_value(app, args[0]);
+    if (strcasecmp(name, "THING") == 0) return eval_thing_value(app, vm_scope_stack(vm), args[0]);
     if (strcasecmp(name, "FIRST") == 0) return eval_first_value(app, args[0]);
     if (strcasecmp(name, "BUTFIRST") == 0) return eval_butfirst_value(app, args[0]);
     if (strcasecmp(name, "LAST") == 0) return eval_last_value(app, args[0]);
@@ -594,11 +605,16 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
     }
     if (vm->frame_count >= MAX_VM_FRAMES) {
         // A VM-internal safety net, not something eval_logo/ast_eval
-        // have an analogous case for -- MAX_VM_FRAMES (256) is
-        // deliberately larger than MAX_SCOPE_DEPTH (200), so
+        // have an analogous case for -- MAX_VM_FRAMES is deliberately
+        // larger than MAX_VM_SCOPE_DEPTH (same relationship as the
+        // original 256-vs-200 design, just both numbers raised), so
         // eval_push_scope_for_call's own check below always fires
-        // first in practice. resolved stays 1 (no more "unresolved"
-        // than a real call that happens to recurse very deep).
+        // first in practice, giving the user its own reported message
+        // ("Recursion too deep, call ignored") -- this branch's own
+        // silent placeholder-and-continue is a true last-resort only,
+        // not the normal way recursion-too-deep gets reported. resolved
+        // stays 1 (no more "unresolved" than a real call that happens
+        // to recurse very deep).
         vm->last_call_resolved = 1;
         vm->last_call_produced_output = 0;
         push(vm, num_val(0));
@@ -606,7 +622,7 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
         return;
     }
     AstNode *def = &pool->nodes[def_node];
-    if (!eval_push_scope_for_call(app, def, args, argc < AST_MAX_PARAMS ? argc : AST_MAX_PARAMS)) {
+    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def, args, argc < AST_MAX_PARAMS ? argc : AST_MAX_PARAMS)) {
         // Recursion too deep -- eval_push_scope_for_call already
         // printed its own message. resolved stays 1 here: unlike the
         // unknown-procedure case, do_user_procedure_call never touches
@@ -697,7 +713,7 @@ static void exec_send(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk,
         *pc = *pc + 1;
         return;
     }
-    if (!eval_push_scope_for_call(app, def, arg_vals, n)) {
+    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def, arg_vals, n)) {
         // Recursion too deep -- eval_push_scope_for_call already
         // printed its own message. resolved is 0 here (not 1, unlike
         // OP_CALL_PROC's own equivalent branch): do_send's own code
@@ -769,7 +785,7 @@ static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk
         *pc = *pc + 1;
         return;
     }
-    if (!eval_push_scope_for_call(app, def, arg_vals, n)) {
+    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def, arg_vals, n)) {
         // Recursion too deep -- already printed its own message.
         push(vm, num_val(0));
         *pc = *pc + 1;
@@ -947,7 +963,7 @@ static void exec_load(Vm *vm, LogoApp *app, const char *path) {
 }
 
 // OP_OUTPUT/OP_STOP -- pops the current VmFrame (and its matching
-// app->scopes[] scope, in lockstep, per vm.h's own note), truncating
+// vm->scopes[] scope, in lockstep, per vm.h's own note), truncating
 // the value stack back to that frame's own base plus exactly one
 // result value: `value` for OP_OUTPUT, num_val(0) for OP_STOP -- the
 // same "OUTPUT overrides, falling off the end / STOP defaults to
@@ -956,7 +972,7 @@ static void exec_load(Vm *vm, LogoApp *app, const char *path) {
 // `produced` (1 for OP_OUTPUT, 0 for OP_STOP) is recorded on `vm` for
 // the OP_CHECK_OUTPUT that always immediately follows an expression-
 // position call to read.
-static void exec_return(Vm *vm, LogoApp *app, EvalValue value, int produced, int *pc) {
+static void exec_return(Vm *vm, EvalValue value, int produced, int *pc) {
     vm->last_call_produced_output = produced;
     vm->last_call_resolved = 1; // a call that reached its own OUTPUT/STOP was always resolved
     if (vm->frame_count <= 0) {
@@ -970,18 +986,19 @@ static void exec_return(Vm *vm, LogoApp *app, EvalValue value, int produced, int
     VmFrame *frame = &vm->frames[--vm->frame_count];
     vm->stack_top = frame->value_stack_base;
     push(vm, value);
-    app->scope_depth--;
+    vm->scope_depth--;
     *pc = frame->return_pc;
 }
 
 // Binds `name` to `v` as an ordinary Logo variable -- the exact same
 // per-type dispatch OP_SET_VAR's own case in vm_run below uses, pulled
 // out here so all four exec_*_compiled functions can share it.
-static void bind_template_var(LogoApp *app, const char *name, EvalValue v) {
-    if (v.type == VALUE_WORD) set_var_word(app, name, v.word);
-    else if (v.type == VALUE_LIST) set_var_list(app, name, v.list_head);
-    else if (v.type == VALUE_ARRAY) set_var_array(app, name, v.list_head, (int)v.number);
-    else set_var(app, name, v.number);
+static void bind_template_var(Vm *vm, LogoApp *app, const char *name, EvalValue v) {
+    ScopeStack ss = vm_scope_stack(vm);
+    if (v.type == VALUE_WORD) set_var_word(app, ss, name, v.word);
+    else if (v.type == VALUE_LIST) set_var_list(app, ss, name, v.list_head);
+    else if (v.type == VALUE_ARRAY) set_var_array(app, ss, name, v.list_head, (int)v.number);
+    else set_var(app, ss, name, v.number);
 }
 
 // A placeholder variable's own name is unique per COMPILE-TIME call
@@ -1014,9 +1031,9 @@ typedef struct {
     EvalValue value;
 } SavedVar;
 
-static SavedVar save_var(LogoApp *app, const char *name) {
+static SavedVar save_var(Vm *vm, LogoApp *app, const char *name) {
     SavedVar sv;
-    Variable *v = find_var(app, name);
+    Variable *v = find_var(app, vm_scope_stack(vm), name);
     sv.existed = (v != NULL);
     if (v == NULL) { sv.value = num_val(0); return sv; }
     if (v->type == VALUE_WORD) sv.value = word_val(v->word);
@@ -1026,8 +1043,8 @@ static SavedVar save_var(LogoApp *app, const char *name) {
     return sv;
 }
 
-static void restore_var(LogoApp *app, const char *name, SavedVar sv) {
-    if (sv.existed) bind_template_var(app, name, sv.value);
+static void restore_var(Vm *vm, LogoApp *app, const char *name, SavedVar sv) {
+    if (sv.existed) bind_template_var(vm, app, name, sv.value);
     else eval_delete_var(app, name);
 }
 
@@ -1090,44 +1107,44 @@ static EvalValue coerce_template_element(EvalValue v) {
 static void exec_map_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const Instr *instr) {
     EvalValue list_arg = pop(vm);
     int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
-    SavedVar saved = save_var(app, instr->text);
+    SavedVar saved = save_var(vm, app, instr->text);
     int new_head = -1;
     int *next_slot = &new_head;
     int frame_floor = vm->frame_count;
     for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
-        bind_template_var(app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        bind_template_var(vm, app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
         vm_run(vm, app, pool, chunk, instr->a);
         if (vm->frame_count < frame_floor) break;
         EvalValue result = pop(vm);
         int node = value_to_node(app, result);
         if (node < 0) {
-            restore_var(app, instr->text, saved);
+            restore_var(vm, app, instr->text, saved);
             push(vm, list_pool_exhausted(app));
             return;
         }
         *next_slot = node;
         next_slot = &app->list_pool[node].next;
     }
-    restore_var(app, instr->text, saved);
+    restore_var(vm, app, instr->text, saved);
     push(vm, list_val(new_head));
 }
 
 static void exec_filter_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const Instr *instr) {
     EvalValue list_arg = pop(vm);
     int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
-    SavedVar saved = save_var(app, instr->text);
+    SavedVar saved = save_var(vm, app, instr->text);
     int new_head = -1;
     int *next_slot = &new_head;
     int frame_floor = vm->frame_count;
     for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
-        bind_template_var(app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        bind_template_var(vm, app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
         vm_run(vm, app, pool, chunk, instr->a);
         if (vm->frame_count < frame_floor) break;
         EvalValue result = pop(vm);
         if (eval_is_truthy(result)) {
             int node = list_node_copy(app, idx);
             if (node < 0) {
-                restore_var(app, instr->text, saved);
+                restore_var(vm, app, instr->text, saved);
                 push(vm, list_pool_exhausted(app));
                 return;
             }
@@ -1135,7 +1152,7 @@ static void exec_filter_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeCh
             next_slot = &app->list_pool[node].next;
         }
     }
-    restore_var(app, instr->text, saved);
+    restore_var(vm, app, instr->text, saved);
     push(vm, list_val(new_head));
 }
 
@@ -1154,34 +1171,34 @@ static void exec_reduce_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeCh
     char var1[40], var2[40];
     snprintf(var1, sizeof(var1), "%s_1", instr->text);
     snprintf(var2, sizeof(var2), "%s_2", instr->text);
-    SavedVar saved1 = save_var(app, var1);
-    SavedVar saved2 = save_var(app, var2);
+    SavedVar saved1 = save_var(vm, app, var1);
+    SavedVar saved2 = save_var(vm, app, var2);
     EvalValue acc = coerce_template_element(node_to_value(&app->list_pool[iter_head]));
     int frame_floor = vm->frame_count;
     for (int idx = app->list_pool[iter_head].next; idx != -1; idx = app->list_pool[idx].next) {
-        bind_template_var(app, var1, acc);
-        bind_template_var(app, var2, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        bind_template_var(vm, app, var1, acc);
+        bind_template_var(vm, app, var2, coerce_template_element(node_to_value(&app->list_pool[idx])));
         vm_run(vm, app, pool, chunk, instr->a);
         if (vm->frame_count < frame_floor) break;
         acc = pop(vm);
     }
-    restore_var(app, var1, saved1);
-    restore_var(app, var2, saved2);
+    restore_var(vm, app, var1, saved1);
+    restore_var(vm, app, var2, saved2);
     push(vm, acc);
 }
 
 static void exec_foreach_compiled(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const Instr *instr) {
     EvalValue list_arg = pop(vm);
     int iter_head = (list_arg.type == VALUE_LIST) ? list_arg.list_head : value_to_node(app, list_arg);
-    SavedVar saved = save_var(app, instr->text);
+    SavedVar saved = save_var(vm, app, instr->text);
     int frame_floor = vm->frame_count;
     for (int idx = iter_head; idx != -1; idx = app->list_pool[idx].next) {
-        bind_template_var(app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
+        bind_template_var(vm, app, instr->text, coerce_template_element(node_to_value(&app->list_pool[idx])));
         vm_run(vm, app, pool, chunk, instr->a);
         if (vm->frame_count < frame_floor) break;
         if (app->stop_requested || app->throw_requested) break; // matches do_foreach's own check
     }
-    restore_var(app, instr->text, saved);
+    restore_var(vm, app, instr->text, saved);
     vm->last_call_produced_output = 0;
     vm->last_call_resolved = 1; // FOREACH never "outputs" a value -- same as OP_VOID_RESULT
     push(vm, num_val(0));
@@ -1204,7 +1221,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
             case OP_PUSH_VAR: {
                 // Mirrors eval_expr's own AST_VARREF case exactly,
                 // including "unset :name reads as 0".
-                Variable *v = find_var(app, instr->text);
+                Variable *v = find_var(app, vm_scope_stack(vm), instr->text);
                 if (v == NULL) push(vm, num_val(0));
                 else if (v->type == VALUE_WORD) push(vm, word_val(v->word));
                 else if (v->type == VALUE_NUMBER) push(vm, num_val(v->number));
@@ -1215,10 +1232,11 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
             }
             case OP_SET_VAR: {
                 EvalValue v = pop(vm);
-                if (v.type == VALUE_WORD) set_var_word(app, instr->text, v.word);
-                else if (v.type == VALUE_LIST) set_var_list(app, instr->text, v.list_head);
-                else if (v.type == VALUE_ARRAY) set_var_array(app, instr->text, v.list_head, (int)v.number);
-                else set_var(app, instr->text, v.number);
+                ScopeStack ss = vm_scope_stack(vm);
+                if (v.type == VALUE_WORD) set_var_word(app, ss, instr->text, v.word);
+                else if (v.type == VALUE_LIST) set_var_list(app, ss, instr->text, v.list_head);
+                else if (v.type == VALUE_ARRAY) set_var_array(app, ss, instr->text, v.list_head, (int)v.number);
+                else set_var(app, ss, instr->text, v.number);
                 pc++;
                 break;
             }
@@ -1273,7 +1291,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                     args[i] = (i < AST_MAX_PARAMS) ? pop(vm) : (pop(vm), num_val(0));
                 }
                 int produced;
-                EvalValue result = call_builtin(app, pool, instr->text, args, &produced);
+                EvalValue result = call_builtin(vm, app, pool, instr->text, args, &produced);
                 vm->last_call_produced_output = produced;
                 vm->last_call_resolved = 1; // an ordinary builtin call is always "resolved" in ast_eval's own sense
                 push(vm, result);
@@ -1305,10 +1323,10 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 break;
             }
             case OP_OUTPUT:
-                exec_return(vm, app, pop(vm), /*produced=*/1, &pc);
+                exec_return(vm, pop(vm), /*produced=*/1, &pc);
                 break;
             case OP_STOP:
-                exec_return(vm, app, num_val(0), /*produced=*/0, &pc);
+                exec_return(vm, num_val(0), /*produced=*/0, &pc);
                 break;
             case OP_HALT:
                 vm->vm_run_depth--;
@@ -1321,7 +1339,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 pc++;
                 break;
             case OP_LOCAL:
-                eval_local_declare(app, instr->text);
+                eval_local_declare(app, vm_scope_stack(vm), instr->text);
                 pc++;
                 break;
             case OP_ERASE:

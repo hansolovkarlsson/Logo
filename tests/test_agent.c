@@ -86,11 +86,9 @@ static void run_agent_script(LogoApp *app, const char *source) {
 
     if (status == VM_RUN_SUSPENDED_LAUNCH) {
         Agent *initial_agent = calloc(1, sizeof(Agent));
-        initial_agent->vm = *vm;
+        initial_agent->vm = *vm; // includes vm's own scopes/scope_depth already -- nothing left to copy separately, see agent.h's own comment
         free(vm);
         initial_agent->turtle_index = app->current_turtle;
-        memcpy(initial_agent->scopes, app->scopes, sizeof(Scope) * (size_t)app->scope_depth);
-        initial_agent->scope_depth = app->scope_depth;
         initial_agent->throw_requested = app->throw_requested;
         snprintf(initial_agent->throw_tag, sizeof(initial_agent->throw_tag), "%s", app->throw_tag);
         initial_agent->run_depth = app->run_depth;

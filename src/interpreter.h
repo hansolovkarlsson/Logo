@@ -75,25 +75,34 @@ void move_turtle_forward(LogoApp *app, double distance);
 double home_x(LogoApp *app);
 double home_y(LogoApp *app);
 
-// Look up a variable by name, searching the innermost active scope
-// outward before falling back to globals (NULL if never MAKE'n).
-Variable *find_var(LogoApp *app, const char *name);
+// Look up a variable by name, searching `ss`'s own scope stack
+// (innermost active scope outward) before falling back to app's
+// globals (NULL if never MAKE'n). `ss` is app_scope_stack(app) for
+// eval_logo/ast_eval, or vm_scope_stack(vm) (vm.c) for the bytecode VM
+// -- see ScopeStack's own comment in logo_types.h for why there are two.
+Variable *find_var(LogoApp *app, ScopeStack ss, const char *name);
 
 // Bind `name` to a number/word/list value, creating it (as a global) if
-// it doesn't already exist as a local in the current scope or a
+// it doesn't already exist as a local in `ss`'s own current scope or a
 // global. set_var_list just copies the head index -- safe aliasing,
 // since list nodes (see ListNode in logo_types.h) are never mutated
 // after being built.
-void set_var(LogoApp *app, const char *name, double value);
-void set_var_word(LogoApp *app, const char *name, const char *word);
-void set_var_list(LogoApp *app, const char *name, int list_head);
+void set_var(LogoApp *app, ScopeStack ss, const char *name, double value);
+void set_var_word(LogoApp *app, ScopeStack ss, const char *name, const char *word);
+void set_var_list(LogoApp *app, ScopeStack ss, const char *name, int list_head);
 
 // Bind `name` to an array -- unlike set_var_list, a genuine alias to
 // *mutable* shared storage: MAKE "b :a then SETITEM 1 :b 99 also
 // changes what :a sees, since both variables now point at the same
 // list_pool cells. Arrays are this language's one deliberate exception
 // to every other value being immutable/copy-on-build.
-void set_var_array(LogoApp *app, const char *name, int start, int length);
+void set_var_array(LogoApp *app, ScopeStack ss, const char *name, int start, int length);
+
+// app's own scope stack (app->scopes/app->scope_depth, capped at
+// MAX_SCOPE_DEPTH) wrapped as a ScopeStack -- what eval_logo/ast_eval
+// pass to every function above; vm.c has its own analogous
+// vm_scope_stack (vm.c-internal, not exposed here).
+ScopeStack app_scope_stack(LogoApp *app);
 
 // RANDOM n's own RNG (seeded from the current time on first use).
 double random_below(double n);

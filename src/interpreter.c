@@ -296,13 +296,24 @@ static void append_procedure_text(GString *out, Procedure *proc) {
     g_string_append(out, "\nEND\n");
 }
 
-// Find a variable binding by name (case-insensitive). Searches the scope
-// stack from the innermost active call outward, so a procedure's own
-// parameter shadows a same-named variable from an outer call or a
-// global, then falls back to the globals. NULL if unbound anywhere.
-Variable* find_var(LogoApp *app, const char *name) {
-    for (int s = app->scope_depth - 1; s >= 0; s--) {
-        Scope *scope = &app->scopes[s];
+// app's own scope stack, wrapped as a ScopeStack -- see ScopeStack's
+// own comment in logo_types.h for why this indirection exists at all
+// (so vm.c can pass its own vm_scope_stack(vm) instead, through the
+// exact same functions below, without app->scopes/app->scope_depth
+// ever needing to change).
+ScopeStack app_scope_stack(LogoApp *app) {
+    return (ScopeStack){app->scopes, &app->scope_depth, MAX_SCOPE_DEPTH};
+}
+
+// Find a variable binding by name (case-insensitive). Searches `ss`'s
+// own scope stack from the innermost active call outward, so a
+// procedure's own parameter shadows a same-named variable from an
+// outer call or a global, then falls back to the globals (always
+// app->variables, regardless of which ScopeStack was searched -- there
+// is only ever one set of globals). NULL if unbound anywhere.
+Variable* find_var(LogoApp *app, ScopeStack ss, const char *name) {
+    for (int s = *ss.scope_depth - 1; s >= 0; s--) {
+        Scope *scope = &ss.scopes[s];
         for (int i = 0; i < scope->count; i++) {
             if (strcasecmp(scope->vars[i].name, name) == 0) {
                 return &scope->vars[i];
@@ -320,8 +331,8 @@ Variable* find_var(LogoApp *app, const char *name) {
 // Find an existing binding to update (same inside-out search as
 // find_var), or create a new global if `name` isn't bound anywhere yet.
 // NULL only if the global table is full and there's no existing binding.
-static Variable* find_or_create_var(LogoApp *app, const char *name) {
-    Variable *v = find_var(app, name);
+static Variable* find_or_create_var(LogoApp *app, ScopeStack ss, const char *name) {
+    Variable *v = find_var(app, ss, name);
     if (v != NULL) return v;
     if (app->var_count < MAX_VARIABLES) {
         Variable *nv = &app->variables[app->var_count++];
@@ -334,8 +345,8 @@ static Variable* find_or_create_var(LogoApp *app, const char *name) {
 
 // Set a variable to a number (MAKE "name expr), creating it as a global
 // if it's not already bound in some active scope.
-void set_var(LogoApp *app, const char *name, double value) {
-    Variable *v = find_or_create_var(app, name);
+void set_var(LogoApp *app, ScopeStack ss, const char *name, double value) {
+    Variable *v = find_or_create_var(app, ss, name);
     if (v != NULL) {
         v->type = VALUE_NUMBER;
         v->number = value;
@@ -346,8 +357,8 @@ void set_var(LogoApp *app, const char *name, double value) {
 // same binding rules as set_var. Just copies the head index — safe
 // aliasing, since list nodes are never mutated after being built (see
 // the ListNode comment in logo_types.h).
-void set_var_list(LogoApp *app, const char *name, int list_head) {
-    Variable *v = find_or_create_var(app, name);
+void set_var_list(LogoApp *app, ScopeStack ss, const char *name, int list_head) {
+    Variable *v = find_or_create_var(app, ss, name);
     if (v != NULL) {
         v->type = VALUE_LIST;
         v->list_head = list_head;
@@ -356,8 +367,8 @@ void set_var_list(LogoApp *app, const char *name, int list_head) {
 
 // Set a variable to a word (MAKE "name "word), same binding rules as
 // set_var.
-void set_var_word(LogoApp *app, const char *name, const char *word) {
-    Variable *v = find_or_create_var(app, name);
+void set_var_word(LogoApp *app, ScopeStack ss, const char *name, const char *word) {
+    Variable *v = find_or_create_var(app, ss, name);
     if (v != NULL) {
         v->type = VALUE_WORD;
         snprintf(v->word, sizeof(v->word), "%s", word);
@@ -371,8 +382,8 @@ void set_var_word(LogoApp *app, const char *name, const char *word) {
 // variables now point at the same list_pool cells -- arrays are a
 // deliberate, documented exception to this language's otherwise
 // immutable values (see the ARRAY comment in parse_factor).
-void set_var_array(LogoApp *app, const char *name, int start, int length) {
-    Variable *v = find_or_create_var(app, name);
+void set_var_array(LogoApp *app, ScopeStack ss, const char *name, int start, int length) {
+    Variable *v = find_or_create_var(app, ss, name);
     if (v != NULL) {
         v->type = VALUE_ARRAY;
         v->list_head = start;
@@ -2022,7 +2033,7 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
         Value name_val = parse_factor(app, ptr);
         char name_text[512];
         value_to_text(app, &name_val, name_text, sizeof(name_text));
-        Variable *v = find_var(app, name_text);
+        Variable *v = find_var(app, app_scope_stack(app), name_text);
         if (v != NULL) {
             if (v->type == VALUE_WORD) return word_value(v->word);
             if (v->type == VALUE_LIST) return list_value(v->list_head);
@@ -2110,7 +2121,7 @@ static Value parse_factor(LogoApp *app, const char **ptr) {
             (*ptr)++;
         }
         name[i] = '\0';
-        Variable *v = find_var(app, name);
+        Variable *v = find_var(app, app_scope_stack(app), name);
         if (v != NULL) {
             if (v->type == VALUE_WORD) return word_value(v->word);
             if (v->type == VALUE_LIST) return list_value(v->list_head);
@@ -2746,7 +2757,7 @@ void eval_logo(LogoApp *app, const char *code) {
                                     append_output(app, "FOR: stopped after too many iterations\n");
                                     break;
                                 }
-                                set_var(app, varname, i);
+                                set_var(app, app_scope_stack(app), varname, i);
                                 eval_logo(app, block_body);
                                 if (app->stop_requested || app->throw_requested || g_interrupt_requested) break; // OUTPUT/STOP/THROW inside the block escapes the loop
                                 iterations++;
@@ -2868,14 +2879,15 @@ void eval_logo(LogoApp *app, const char *code) {
             if (sscanf(ptr, "%63s%n", varname, &read_bytes) == 1 && varname[0] == '"') {
                 ptr += read_bytes;
                 Value val = parse_expr(app, &ptr);
+                ScopeStack ss = app_scope_stack(app);
                 if (val.type == VALUE_WORD) {
-                    set_var_word(app, varname + 1, val.word);
+                    set_var_word(app, ss, varname + 1, val.word);
                 } else if (val.type == VALUE_LIST) {
-                    set_var_list(app, varname + 1, val.list_head);
+                    set_var_list(app, ss, varname + 1, val.list_head);
                 } else if (val.type == VALUE_ARRAY) {
-                    set_var_array(app, varname + 1, val.list_head, (int)val.number);
+                    set_var_array(app, ss, varname + 1, val.list_head, (int)val.number);
                 } else {
-                    set_var(app, varname + 1, val.number);
+                    set_var(app, ss, varname + 1, val.number);
                 }
             } else {
                 append_output(app, "MAKE: expected a \"name\n");

@@ -105,8 +105,8 @@ void eval_print_value(LogoApp *app, EvalValue v);
 // (app, EvalValue...) -> EvalValue helper), this is just removing
 // `static`, not new code.
 EvalValue eval_build_list_literal(LogoApp *app, AstPool *pool, int node_idx);
-EvalValue eval_thing_value(LogoApp *app, EvalValue name_val);
-void eval_local_declare(LogoApp *app, const char *varname);
+EvalValue eval_thing_value(LogoApp *app, ScopeStack ss, EvalValue name_val);
+void eval_local_declare(LogoApp *app, ScopeStack ss, const char *varname);
 EvalValue eval_first_value(LogoApp *app, EvalValue arg);
 EvalValue eval_butfirst_value(LogoApp *app, EvalValue arg);
 EvalValue eval_last_value(LogoApp *app, EvalValue arg);
@@ -271,17 +271,18 @@ EvalValue do_procedures(LogoApp *app, AstPool *pool);
 // here and by every caller.
 
 // The scope-push half of an ordinary procedure call: binds arg_vals as
-// def's own parameters and pushes app->scopes/scope_depth, exactly as
-// call_ast_procedure's own setup does (that function now just calls
-// this). Returns 0 (recursion too deep, MAX_SCOPE_DEPTH already
-// reached) or 1 (scope pushed). Exposed so vm.c's OP_CALL_PROC can
-// reuse the exact same scope-binding logic -- see the design's own
-// frame-layout decision (docs/BYTECODE_VM_DESIGN.md): the VM's value
-// stack and call frames are new, VM-only state, but variable bindings
-// still go through this same app->scopes[] mechanism unchanged, so a
-// VM-compiled procedure's AST_VARREF/OP_PUSH_VAR reads and an
-// interpreter-run procedure's variable reads can't drift.
-int eval_push_scope_for_call(LogoApp *app, AstNode *def, EvalValue *arg_vals, int arg_count);
+// def's own parameters and pushes onto `ss`'s own scope stack, exactly
+// as call_ast_procedure's own setup does (that function now just calls
+// this, always with app_scope_stack(app)). Returns 0 (recursion too
+// deep, ss.capacity already reached) or 1 (scope pushed). Exposed so
+// vm.c's OP_CALL_PROC/OP_SEND/OP_APPLY can reuse the exact same
+// scope-binding logic against the VM's own, separate, much deeper
+// scope stack (vm_scope_stack(vm), see vm.h) -- see ScopeStack's own
+// comment in logo_types.h: one shared implementation, two independent
+// storage arrays, so a VM-compiled procedure's AST_VARREF/OP_PUSH_VAR
+// reads and an interpreter-run procedure's variable reads still can't
+// drift on *semantics*, even though scope *capacity* now does differ.
+int eval_push_scope_for_call(LogoApp *app, ScopeStack ss, AstNode *def, EvalValue *arg_vals, int arg_count);
 
 // Runs `pool`'s program (the AST_BLOCK at `program_node`, as produced
 // by logo_parse) against `app`.

@@ -220,6 +220,26 @@ typedef struct {
     char proc_name[32];
 } Scope;
 
+// Which scope array a variable lookup/push/pop should operate against —
+// find_var/find_or_create_var/set_var*/eval_local_declare/
+// eval_push_scope_for_call all take one of these instead of reaching
+// into app->scopes/app->scope_depth directly, so the bytecode VM can
+// use its own, separate, much deeper scope stack (Vm.scopes/
+// Vm.scope_depth, see vm.h) while eval_logo/ast_eval keep using
+// LogoApp's own (app_scope_stack, interpreter.h) exactly as before —
+// one shared implementation, two independent storage arrays, so the
+// two engines still can't drift on scoping *semantics* even though
+// their storage capacity now differs. `scope_depth` is a pointer since
+// eval_push_scope_for_call must increment it (every other user of this
+// struct only reads through it). `capacity` is each stack's own
+// recursion-too-deep ceiling — MAX_SCOPE_DEPTH for app's, a much larger
+// VM-only constant for the VM's own.
+typedef struct {
+    Scope *scopes;
+    int *scope_depth;
+    int capacity;
+} ScopeStack;
+
 // One key/value pair stored under a named property list (SETPROP/
 // GETPROP/REMOVEPROP/PROPLIST) — a flat array scanned linearly by
 // plist_name+key, the

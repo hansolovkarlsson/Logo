@@ -12,11 +12,14 @@
 // than reimplementing either.
 //
 // Frame-layout decision (see docs/BYTECODE_VM_DESIGN.md's Progress
-// log): the value stack and call frames below are new, VM-only state,
-// but variable *bindings* still go through app->scopes[]/scope_depth
-// unchanged (via eval_push_scope_for_call) -- so real recursion depth
-// is still capped at MAX_SCOPE_DEPTH (200) for this vertical slice, not
-// yet VM-owned/decoupled. A deliberate follow-up, not an oversight.
+// log): the value stack and call frames below are VM-only state, and
+// so is variable *binding* storage (Vm.scopes/Vm.scope_depth, added as
+// its own deliberate follow-up after Stage 2 first shipped with
+// app->scopes[]/MAX_SCOPE_DEPTH (200) shared with eval_logo/ast_eval --
+// see MAX_VM_SCOPE_DEPTH's own comment below). Real Logo-level
+// recursion depth is decoupled from both the C stack (a call is a
+// VmFrame push + pc jump, never a new C stack frame) and from the old
+// engines' own storage limit.
 
 #include "ast.h"
 #include "bytecode.h"
@@ -24,7 +27,39 @@
 #include "eval.h"
 
 #define MAX_VM_STACK 4096
-#define MAX_VM_FRAMES 256
+
+// The VM's own recursion-depth ceiling -- Vm.scopes/Vm.scope_depth,
+// wrapped as a ScopeStack (vm_scope_stack, vm.c) and threaded through
+// the exact same find_var/set_var*/eval_local_declare/
+// eval_push_scope_for_call every other engine uses (see ScopeStack's
+// own comment in logo_types.h), but backed by this separate, much
+// deeper array instead of app->scopes/MAX_SCOPE_DEPTH (200) -- the
+// "deliberate follow-up, not an oversight" vm.h/docs/BYTECODE_VM_DESIGN.md
+// originally flagged when Stage 2 shipped: a Logo-level call was
+// already decoupled from the C stack (VmFrame push + pc jump, not a
+// real C function call), but variable *bindings* still reused
+// app->scopes until now. 2000 (~9MB per Vm, Scope being ~4.5KB thanks
+// to Variable's own word[512]) is a deliberate, chosen size, not
+// dynamically grown -- matches this codebase's consistent fixed-pool
+// style (see ListNode's own comment in logo_types.h) at a ~10x
+// improvement over the old real-world ceiling (eval_logo/ast_eval's
+// own C-stack-bound depth, empirically ~100-186 before ASan flags a
+// real overflow).
+#define MAX_VM_SCOPE_DEPTH 2000
+
+// A VmFrame and a Scope are always pushed/popped in lockstep (one call,
+// one of each -- see VmFrame's own comment below), so in principle
+// MAX_VM_FRAMES could just equal MAX_VM_SCOPE_DEPTH. It's deliberately
+// larger instead (same relationship the original 256-vs-200 design
+// had, just both numbers raised) so exec_call_proc's own
+// eval_push_scope_for_call check -- which reports "Recursion too deep,
+// call ignored" -- always fires before its own frame_count safety net,
+// which does not report anything (a real regression, caught by
+// test_recursion_depth_cap_reports_error_not_a_crash, when this was
+// briefly left exactly equal to MAX_VM_SCOPE_DEPTH: the two checks tied
+// at the same depth, and the silent one runs first in exec_call_proc's
+// own code).
+#define MAX_VM_FRAMES (MAX_VM_SCOPE_DEPTH + 16)
 
 // vm_run's own result: VM_RUN_HALTED means it ran to OP_HALT (or fell
 // off the end of the chunk) exactly like before this existed -- the
@@ -93,6 +128,15 @@ typedef struct {
     VmFrame frames[MAX_VM_FRAMES];
     int frame_count;
 
+    // The VM's own scope storage -- see MAX_VM_SCOPE_DEPTH's own
+    // comment above for why this exists as a separate array instead of
+    // reusing app->scopes/app->scope_depth the way this Vm's stack/
+    // frames above never did in the first place. Read/written only
+    // through vm_scope_stack(vm) (vm.c-internal), never indexed
+    // directly outside vm.c.
+    Scope scopes[MAX_VM_SCOPE_DEPTH];
+    int scope_depth;
+
     // Whether the most recently completed OP_CALL_PROC actually
     // OUTPUT'd a value (1) or fell through to OP_STOP/failed outright
     // -- recursion too deep, unknown procedure, frame-stack overflow
@@ -113,7 +157,7 @@ typedef struct {
     // wrapper). Everything else -- an ordinary builtin, a successful
     // procedure call, and even the recursion-too-deep case -- leaves
     // this 1: do_user_procedure_call itself never touches *resolved on
-    // the MAX_SCOPE_DEPTH path, so a recursion-too-deep call used in
+    // the recursion-too-deep path, so a recursion-too-deep call used in
     // expression position genuinely does print both "Recursion too
     // deep, call ignored" and "X: didn't output a value" in ast_eval --
     // a real double message this VM has to reproduce, not avoid.

@@ -929,6 +929,31 @@ TEST(test_wait_with_a_non_positive_duration_never_suspends_at_all) {
     end_vm_session(s);
 }
 
+// The actual point of VM-owned scope storage (see MAX_VM_SCOPE_DEPTH's
+// own comment in vm.h): this genuinely can't be a shadow_diff_vm test
+// -- 1000 levels comfortably exceeds ast_eval's own real ceiling
+// (empirically ~100-186 before its C stack overflows), which is
+// exactly the old shared limit (MAX_SCOPE_DEPTH, 200) this feature
+// decouples the VM from. VM_RUN_HALTED with no "Recursion too deep"
+// message anywhere in the output is the proof: 1000 real, successful
+// nested calls, not an early bailout.
+TEST(test_vm_recursion_goes_well_past_the_old_shared_200_limit) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO countdown :n\n"
+        "  IF :n = 0 [OUTPUT 0]\n"
+        "  OUTPUT countdown :n - 1\n"
+        "END\n"
+        "PRINT countdown 1000", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("0\n");
+    if (strstr(captured_output, "Recursion too deep") != NULL) {
+        failures++;
+        printf("FAIL %s: hit the recursion cap at only 1000 levels deep, expected MAX_VM_SCOPE_DEPTH (2000) headroom\n", current_test);
+    }
+    end_vm_session(s);
+}
+
 TEST(test_waitkey_suspends_then_resumes_with_the_pressed_key_and_completes) {
     VmRunResult status;
     VmTestSession s = start_vm_session("MAKE \"k WAITKEY\nPRINT :k", &status);
@@ -1853,6 +1878,7 @@ int main(void) {
     RUN(test_map_template_placeholder_survives_a_recursive_call_in_its_own_body);
     RUN(test_wait_suspends_with_the_right_duration_then_resumes_and_completes);
     RUN(test_wait_with_a_non_positive_duration_never_suspends_at_all);
+    RUN(test_vm_recursion_goes_well_past_the_old_shared_200_limit);
     RUN(test_waitkey_suspends_then_resumes_with_the_pressed_key_and_completes);
     RUN(test_waitkey_suspends_and_resumes_correctly_through_several_nested_procedure_calls);
     RUN(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_suspending);

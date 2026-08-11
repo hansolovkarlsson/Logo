@@ -642,22 +642,24 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
 // dependency.
 
 // The scope-push half of a procedure call (bind arg_vals as def's own
-// parameters, push app->scopes/scope_depth) -- split out of
-// call_ast_procedure so vm.c's OP_CALL_PROC handler can share it too.
-// vm.c's own frames don't run exec_block (a compiled procedure body
-// runs through the VM's own instruction loop instead), so it has no
-// use for the rest of call_ast_procedure (the exec_block call and the
-// OUTPUT/STOP-catching afterward -- the VM's OP_OUTPUT/OP_STOP opcodes
-// do that job directly against its own frame stack), only this setup
-// half. Returns 0 (and leaves scope_depth/app output untouched beyond
-// the message) if already at MAX_SCOPE_DEPTH, matching
-// call_ast_procedure's own prior behavior exactly.
-int eval_push_scope_for_call(LogoApp *app, AstNode *def, EvalValue *arg_vals, int arg_count) {
-    if (app->scope_depth >= MAX_SCOPE_DEPTH) {
+// parameters, push onto `ss`'s own scope stack) -- split out of
+// call_ast_procedure so vm.c's OP_CALL_PROC/OP_SEND/OP_APPLY handlers
+// can share it too, each passing vm_scope_stack(vm) instead of
+// call_ast_procedure's own app_scope_stack(app) -- see ScopeStack's own
+// comment in logo_types.h. vm.c's own frames don't run exec_block (a
+// compiled procedure body runs through the VM's own instruction loop
+// instead), so it has no use for the rest of call_ast_procedure (the
+// exec_block call and the OUTPUT/STOP-catching afterward -- the VM's
+// OP_OUTPUT/OP_STOP opcodes do that job directly against its own frame
+// stack), only this setup half. Returns 0 (and leaves scope_depth/app
+// output untouched beyond the message) if already at `ss.capacity`,
+// matching call_ast_procedure's own prior behavior exactly.
+int eval_push_scope_for_call(LogoApp *app, ScopeStack ss, AstNode *def, EvalValue *arg_vals, int arg_count) {
+    if (*ss.scope_depth >= ss.capacity) {
         append_output(app, "Recursion too deep, call ignored\n");
         return 0;
     }
-    Scope *scope = &app->scopes[app->scope_depth];
+    Scope *scope = &ss.scopes[*ss.scope_depth];
     scope->count = def->param_count;
     snprintf(scope->proc_name, sizeof(scope->proc_name), "%s", def->text);
     for (int i = 0; i < def->param_count; i++) {
@@ -680,7 +682,7 @@ int eval_push_scope_for_call(LogoApp *app, AstNode *def, EvalValue *arg_vals, in
             slot->number = 0;
         }
     }
-    app->scope_depth++;
+    (*ss.scope_depth)++;
     return 1;
 }
 
@@ -690,14 +692,14 @@ int eval_push_scope_for_call(LogoApp *app, AstNode *def, EvalValue *arg_vals, in
 // scope) rather than calling that function directly -- it's hardwired
 // to a text-based Procedure.body run through eval_logo, while an
 // AST_PROC_DEF's body is already a parsed AST_BLOCK run through
-// exec_block instead. Shares the exact same scope-stack fields
-// (app->scopes/app->scope_depth) and OUTPUT/STOP fields find_var and
-// interpreter.c's own call_procedure both already read/write, so the
-// two engines can't drift on scoping semantics even though procedure
-// *storage* differs.
+// exec_block instead. Always uses app's own scope stack (ast_eval has
+// no Vm to own a separate one) -- shares the exact same push/pop logic
+// and find_var the VM uses against its own array, so the two engines
+// can't drift on scoping *semantics* even though scope *storage* (and
+// now capacity) differs.
 static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, EvalValue *arg_vals, int arg_count, int *produced) {
     AstNode *def = &pool->nodes[def_node];
-    if (!eval_push_scope_for_call(app, def, arg_vals, arg_count)) {
+    if (!eval_push_scope_for_call(app, app_scope_stack(app), def, arg_vals, arg_count)) {
         *produced = 0;
         return num_val(0);
     }
@@ -1159,20 +1161,24 @@ static void do_make(LogoApp *app, AstPool *pool, const int *arg_idx) {
     // .text (see parser.c's MAKE signature).
     const char *varname = pool->nodes[arg_idx[0]].text;
     EvalValue val = eval_expr(app, pool, arg_idx[1]);
-    if (val.type == VALUE_WORD) set_var_word(app, varname, val.word);
-    else if (val.type == VALUE_LIST) set_var_list(app, varname, val.list_head);
-    else if (val.type == VALUE_ARRAY) set_var_array(app, varname, val.list_head, (int)val.number);
-    else set_var(app, varname, val.number);
+    ScopeStack ss = app_scope_stack(app);
+    if (val.type == VALUE_WORD) set_var_word(app, ss, varname, val.word);
+    else if (val.type == VALUE_LIST) set_var_list(app, ss, varname, val.list_head);
+    else if (val.type == VALUE_ARRAY) set_var_array(app, ss, varname, val.list_head, (int)val.number);
+    else set_var(app, ss, varname, val.number);
 }
 // THING name -- the reflective, computed-name sibling of :name (:name
 // only ever takes a literal identifier written right there in the
 // source, while THING takes any expression that evaluates to a word,
 // e.g. THING WORD "item :n). Mirrors interpreter.c's own THING exactly,
-// sharing the same find_var.
-EvalValue eval_thing_value(LogoApp *app, EvalValue name_val) {
+// sharing the same find_var. `ss` is app_scope_stack(app) when called
+// from do_thing below (ast_eval), or vm_scope_stack(vm) when called
+// from vm.c's call_builtin (THING) -- see ScopeStack's own comment in
+// logo_types.h.
+EvalValue eval_thing_value(LogoApp *app, ScopeStack ss, EvalValue name_val) {
     char name_text[512];
     eval_value_to_text(app, name_val, name_text, sizeof(name_text));
-    Variable *v = find_var(app, name_text);
+    Variable *v = find_var(app, ss, name_text);
     if (v == NULL) return num_val(0);
     if (v->type == VALUE_WORD) return word_val(v->word);
     if (v->type == VALUE_LIST) return list_val(v->list_head);
@@ -1180,21 +1186,22 @@ EvalValue eval_thing_value(LogoApp *app, EvalValue name_val) {
     return num_val(v->number);
 }
 static EvalValue do_thing(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    return eval_thing_value(app, eval_expr(app, pool, arg_idx[0]));
+    return eval_thing_value(app, app_scope_stack(app), eval_expr(app, pool, arg_idx[0]));
 }
 // LOCAL "name -- a variable scoped to the current call, without being
 // a parameter. Only valid inside an active procedure call; the scope's
 // vars array shares its fixed capacity (MAX_PARAMS) with real
 // parameters. Mirrors interpreter.c's own LOCAL exactly, sharing the
-// same app->scopes/scope_depth call_ast_procedure already reads/writes
-// (see eval.h's own note on why that sharing is safe: both engines'
-// procedure calls push/pop the identical scope stack).
-void eval_local_declare(LogoApp *app, const char *varname) {
-    if (app->scope_depth <= 0) {
+// same scope-stack push/pop call_ast_procedure (or, under the VM,
+// exec_call_proc) already reads/writes -- see ScopeStack's own comment
+// in logo_types.h for why that sharing is safe despite the VM now
+// having its own separate, deeper scope array.
+void eval_local_declare(LogoApp *app, ScopeStack ss, const char *varname) {
+    if (*ss.scope_depth <= 0) {
         append_output(app, "LOCAL: can only be used inside a procedure\n");
         return;
     }
-    Scope *scope = &app->scopes[app->scope_depth - 1];
+    Scope *scope = &ss.scopes[*ss.scope_depth - 1];
     for (int i = 0; i < scope->count; i++) {
         if (strcasecmp(scope->vars[i].name, varname) == 0) return; // already local
     }
@@ -1208,7 +1215,7 @@ void eval_local_declare(LogoApp *app, const char *varname) {
     v->number = 0;
 }
 static void do_local(LogoApp *app, AstPool *pool, const int *arg_idx) {
-    eval_local_declare(app, pool->nodes[arg_idx[0]].text);
+    eval_local_declare(app, app_scope_stack(app), pool->nodes[arg_idx[0]].text);
 }
 // NAMES -- every currently-defined global variable's name, as a list.
 // Mirrors interpreter.c's own NAMES exactly, sharing the same
@@ -2956,7 +2963,7 @@ static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx) {
         case AST_WORD:
             return word_val(node->text);
         case AST_VARREF: {
-            Variable *v = find_var(app, node->text);
+            Variable *v = find_var(app, app_scope_stack(app), node->text);
             if (v == NULL) return num_val(0); // unset :name reads as 0, matching interpreter.c
             if (v->type == VALUE_WORD) return word_val(v->word);
             if (v->type == VALUE_NUMBER) return num_val(v->number);
@@ -3090,7 +3097,7 @@ static void exec_for(LogoApp *app, AstPool *pool, int for_node) {
             append_output(app, "FOR: stopped after too many iterations\n");
             break;
         }
-        set_var(app, node->text, i);
+        set_var(app, app_scope_stack(app), node->text, i);
         exec_block(app, pool, block_node);
         if (app->stop_requested || app->throw_requested) break;
         iterations++;

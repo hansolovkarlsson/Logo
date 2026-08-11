@@ -38,17 +38,21 @@ typedef enum {
 // each of these fields needs to be *per-agent* instead of the single
 // shared LogoApp field it shadows during this agent's own turn (see
 // agent_save_state/agent_restore_state in agent.c). `vm` is already
-// fully self-contained (its own stack/frames/pc/vm_run_depth) --
-// nothing here duplicates that. `pool`/`chunk` are deliberately NOT
-// here: every agent shares the one compiled program the top-level
-// script itself compiled from. Heap-only, like every other multi-MB
-// struct in this codebase (`vm` alone is already documented that way)
-// -- always calloc'd, never a stack local.
+// fully self-contained (its own stack/frames/pc/vm_run_depth, AND now
+// its own scopes/scope_depth -- see MAX_VM_SCOPE_DEPTH's own comment in
+// vm.h) -- nothing here duplicates any of that; scope isolation between
+// agents falls out for free from each one owning a separate `Vm`,
+// nothing left to copy in/out the way throw_requested/throw_tag/
+// run_depth below still need to be (those three remain plain LogoApp
+// fields the VM's own opcodes read/write directly, unlike scopes, which
+// moved into Vm itself). `pool`/`chunk` are deliberately NOT here:
+// every agent shares the one compiled program the top-level script
+// itself compiled from. Heap-only, like every other multi-MB struct in
+// this codebase (`vm` alone is already documented that way) -- always
+// calloc'd, never a stack local.
 typedef struct {
     Vm vm;
     int turtle_index;   // fixed at spawn (decision #2) -- app->current_turtle only ever borrows this value for the duration of this agent's own turn, never writes it back
-    Scope scopes[MAX_SCOPE_DEPTH];
-    int scope_depth;
     gboolean throw_requested;
     char throw_tag[64];
     int run_depth;

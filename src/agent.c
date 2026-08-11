@@ -1,20 +1,23 @@
 // agent.c
 //
 // See agent.h for the full design rationale. The context switch is a
-// save/restore *swap* of the exact LogoApp fields find_var and every
-// existing opcode already read/write directly -- not a rewrite of any
-// of that code. Before an agent's own turn, its saved state is copied
-// into app's shared fields; after, app's (possibly changed) values are
-// copied back into the agent's own storage. Zero changes needed
-// anywhere else in this codebase.
+// save/restore *swap* of the LogoApp fields find_var and every existing
+// opcode still read/write directly (throw_requested/throw_tag/
+// run_depth/current_turtle) -- not a rewrite of any of that code.
+// Variable *scope* storage is a partial exception: since it now lives
+// inside each agent's own `Vm` (see agent.h's own comment and
+// MAX_VM_SCOPE_DEPTH in vm.h), it never needs copying at all -- an
+// agent's own vm.scopes/vm.scope_depth are already private to it,
+// simply by virtue of each Agent owning a separate Vm. Before an
+// agent's own turn, its saved state is copied into app's shared
+// fields; after, app's (possibly changed) values are copied back into
+// the agent's own storage.
 
 #include "agent.h"
 #include <stdlib.h>
 #include <string.h>
 
 static void agent_restore_state(LogoApp *app, Agent *a) {
-    memcpy(app->scopes, a->scopes, sizeof(Scope) * (size_t)a->scope_depth);
-    app->scope_depth = a->scope_depth;
     app->throw_requested = a->throw_requested;
     snprintf(app->throw_tag, sizeof(app->throw_tag), "%s", a->throw_tag);
     app->run_depth = a->run_depth;
@@ -22,8 +25,6 @@ static void agent_restore_state(LogoApp *app, Agent *a) {
 }
 
 static void agent_save_state(LogoApp *app, Agent *a) {
-    memcpy(a->scopes, app->scopes, sizeof(Scope) * (size_t)app->scope_depth);
-    a->scope_depth = app->scope_depth;
     a->throw_requested = app->throw_requested;
     snprintf(a->throw_tag, sizeof(a->throw_tag), "%s", app->throw_tag);
     a->run_depth = app->run_depth;

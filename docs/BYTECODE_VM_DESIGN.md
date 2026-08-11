@@ -2398,6 +2398,83 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
   cleanly.
   **This closes the 35-name audit entirely — a scripted re-run confirms
   zero `parser.c`-declared builtins remain unreachable from `vm.c`.**
+- **VM-owned scope storage — real recursion-depth independence**
+  (2026-08-10): the one named gap the audit batches above left open —
+  since Stage 2 first shipped, the VM's own `pc`/`VmFrame` array had
+  already decoupled a Logo-level call from the C stack (a call is a
+  frame push + `pc` jump, never a new C function call), but variable
+  *bindings* still went through `app->scopes[]`/`MAX_SCOPE_DEPTH` (200)
+  shared with `eval_logo`/`ast_eval`, via `eval_push_scope_for_call` —
+  so real recursion depth stayed capped at the same limit those two
+  C-stack-recursive engines needed anyway (empirically ~100-186 before
+  ASan flags a real overflow). This batch gives the VM its own,
+  separate, much deeper scope stack.
+  Full audit of every direct `app->scopes[]`/`app->scope_depth` touch
+  first (not guessed): exactly five functions own all of it --
+  `find_var`, `find_or_create_var` (static, `interpreter.c`),
+  `set_var`/`set_var_word`/`set_var_list`/`set_var_array`,
+  `eval_local_declare`, and `eval_push_scope_for_call` — every other
+  caller (`THING`, `MAKE`, `LOCAL`, `AST_VARREF` reads, `FOR`'s own
+  loop variable, `MAP`/`FILTER`/`REDUCE`/`FOREACH`'s template-variable
+  binding) already funneled through those. A new `ScopeStack` struct
+  (`logo_types.h`: `Scope *scopes; int *scope_depth; int capacity;`)
+  gets threaded through all five instead of them reaching into
+  `app->scopes` directly — `app_scope_stack(app)` (new,
+  `interpreter.c`) is what `eval_logo`/`ast_eval` still pass, unchanged
+  in every observable way; a new `vm_scope_stack(vm)` (`vm.c`-internal)
+  is what every VM opcode/helper passes instead, backed by two new `Vm`
+  fields (`Scope scopes[MAX_VM_SCOPE_DEPTH]; int scope_depth;`,
+  `MAX_VM_SCOPE_DEPTH` = 2000, chosen after asking the user directly —
+  weighed against a dynamically-`realloc`-grown alternative, which
+  would have been this codebase's first departure from its consistent
+  fixed-pool style; 2000 was picked as the fixed size, ~9MB per `Vm`
+  thanks to `Scope`'s own `Variable`-array-of-`word[512]` shape, a
+  ~10x improvement over the old real-world ceiling). One shared
+  implementation, two independent storage arrays, same discipline
+  `eval_push_scope_for_call`'s own original design already established
+  for stack/frames — the VM still can't drift from `ast_eval` on
+  scoping *semantics*, only *capacity* now differs.
+  `call_builtin` (`vm.c`) gained a `Vm *vm` parameter (needed by
+  `THING`'s own `vm_scope_stack` call) — its one call site was trivial
+  to update. `bind_template_var`/`save_var`/`restore_var` similarly
+  gained `Vm *vm`, threaded from their own four `exec_*_compiled`
+  callers, which already had it.
+  A genuine, caught-not-assumed regression along the way: `MAX_VM_FRAMES`
+  (originally 256, deliberately larger than the old `MAX_SCOPE_DEPTH`
+  200 specifically so `eval_push_scope_for_call`'s own vocal "Recursion
+  too deep, call ignored" message always fired before `exec_call_proc`'s
+  own silent frame-count safety net) was first raised to exactly 2000,
+  matching the new scope cap — but since a `VmFrame` and a `Scope` are
+  always pushed in lockstep, this made the two checks tie at the same
+  depth, and the *silent* one runs first in `exec_call_proc`'s own code
+  order. `test_recursion_depth_cap_reports_error_not_a_crash` caught it
+  immediately (empty VM output instead of the expected message) — fixed
+  by restoring the same "frames deliberately larger than scopes"
+  relationship (`MAX_VM_FRAMES = MAX_VM_SCOPE_DEPTH + 16`), not by
+  guessing a value that happened to work.
+  Since scope storage now lives inside `Vm` itself, `Agent`'s own
+  Phase 6 save/restore mechanism (`agent.c`) needed a real fix, not
+  just cleanup: its separate `scopes[MAX_SCOPE_DEPTH]`/`scope_depth`
+  fields and the memcpy dance copying them to/from `app->scopes` would
+  have silently broken agent scope isolation once `vm.c` stopped
+  writing to `app->scopes` at all — removed entirely, since each
+  `Agent`'s own embedded `Vm` already isolates its scopes for free
+  (structural, not copy-based). `ui.c`'s `run_logo_script` and
+  `tests/test_agent.c`'s own mirroring helper both had the same
+  now-dead copy removed.
+  A new `tests/test_vm.c` case proves the actual point empirically, not
+  just in principle: 1000 levels of real recursion (`countdown`
+  counting down to 0 via `OUTPUT`) succeeds cleanly under the VM with
+  no "Recursion too deep" anywhere in its output — this can't be a
+  `shadow_diff_vm` case, since `ast_eval` would never survive 1000
+  levels itself. Confirmed clean under AddressSanitizer for both
+  `test_vm` and `test_agent` this run (the previously-noted
+  `eval_logo`-only recursion crash reproduced identically against a
+  `git stash`d pre-change baseline, confirming it's pre-existing and
+  unrelated, not something this batch introduced); all 7 `make test`
+  suites pass; `bin/logo` builds warning-free and was confirmed live —
+  both a normal launch and `examples/concurrent_agents.logo` (exercising
+  the just-changed `Agent`/scheduler code) stayed alive with no crash.
   - **Next**: `PAUSE`'s own Ctrl+C-based force-unpause, the still-open
     `WHILE`/`FOR` iteration-cap gap, and the
     `OUTPUT`/`STOP`-inside-a-template limitation remain smaller,

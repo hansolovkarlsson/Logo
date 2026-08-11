@@ -129,9 +129,19 @@ instruction-set/frame-layout detail behind each of these.
   `eval_push_scope_for_call` (factored out of `call_ast_procedure`,
   used by both engines) — only the VM's own value stack and call
   frames (`{return_pc, value_stack_base}`) are new, VM-owned arrays.
-  Real recursion-depth independence from `MAX_SCOPE_DEPTH` needs
-  VM-owned scope storage, its own deliberate follow-up (not started).
-- [ ] Grow instruction coverage the same way Stage 1 grew
+  Real recursion-depth independence from `MAX_SCOPE_DEPTH` needed
+  VM-owned scope storage, its own deliberate follow-up -- **done
+  2026-08-10**, see `docs/BYTECODE_VM_DESIGN.md`'s own Progress log
+  entry ("VM-owned scope storage — real recursion-depth independence")
+  for the full writeup: a new `ScopeStack` abstraction threaded through
+  the five functions that touch scope storage, a new `Vm.scopes[2000]`
+  array (chosen after asking the user directly, over a dynamic-realloc
+  alternative), and a required fix to `Agent`'s own Phase 6 save/restore
+  mechanism (scope copying removed entirely, now free/structural since
+  each `Agent`'s own `Vm` already isolates it). The VM's real recursion
+  depth is now ~10x the old shared ceiling, proven via a new 1000-level
+  test, not just claimed.
+- [x] Grow instruction coverage the same way Stage 1 grew
   `BUILTIN_SIGNATURES` — incremental batches, each shadow-diffed
   against `ast_eval` before moving to the next.
   - [x] **Lists/arrays/`MAKE`-adjacent ops** (2026-08-09): list literals
