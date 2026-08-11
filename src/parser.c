@@ -164,6 +164,13 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "ONMOUSEMOVE", 1, { ARG_QUOTED_WORD } },
     { "OFFMOUSEMOVE", 0, { 0 } },
 
+    // ONKEYUP/ONRELEASE -- key/button *release* mirrors of ONKEY/
+    // ONCLICK above (see vm.c's own exec_onkeyup/exec_onrelease).
+    { "ONKEYUP", 1, { ARG_QUOTED_WORD } },
+    { "OFFKEYUP", 0, { 0 } },
+    { "ONRELEASE", 1, { ARG_QUOTED_WORD } },
+    { "OFFRELEASE", 0, { 0 } },
+
     // ERASE "name -- procedure deletion, not a drawing primitive
     // despite being grouped with the rest of this batch in
     // docs/ROADMAP.md (a miscategorization worth fixing there, not

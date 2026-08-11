@@ -2005,6 +2005,76 @@ TEST(test_offmousemove_clears_a_registered_handler) {
     end_vm_session(s);
 }
 
+TEST(test_onkeyup_registers_a_valid_one_param_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :KEY\nEND\nONKEYUP \"handler", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (strcasecmp(s.app->onkeyup_handler, "HANDLER") != 0) {
+        failures++;
+        printf("FAIL %s: onkeyup_handler -- expected \"HANDLER\", got \"%s\"\n", current_test, s.app->onkeyup_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onkeyup_of_a_wrong_arity_procedure_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO BAD :A :B\nEND\nONKEYUP \"bad", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONKEYUP: procedure \"bad\" must take exactly one input (the released key's name)\n");
+    if (s.app->onkeyup_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onkeyup_handler -- expected empty, got \"%s\"\n", current_test, s.app->onkeyup_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_offkeyup_clears_a_registered_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :KEY\nEND\nONKEYUP \"handler\nOFFKEYUP", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (s.app->onkeyup_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onkeyup_handler -- expected empty after OFFKEYUP, got \"%s\"\n", current_test, s.app->onkeyup_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onrelease_registers_a_valid_three_param_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :X :Y :BUTTON\nEND\nONRELEASE \"handler", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (strcasecmp(s.app->onrelease_handler, "HANDLER") != 0) {
+        failures++;
+        printf("FAIL %s: onrelease_handler -- expected \"HANDLER\", got \"%s\"\n", current_test, s.app->onrelease_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onrelease_of_a_wrong_arity_procedure_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO BAD :X :Y\nEND\nONRELEASE \"bad", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONRELEASE: procedure \"bad\" must take exactly three inputs (x, y, button)\n");
+    if (s.app->onrelease_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onrelease_handler -- expected empty, got \"%s\"\n", current_test, s.app->onrelease_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_offrelease_clears_a_registered_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :X :Y :BUTTON\nEND\nONRELEASE \"handler\nOFFRELEASE", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (s.app->onrelease_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onrelease_handler -- expected empty after OFFRELEASE, got \"%s\"\n", current_test, s.app->onrelease_handler);
+    }
+    end_vm_session(s);
+}
+
 // Stage C of the bytecode save/load/assembler initiative
 // (docs/ROADMAP.md): disassembles a normally-compiled chunk, feeds the
 // resulting text straight back through bytecode_assemble into a FRESH
@@ -2258,6 +2328,12 @@ int main(void) {
     RUN(test_onmousemove_registers_a_valid_two_param_handler);
     RUN(test_onmousemove_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offmousemove_clears_a_registered_handler);
+    RUN(test_onkeyup_registers_a_valid_one_param_handler);
+    RUN(test_onkeyup_of_a_wrong_arity_procedure_reports_an_error);
+    RUN(test_offkeyup_clears_a_registered_handler);
+    RUN(test_onrelease_registers_a_valid_three_param_handler);
+    RUN(test_onrelease_of_a_wrong_arity_procedure_reports_an_error);
+    RUN(test_offrelease_clears_a_registered_handler);
     RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);
 
     if (failures == 0) {

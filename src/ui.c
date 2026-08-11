@@ -406,11 +406,14 @@ static void draw_cb(GtkDrawingArea *area, cairo_t *cr, int width, int height, gp
 
 // Defined down in the "Bytecode VM execution" section, alongside
 // run_logo_script -- forward-declared here since on_canvas_button_
-// pressed (ONCLICK), on_canvas_motion (ONMOUSEMOVE), and
-// on_entry_key_pressed (ONKEY) all need to fire a handler well before
-// that section's own definitions appear.
+// pressed/released (ONCLICK/ONRELEASE), on_canvas_motion
+// (ONMOUSEMOVE), and on_entry_key_pressed/released (ONKEY/ONKEYUP) all
+// need to fire a handler well before that section's own definitions
+// appear.
 static void fire_onkey(LogoApp *app, const char *key_name);
+static void fire_onkeyup(LogoApp *app, const char *key_name);
 static void fire_onclick(LogoApp *app, double x, double y, int button);
+static void fire_onrelease(LogoApp *app, double x, double y, int button);
 static void fire_onmousemove(LogoApp *app, double x, double y);
 
 // MOUSEPOS/MOUSEX/MOUSEY: continuously updated from the canvas's own
@@ -441,12 +444,14 @@ static void on_canvas_button_pressed(GtkGestureClick *gesture, gint n_press, gdo
     fire_onclick(app, x, y, button);
 }
 
+// ONRELEASE's own handler (if one is registered) fires alongside this,
+// same button-number convention as on_canvas_button_pressed's ONCLICK.
 static void on_canvas_button_released(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
-    (void)gesture;
     (void)n_press;
-    (void)x;
-    (void)y;
-    ((LogoApp *)user_data)->mouse_button_down = FALSE;
+    LogoApp *app = (LogoApp *)user_data;
+    app->mouse_button_down = FALSE;
+    int button = (int)gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+    fire_onrelease(app, x, y, button);
 }
 
 // --- JOYSTICK (SDL2) ---
@@ -917,10 +922,10 @@ typedef struct {
     ParseResult *result;
     BytecodeChunk *chunk;
     Vm *vm;
-    // FALSE only for a run spawned by fire_onkey/fire_onclick/
-    // fire_onmousemove below, whose result/chunk are borrowed from
-    // g_onkey_owner/g_onclick_owner/g_onmousemove_owner (still needed
-    // for as long as that handler stays registered) --
+    // FALSE only for a run spawned by one of the fire_on* functions
+    // below, whose result/chunk are borrowed from the corresponding
+    // *_owner global (still needed for as long as that handler stays
+    // registered) --
     // free_suspended_run must not free them in that case. TRUE for
     // every run_logo_script-spawned run, which always owns its own
     // result/chunk outright.
@@ -929,18 +934,19 @@ typedef struct {
 
 static SuspendedRun *g_suspended_run = NULL;
 
-// ONKEY/ONCLICK/ONMOUSEMOVE's own retained chunk+result, kept alive
-// independently of g_suspended_run's normal free-on-finish lifecycle
-// for as long as a handler still needs them (see handle_vm_result's own
-// VM_RUN_HALTED case below, and release_retained_chunk right after).
-// Three separate slots, not one shared one: each handler can validly be
-// registered by a different script/submission at a different time,
-// each needing its own chunk kept alive -- sharing one slot would
-// silently break whichever handler registered first the moment another
-// one's script finishes. When two or more happen to point at the very
-// same chunk (the common case: one script registers more than one
-// handler in a single run), release_retained_chunk's own scan over
-// every OTHER slot avoids a double free.
+// ONKEY/ONCLICK/ONMOUSEMOVE/ONKEYUP/ONRELEASE's own retained
+// chunk+result, kept alive independently of g_suspended_run's normal
+// free-on-finish lifecycle for as long as a handler still needs them
+// (see handle_vm_result's own VM_RUN_HALTED case below, and
+// release_retained_chunk right after). Five separate slots, not one
+// shared one: each handler can validly be registered by a different
+// script/submission at a different time, each needing its own chunk
+// kept alive -- sharing one slot would silently break whichever
+// handler registered first the moment another one's script finishes.
+// When two or more happen to point at the very same chunk (the common
+// case: one script registers more than one handler in a single run),
+// release_retained_chunk's own scan over every OTHER slot avoids a
+// double free.
 typedef struct {
     ParseResult *result;
     BytecodeChunk *chunk;
@@ -948,12 +954,18 @@ typedef struct {
 static RetainedChunk g_onkey_owner = {0};
 static RetainedChunk g_onclick_owner = {0};
 static RetainedChunk g_onmousemove_owner = {0};
+static RetainedChunk g_onkeyup_owner = {0};
+static RetainedChunk g_onrelease_owner = {0};
+
+#define NUM_EVENT_HANDLER_OWNERS 5
 
 static void release_retained_chunk(RetainedChunk *slot) {
     if (slot->chunk == NULL) return;
-    RetainedChunk *all_owners[] = {&g_onkey_owner, &g_onclick_owner, &g_onmousemove_owner};
+    RetainedChunk *all_owners[NUM_EVENT_HANDLER_OWNERS] = {
+        &g_onkey_owner, &g_onclick_owner, &g_onmousemove_owner, &g_onkeyup_owner, &g_onrelease_owner
+    };
     gboolean shared = FALSE;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < NUM_EVENT_HANDLER_OWNERS; i++) {
         if (all_owners[i] != slot && all_owners[i]->chunk == slot->chunk) {
             shared = TRUE;
             break;
@@ -1015,50 +1027,59 @@ static void maybe_resume_paused_runs(LogoApp *app);
 // point, and the old busy-wait design's own mid-wait redraws (via
 // request_redraw) mean users already expect to see that motion right
 // away, not only once the whole script finally finishes.
+// {handler-name-field, its own retained-chunk owner} pairs -- one per
+// registered-event-trigger builtin. Data-driven rather than one
+// hand-duplicated block per handler in handle_vm_result below: five
+// near-identical copies was already a real repetition smell, and a
+// sixth (a future ONMOUSEUP-style addition, say) shouldn't mean a sixth
+// copy-paste.
+typedef struct {
+    char *handler_name; // points into a LogoApp field, e.g. app->onkey_handler
+    RetainedChunk *owner;
+} EventHandlerSlot;
+
 static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result) {
-    // OFFKEY/OFFCLICK/OFFMOUSEMOVE cleared a handler at some point
-    // during whatever run just reached this call (or a fresh script
-    // never re-registered one at all) -- release the correspondingly
-    // retained chunk right away rather than leaving it held onto
-    // uselessly until some LATER unrelated event happens to trigger a
-    // check.
-    if (app->onkey_handler[0] == '\0') release_retained_chunk(&g_onkey_owner);
-    if (app->onclick_handler[0] == '\0') release_retained_chunk(&g_onclick_owner);
-    if (app->onmousemove_handler[0] == '\0') release_retained_chunk(&g_onmousemove_owner);
+    EventHandlerSlot slots[NUM_EVENT_HANDLER_OWNERS] = {
+        { app->onkey_handler, &g_onkey_owner },
+        { app->onclick_handler, &g_onclick_owner },
+        { app->onmousemove_handler, &g_onmousemove_owner },
+        { app->onkeyup_handler, &g_onkeyup_owner },
+        { app->onrelease_handler, &g_onrelease_owner },
+    };
+
+    // OFFKEY/OFFCLICK/OFFMOUSEMOVE/OFFKEYUP/OFFRELEASE cleared a
+    // handler at some point during whatever run just reached this call
+    // (or a fresh script never re-registered one at all) -- release the
+    // correspondingly retained chunk right away rather than leaving it
+    // held onto uselessly until some LATER unrelated event happens to
+    // trigger a check.
+    for (int i = 0; i < NUM_EVENT_HANDLER_OWNERS; i++) {
+        if (slots[i].handler_name[0] == '\0') release_retained_chunk(slots[i].owner);
+    }
 
     gtk_widget_queue_draw(app->drawing_area);
     switch (result) {
         case VM_RUN_HALTED: {
-            // If this run's own execution registered ONKEY/ONCLICK/
-            // ONMOUSEMOVE (its own chunk's procs[] resolves whichever
-            // handler name is now set), its chunk/result must outlive
-            // this call instead of being freed below -- see
-            // g_onkey_owner/g_onclick_owner/g_onmousemove_owner above.
-            // A handler-invocation run's own chunk (owns_chunk FALSE)
-            // is always already retained by someone else, never newly
-            // adopted here.
-            gboolean keep_for_onkey = run->owns_chunk && app->onkey_handler[0] != '\0' &&
-                bytecode_find_proc_entry(run->chunk, app->onkey_handler) != NULL;
-            gboolean keep_for_onclick = run->owns_chunk && app->onclick_handler[0] != '\0' &&
-                bytecode_find_proc_entry(run->chunk, app->onclick_handler) != NULL;
-            gboolean keep_for_onmousemove = run->owns_chunk && app->onmousemove_handler[0] != '\0' &&
-                bytecode_find_proc_entry(run->chunk, app->onmousemove_handler) != NULL;
-            if (keep_for_onkey) {
-                release_retained_chunk(&g_onkey_owner);
-                g_onkey_owner.result = run->result;
-                g_onkey_owner.chunk = run->chunk;
+            // If this run's own execution registered any of these
+            // handlers (its own chunk's procs[] resolves the handler
+            // name now set), its chunk/result must outlive this call
+            // instead of being freed below -- see the *_owner globals
+            // above. A handler-invocation run's own chunk (owns_chunk
+            // FALSE) is always already retained by someone else, never
+            // newly adopted here.
+            gboolean kept_any = FALSE;
+            if (run->owns_chunk) {
+                for (int i = 0; i < NUM_EVENT_HANDLER_OWNERS; i++) {
+                    if (slots[i].handler_name[0] != '\0' &&
+                        bytecode_find_proc_entry(run->chunk, slots[i].handler_name) != NULL) {
+                        release_retained_chunk(slots[i].owner);
+                        slots[i].owner->result = run->result;
+                        slots[i].owner->chunk = run->chunk;
+                        kept_any = TRUE;
+                    }
+                }
             }
-            if (keep_for_onclick) {
-                release_retained_chunk(&g_onclick_owner);
-                g_onclick_owner.result = run->result;
-                g_onclick_owner.chunk = run->chunk;
-            }
-            if (keep_for_onmousemove) {
-                release_retained_chunk(&g_onmousemove_owner);
-                g_onmousemove_owner.result = run->result;
-                g_onmousemove_owner.chunk = run->chunk;
-            }
-            if (keep_for_onkey || keep_for_onclick || keep_for_onmousemove) {
+            if (kept_any) {
                 free(run->vm);
                 free(run);
             } else {
@@ -1141,11 +1162,10 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             initial_agent->started = TRUE;
             scheduler_run(app, &run->result->pool, run->chunk, initial_agent);
             // Same owns_chunk guard as VM_RUN_HALTED above -- a LAUNCH
-            // reached from inside an ONKEY/ONCLICK/ONMOUSEMOVE handler
-            // invocation runs against a *borrowed* chunk (still needed
-            // by g_onkey_owner/g_onclick_owner/g_onmousemove_owner),
-            // which must not be freed here just because this particular
-            // run is done with it.
+            // reached from inside any event-trigger handler invocation
+            // runs against a *borrowed* chunk (still needed by that
+            // handler's own *_owner global), which must not be freed
+            // here just because this particular run is done with it.
             if (run->owns_chunk) {
                 parse_result_destroy(run->result);
                 free(run->chunk);
@@ -1342,6 +1362,18 @@ static void fire_onmousemove(LogoApp *app, double x, double y) {
     fire_handler(app, &g_onmousemove_owner, app->onmousemove_handler, args, 2);
 }
 
+static void fire_onkeyup(LogoApp *app, const char *key_name) {
+    if (app->onkeyup_handler[0] == '\0') return;
+    EvalValue args[1] = { word_val(key_name) };
+    fire_handler(app, &g_onkeyup_owner, app->onkeyup_handler, args, 1);
+}
+
+static void fire_onrelease(LogoApp *app, double x, double y, int button) {
+    if (app->onrelease_handler[0] == '\0') return;
+    EvalValue args[3] = { num_val(x), num_val(y), num_val(button) };
+    fire_handler(app, &g_onrelease_owner, app->onrelease_handler, args, 3);
+}
+
 // Handles Enter/Shift+Enter and Up/Down history recall in the command
 // entry. Enter runs the accumulated text once it's syntactically complete
 // (is_input_complete); otherwise lets GTK insert a newline so the box
@@ -1453,6 +1485,21 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
     gtk_text_buffer_set_text(buffer, "", -1);
     g_free(text);
     return TRUE; // consume the keypress, don't insert a newline
+}
+
+// ONKEYUP's own handler (if one is registered) -- unlike on_entry_key_
+// pressed above, this has no WAITKEY/waiting_for_input/history/submit
+// logic to interact with at all: nothing in this app currently cares
+// about key *release*, so this is purely ONKEYUP's own passive fire,
+// unconditional on every release.
+static void on_entry_key_released(GtkEventControllerKey *controller, guint keyval, guint keycode,
+                                   GdkModifierType state, gpointer user_data) {
+    (void)controller;
+    (void)keycode;
+    (void)state;
+    LogoApp *app = (LogoApp *)user_data;
+    const char *key_name = gdk_keyval_name(keyval);
+    if (key_name != NULL) fire_onkeyup(app, key_name);
 }
 
 // --- FILE MENU ---
@@ -1987,6 +2034,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
 
     GtkEventController *entry_key_controller = gtk_event_controller_key_new();
     g_signal_connect(entry_key_controller, "key-pressed", G_CALLBACK(on_entry_key_pressed), logo);
+    g_signal_connect(entry_key_controller, "key-released", G_CALLBACK(on_entry_key_released), logo);
     gtk_widget_add_controller(logo->entry, entry_key_controller);
 
     // Bracket matching: highlight the [ ] pair the cursor is touching, or

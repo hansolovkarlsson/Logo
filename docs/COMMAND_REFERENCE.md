@@ -753,17 +753,22 @@ yet. See `examples/concurrent_agents.logo` for a full working demo.
 ## Event triggers
 
 Unlike `WAITKEY` above (which blocks the running script until the next
-key), `ONKEY`/`ONCLICK`/`ONMOUSEMOVE` register a procedure to run in
-the background whenever a key/click/pointer-motion event happens,
-without pausing anything. See `docs/ROADMAP.md`'s "Mouse/keyboard event
-triggers" for the original design writeup.
+key), `ONKEY`/`ONCLICK`/`ONMOUSEMOVE`/`ONKEYUP`/`ONRELEASE` register a
+procedure to run in the background whenever a key/click/pointer-motion/
+key-release/button-release event happens, without pausing anything. See
+`docs/ROADMAP.md`'s "Mouse/keyboard event triggers" for the original
+design writeup.
 
 | Command | Args | Description |
 |---|---|---|
 | `ONKEY` | `"procname` | Run `procname` on every keypress (entry box focused), called with the key's name as its one input (`:KEY`) — same name convention as `WAITKEY`'s own output |
 | `OFFKEY` | — | Clear the current `ONKEY` handler |
+| `ONKEYUP` | `"procname` | Same as `ONKEY`, but on key *release* rather than press |
+| `OFFKEYUP` | — | Clear the current `ONKEYUP` handler |
 | `ONCLICK` | `"procname` | Run `procname` on every mouse button press on the canvas, called with `:X :Y :BUTTON` (canvas-relative pixels, same coordinate space `SETXY`/`POS` use; button 1/2/3, GDK's own left/middle/right convention) |
 | `OFFCLICK` | — | Clear the current `ONCLICK` handler |
+| `ONRELEASE` | `"procname` | Same as `ONCLICK`, but on button *release* rather than press |
+| `OFFRELEASE` | — | Clear the current `ONRELEASE` handler |
 | `ONMOUSEMOVE` | `"procname` | Run `procname` on every pointer motion over the canvas, called with `:X :Y` |
 | `OFFMOUSEMOVE` | — | Clear the current `ONMOUSEMOVE` handler |
 
@@ -782,14 +787,19 @@ TO MOUSEHANDLER :X :Y
   SETXY :X :Y
 END
 ONMOUSEMOVE "mousehandler
+
+TO STOPHANDLER :KEY
+  PRINT "released
+END
+ONKEYUP "stophandler
 ```
 
-`procname` must take *exactly* one input for `ONKEY` (three for
-`ONCLICK`, two for `ONMOUSEMOVE`) — a mismatch is a reported error at
-registration time, and leaves any previously-registered handler
-untouched rather than clearing it. A typo'd or undefined `procname` is
-likewise reported immediately, not silently ignored the first time it
-would have fired.
+`procname` must take *exactly* one input for `ONKEY`/`ONKEYUP` (three
+for `ONCLICK`/`ONRELEASE`, two for `ONMOUSEMOVE`) — a mismatch is a
+reported error at registration time, and leaves any previously-
+registered handler untouched rather than clearing it. A typo'd or
+undefined `procname` is likewise reported immediately, not silently
+ignored the first time it would have fired.
 
 Each handler slot holds at most one procedure — registering a new one
 replaces the old, same as `SETSPEED`. An event that fires while the
@@ -799,12 +809,11 @@ same "at most one script thread" rule every ordinary REPL submission
 already follows; this is also what keeps `ONMOUSEMOVE`'s own much
 higher firing rate (dozens of events/sec while the mouse moves) from
 piling up invocations faster than they finish, with no separate
-debounce logic needed. `ONKEY` only sees keys while the entry box has
-focus (the app's only keyboard-capture point); a handler registered
-inside a script that also uses `LAUNCH` is not retained once that
-script finishes (a known, narrow gap — register `ONKEY`/`ONCLICK`/
-`ONMOUSEMOVE` from a script that doesn't also `LAUNCH`, if both are
-needed).
+debounce logic needed. `ONKEY`/`ONKEYUP` only see keys while the entry
+box has focus (the app's only keyboard-capture point); a handler
+registered inside a script that also uses `LAUNCH` is not retained once
+that script finishes (a known, narrow gap — register these from a
+script that doesn't also `LAUNCH`, if both are needed).
 
 ---
 

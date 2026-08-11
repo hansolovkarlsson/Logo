@@ -383,6 +383,46 @@ static void exec_onmousemove(LogoApp *app, BytecodeChunk *chunk, const char *pro
     snprintf(app->onmousemove_handler, sizeof(app->onmousemove_handler), "%s", proc_name);
 }
 
+// ONKEYUP "procname -- same shape as exec_onkey above, but for key
+// *release* rather than press: procname must take exactly one input
+// (:KEY, same gdk_keyval_name convention).
+static void exec_onkeyup(LogoApp *app, BytecodeChunk *chunk, const char *proc_name) {
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, proc_name);
+    if (def == NULL) {
+        append_output(app, "ONKEYUP: no such procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\n");
+        return;
+    }
+    if (def->param_count != 1) {
+        append_output(app, "ONKEYUP: procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\" must take exactly one input (the released key's name)\n");
+        return;
+    }
+    snprintf(app->onkeyup_handler, sizeof(app->onkeyup_handler), "%s", proc_name);
+}
+
+// ONRELEASE "procname -- same shape as exec_onclick above, but for
+// button *release* rather than press: procname must take exactly three
+// inputs (:X :Y :BUTTON, same convention as ONCLICK).
+static void exec_onrelease(LogoApp *app, BytecodeChunk *chunk, const char *proc_name) {
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, proc_name);
+    if (def == NULL) {
+        append_output(app, "ONRELEASE: no such procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\n");
+        return;
+    }
+    if (def->param_count != 3) {
+        append_output(app, "ONRELEASE: procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\" must take exactly three inputs (x, y, button)\n");
+        return;
+    }
+    snprintf(app->onrelease_handler, sizeof(app->onrelease_handler), "%s", proc_name);
+}
+
 static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
@@ -475,6 +515,26 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     }
     if (strcasecmp(name, "OFFMOUSEMOVE") == 0) {
         app->onmousemove_handler[0] = '\0';
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ONKEYUP") == 0) {
+        exec_onkeyup(app, chunk, args[0].word);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "OFFKEYUP") == 0) {
+        app->onkeyup_handler[0] = '\0';
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ONRELEASE") == 0) {
+        exec_onrelease(app, chunk, args[0].word);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "OFFRELEASE") == 0) {
+        app->onrelease_handler[0] = '\0';
         *produced = 0;
         return num_val(0);
     }

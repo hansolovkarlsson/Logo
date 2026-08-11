@@ -1332,3 +1332,37 @@ saved to file, loaded back, and hand-assembled.
   `ulimit -s` workaround as before for the pre-existing recursion-depth
   finding), and a live `bin/logo` process-liveness launch of the new
   example.
+
+- [x] **`ONKEYUP`/`OFFKEYUP`/`ONRELEASE`/`OFFRELEASE`** (shipped
+  shortly after the entry above): key/button *release* mirrors of
+  `ONKEY`/`ONCLICK`, same shape throughout — `exec_onkeyup` requires a
+  1-param procedure (`:KEY`), `exec_onrelease` a 3-param one (`:X :Y
+  :BUTTON`), both validated at registration time exactly like their
+  press-side counterparts. Two more `RetainedChunk` slots in `ui.c`
+  (`g_onkeyup_owner`/`g_onrelease_owner`), `fire_onkeyup`/
+  `fire_onrelease` wired into a new `on_entry_key_released` callback
+  (connected to the entry box's existing `GtkEventControllerKey` via
+  its `key-released` signal, alongside `on_entry_key_pressed`'s own
+  `key-pressed`) and the existing `on_canvas_button_released` handler
+  respectively.
+
+  With five handlers now, `handle_vm_result`'s own "reconcile cleared
+  handlers, then adopt a finishing run's chunk for whichever handlers
+  it registered" logic was a real repetition smell (five hand-
+  duplicated near-identical blocks) rather than something worth
+  tolerating for a sixth time — refactored into a small `EventHandlerSlot
+  {handler_name, owner}` array plus two short loops, so a future sixth
+  handler (a joystick trigger, say) won't need a sixth copy-paste.
+  `release_retained_chunk` similarly scans a fixed
+  `NUM_EVENT_HANDLER_OWNERS`-sized array of every owner to detect a
+  shared chunk, rather than the old two-slot "check one specific other
+  owner" shape.
+
+  6 new `test_vm.c` cases (registration/arity/clearing for both, three
+  each, mirroring `ONKEY`/`ONCLICK`'s own tests exactly); a new
+  `examples/onkeyup_onrelease.logo`; verified via `make test` (all 8
+  suites), a standalone ASan build of `test_vm` (clean, same raised
+  `ulimit -s` workaround), and a live `bin/logo` process-liveness launch
+  of the new example. This closes out the mouse/keyboard side of event
+  triggers entirely — only joystick support remains open, and it's a
+  separate dependency decision, not more of the same shape.

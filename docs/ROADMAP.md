@@ -65,20 +65,15 @@ primitives genuinely missing — ranked roughly easiest first:
 
 ## Mouse/keyboard event triggers
 
-`ONKEY`/`OFFKEY`/`ONCLICK`/`OFFCLICK` shipped 2026-08-11, and
-`ONMOUSEMOVE`/`OFFMOUSEMOVE` shortly after (see `docs/CHANGELOG.md`'s
-own entries for the full design and implementation writeup, and
+`ONKEY`/`OFFKEY`/`ONCLICK`/`OFFCLICK` shipped 2026-08-11,
+`ONMOUSEMOVE`/`OFFMOUSEMOVE` shortly after, and `ONKEYUP`/`OFFKEYUP`/
+`ONRELEASE`/`OFFRELEASE` (the key/button *release* mirrors of `ONKEY`/
+`ONCLICK`) after that (see `docs/CHANGELOG.md`'s own entries for the
+full design and implementation writeup, and
 `docs/COMMAND_REFERENCE.md`'s "Event triggers" section for day-to-day
-usage). `ONMOUSEMOVE`'s own firing rate turned out not to need any
-dedicated debounce logic — the existing "drop an event while the
-interpreter isn't idle" rule `ONKEY`/`ONCLICK` already relied on covers
-it for free, confirmed live rather than only reasoned about. Still
-open, not yet built:
+usage). Only one item left, and it's the odd one out — a real new
+dependency, not just another handler in the same shape as the rest:
 
-- [ ] `ONKEYUP` / `OFFKEYUP` — mirror of `ONKEY`/`OFFKEY` for key
-  *release* rather than press
-- [ ] `ONRELEASE` / `OFFRELEASE` — mirror of `ONCLICK`/`OFFCLICK` for
-  button *release*
 - [ ] Joystick event triggers (`ONJOYBUTTON`/etc) — GTK4 has no built-in
   gamepad support on macOS, so this needs an extra dependency (e.g.
   GNOME's libmanette) or direct IOKit/HID access, a bigger lift than

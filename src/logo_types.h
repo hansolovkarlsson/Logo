@@ -435,6 +435,8 @@ typedef struct LogoApp {
     char onkey_handler[32];
     char onclick_handler[32];
     char onmousemove_handler[32];
+    char onkeyup_handler[32];
+    char onrelease_handler[32];
 
     // Joystick/game-controller state (JOYSTICK?/JOYSTICKAXIS/
     // JOYSTICKBUTTON?), Phase 4's one genuinely new dependency (SDL2,

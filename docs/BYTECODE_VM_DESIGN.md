@@ -3010,3 +3010,16 @@ for free: `fire_handler`'s existing idle check already drops a fire
 while the interpreter isn't idle, exactly the behavior needed, no new
 mechanism required -- confirmed with a live `examples/onmousemove.logo`
 run, not just reasoned about.
+
+**`ONKEYUP`/`ONRELEASE` added afterward**: key/button-release mirrors
+of `ONKEY`/`ONCLICK`, two more `RetainedChunk` slots
+(`g_onkeyup_owner`/`g_onrelease_owner`), wired into a new
+`on_entry_key_released` (the entry box's `GtkEventControllerKey`'s
+`key-released` signal, not previously connected to anything) and the
+existing `on_canvas_button_released`. With five handler slots now,
+`handle_vm_result`'s own reconcile/adopt logic and
+`release_retained_chunk`'s sharing check both got refactored from
+hand-duplicated per-handler blocks into small array-driven loops (see
+`EventHandlerSlot` and `NUM_EVENT_HANDLER_OWNERS`) -- five copies was
+already a repetition smell, and the code needed to stop growing linearly
+with each new handler.

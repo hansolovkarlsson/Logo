@@ -1,0 +1,30 @@
+; ONKEYUP/ONRELEASE: release mirrors of ONKEY/ONCLICK (see
+; examples/onkey_onclick.logo) -- same background-invocation shape,
+; just firing on key/button RELEASE instead of press. Useful for
+; things like "stop moving when the arrow key is let go," which ONKEY
+; alone can't express on its own. Only makes sense from the actual
+; app: the headless test driver has no entry box/canvas to ever
+; generate a real key/button-release event from.
+
+TO KEYDOWN :KEY
+  PRINT SENTENCE "down: :KEY
+END
+
+TO KEYUP :KEY
+  PRINT SENTENCE "up: :KEY
+END
+
+TO CLICKDOWN :X :Y :BUTTON
+  PENDOWN
+END
+
+TO CLICKUP :X :Y :BUTTON
+  PENUP
+END
+
+ONKEY "keydown
+ONKEYUP "keyup
+ONCLICK "clickdown
+ONRELEASE "clickup
+
+PRINT 'Press/release keys or the mouse button on the canvas -- pen goes down on click, up on release.'
