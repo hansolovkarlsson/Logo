@@ -565,18 +565,18 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, const char *n
 }
 
 // OP_CALL_PROC -- pops instr->b args (in argument order), pushes a new
-// VmFrame + app->scopes[] scope (via eval_push_scope_for_call, the
+// VmFrame + this Vm's own scope (via eval_push_scope_for_call, the
 // same setup call_ast_procedure itself uses), and jumps `*pc` to the
-// procedure's own compiled body. `find_proc_def` is re-resolved here
+// procedure's own compiled body. `chunk->procs[]` is re-resolved here
 // at runtime, not trusted from compile time: compile_call only ever
 // emits OP_CALL_PROC because `name` resolved to a real AST_PROC_DEF
-// *when the program was compiled* -- but ERASE (see eval_erase_declare)
-// can blank that same node's own text before this instruction actually
-// runs, so a call compiled as "this is a procedure" can still resolve
-// to nothing by the time it executes, exactly as do_user_procedure_call
-// itself has to handle for the same reason (a script can ERASE a
-// procedure then still try to call it).
-static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *instr, int *pc) {
+// *when the program was compiled* -- but ERASE (see
+// bytecode_erase_proc) can blank that same entry's own name before
+// this instruction actually runs, so a call compiled as "this is a
+// procedure" can still resolve to nothing by the time it executes,
+// exactly as do_user_procedure_call itself has to handle for the same
+// reason (a script can ERASE a procedure then still try to call it).
+static void exec_call_proc(Vm *vm, LogoApp *app, BytecodeChunk *chunk, const Instr *instr, int *pc) {
     int argc = instr->b;
     EvalValue args[AST_MAX_PARAMS];
     for (int i = argc - 1; i >= 0; i--) {
@@ -587,8 +587,15 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
     // same call forever (fatal for the recursion-too-deep case, where
     // the caller keeps retrying the same now-permanently-failing
     // call).
-    int def_node = find_proc_def(pool, instr->text);
-    if (def_node < 0) {
+    //
+    // Looked up by name against chunk->procs[] (self-contained --
+    // see docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk"
+    // entry) rather than find_proc_def(pool, ...) the way this used to:
+    // instr->a already holds the backpatched target pc from compile
+    // time (this lookup is only for param_count/param_names, needed to
+    // bind arguments into scope).
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, instr->text);
+    if (def == NULL) {
         // Matches do_user_procedure_call's own "unknown procedure"
         // path exactly, including *resolved=0 (here,
         // last_call_resolved) -- this message is already specific
@@ -621,8 +628,7 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
         *pc = *pc + 1;
         return;
     }
-    AstNode *def = &pool->nodes[def_node];
-    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def, args, argc < AST_MAX_PARAMS ? argc : AST_MAX_PARAMS)) {
+    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def->name, def->param_count, def->param_names, args, argc < AST_MAX_PARAMS ? argc : AST_MAX_PARAMS)) {
         // Recursion too deep -- eval_push_scope_for_call already
         // printed its own message. resolved stays 1 here: unlike the
         // unknown-procedure case, do_user_procedure_call never touches
@@ -667,7 +673,7 @@ static void exec_call_proc(Vm *vm, LogoApp *app, AstPool *pool, const Instr *ins
 // the OP_CHECK_SEND_OUTPUT that always immediately follows this
 // instruction sees consistent state regardless of which path was
 // taken.
-static void exec_send(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int *pc) {
+static void exec_send(Vm *vm, LogoApp *app, BytecodeChunk *chunk, int *pc) {
     EvalValue arglist_val = pop(vm);
     EvalValue msg_val = pop(vm);
     EvalValue obj_val = pop(vm);
@@ -677,15 +683,50 @@ static void exec_send(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk,
     eval_value_to_text(app, msg_val, msg_text, sizeof(msg_text));
     snprintf(vm->last_send_message, sizeof(vm->last_send_message), "%s", msg_text);
 
-    int def_node = eval_resolve_method(app, pool, obj_text, msg_text); // prints its own specific "does not understand"/"is not a method on"/"must take :self" error
-    if (def_node < 0) {
+    // The prototype-chain half (eval_resolve_message) is pure
+    // app->plist_entries state, no pool needed -- this replaces
+    // eval_resolve_method's own pool-dependent resolution (which went
+    // straight to an AstPool node) with the same self-contained
+    // chunk->procs[] lookup every other call opcode uses, reproducing
+    // eval_resolve_method's own three specific error messages locally
+    // (see docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk"
+    // entry).
+    PlistEntry *e = eval_resolve_message(app, obj_text, msg_text);
+    if (e == NULL) {
+        append_output(app, "SEND: ");
+        append_output(app, obj_text);
+        append_output(app, " does not understand ");
+        append_output(app, msg_text);
+        append_output(app, "\n");
         vm->last_call_resolved = 0;
         vm->last_call_produced_output = 0;
         push(vm, word_val(""));
         *pc = *pc + 1;
         return;
     }
-    AstNode *def = &pool->nodes[def_node];
+    const ProcAddr *def = (e->type == VALUE_WORD) ? bytecode_find_proc_entry(chunk, e->word) : NULL;
+    if (def == NULL) {
+        append_output(app, "SEND: ");
+        append_output(app, msg_text);
+        append_output(app, " is not a method on ");
+        append_output(app, obj_text);
+        append_output(app, "\n");
+        vm->last_call_resolved = 0;
+        vm->last_call_produced_output = 0;
+        push(vm, word_val(""));
+        *pc = *pc + 1;
+        return;
+    }
+    if (def->param_count < 1) {
+        append_output(app, "SEND: ");
+        append_output(app, def->name);
+        append_output(app, " must take :self as its first input\n");
+        vm->last_call_resolved = 0;
+        vm->last_call_produced_output = 0;
+        push(vm, word_val(""));
+        *pc = *pc + 1;
+        return;
+    }
 
     EvalValue arg_vals[AST_MAX_PARAMS];
     int n = eval_send_unpack_args(app, obj_text, arglist_val, arg_vals, AST_MAX_PARAMS);
@@ -701,19 +742,19 @@ static void exec_send(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk,
         return;
     }
 
-    int target_pc = bytecode_find_proc(chunk, def->text);
-    if (target_pc < 0 || vm->frame_count >= MAX_VM_FRAMES) {
-        // Can't happen for a well-formed compiled program -- def_node
-        // was just found as a real AST_PROC_DEF, and compile_program's
-        // own pass 1 compiles every one of those into chunk->procs.
-        // Stay defensive rather than corrupting VM state.
+    int target_pc = def->start_pc;
+    if (vm->frame_count >= MAX_VM_FRAMES) {
+        // Can't happen for a well-formed compiled program -- def was
+        // just found in chunk->procs[], and compile_program's own pass
+        // 1 compiles every AST_PROC_DEF into it. Stay defensive rather
+        // than corrupting VM state.
         vm->last_call_resolved = 0;
         vm->last_call_produced_output = 0;
         push(vm, word_val(""));
         *pc = *pc + 1;
         return;
     }
-    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def, arg_vals, n)) {
+    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def->name, def->param_count, def->param_names, arg_vals, n)) {
         // Recursion too deep -- eval_push_scope_for_call already
         // printed its own message. resolved is 0 here (not 1, unlike
         // OP_CALL_PROC's own equivalent branch): do_send's own code
@@ -741,14 +782,17 @@ static void exec_send(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk,
 // comment for why the exact pushed value doesn't matter (the
 // OP_VOID_DISCARD that always immediately follows this instruction
 // throws it away regardless, on every path).
-static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int *pc) {
+static void exec_apply(Vm *vm, LogoApp *app, BytecodeChunk *chunk, int *pc) {
     EvalValue list_val = pop(vm);
     EvalValue name_val = pop(vm);
     char name_text[64];
     eval_value_to_text(app, name_val, name_text, sizeof(name_text));
 
-    int def_node = find_proc_def(pool, name_text);
-    if (def_node < 0) {
+    // One lookup instead of the find_proc_def(pool, ...) + separate
+    // bytecode_find_proc(chunk, ...) pair this used to need -- see
+    // docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk" entry.
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, name_text);
+    if (def == NULL) {
         append_output(app, "APPLY: no such procedure \"");
         append_output(app, name_text);
         append_output(app, "\n");
@@ -756,7 +800,6 @@ static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk
         *pc = *pc + 1;
         return;
     }
-    AstNode *def = &pool->nodes[def_node];
 
     EvalValue arg_vals[AST_MAX_PARAMS];
     int n = 0;
@@ -777,15 +820,15 @@ static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk
         return;
     }
 
-    int target_pc = bytecode_find_proc(chunk, def->text);
-    if (target_pc < 0 || vm->frame_count >= MAX_VM_FRAMES) {
+    int target_pc = def->start_pc;
+    if (vm->frame_count >= MAX_VM_FRAMES) {
         // Can't happen for a well-formed compiled program -- same
         // defensive reasoning as OP_SEND's own equivalent check.
         push(vm, num_val(0));
         *pc = *pc + 1;
         return;
     }
-    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def, arg_vals, n)) {
+    if (!eval_push_scope_for_call(app, vm_scope_stack(vm), def->name, def->param_count, def->param_names, arg_vals, n)) {
         // Recursion too deep -- already printed its own message.
         push(vm, num_val(0));
         *pc = *pc + 1;
@@ -798,9 +841,9 @@ static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk
 }
 
 // OP_LAUNCH -- resolves its own procedure name and unpacks its own
-// arglist exactly like exec_apply above (find_proc_def, then the same
-// list-unpacks-positionally/scalar-becomes-one-arg logic, then
-// bytecode_find_proc), including its own eager "no such procedure"/
+// arglist exactly like exec_apply above (bytecode_find_proc_entry, then
+// the same list-unpacks-positionally/scalar-becomes-one-arg logic),
+// including its own eager "no such procedure"/
 // "wrong number of inputs" failure paths (push a throwaway value,
 // advance pc, return FALSE: not suspended). Unlike APPLY, a
 // *successful* resolution doesn't push a VmFrame and jump itself -- it
@@ -815,7 +858,7 @@ static void exec_apply(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk
 // The vm_run_depth guard lives here, first thing after popping
 // (matching WAIT's own pop-then-check order), not as a separate check
 // in vm_run's case.
-static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, int *pc) {
+static gboolean exec_launch(Vm *vm, LogoApp *app, BytecodeChunk *chunk, int *pc) {
     EvalValue arglist_val = pop(vm);
     EvalValue name_val = pop(vm);
     if (vm->vm_run_depth > 1) {
@@ -827,8 +870,11 @@ static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *
     char name_text[64];
     eval_value_to_text(app, name_val, name_text, sizeof(name_text));
 
-    int def_node = find_proc_def(pool, name_text);
-    if (def_node < 0) {
+    // One lookup instead of find_proc_def(pool, ...) + a separate
+    // bytecode_find_proc(chunk, ...) -- see docs/BYTECODE_VM_DESIGN.md's
+    // "Self-contained BytecodeChunk" entry.
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, name_text);
+    if (def == NULL) {
         append_output(app, "LAUNCH: no such procedure \"");
         append_output(app, name_text);
         append_output(app, "\n");
@@ -836,7 +882,6 @@ static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *
         *pc = *pc + 1;
         return FALSE;
     }
-    AstNode *def = &pool->nodes[def_node];
 
     EvalValue arg_vals[AST_MAX_PARAMS];
     int n = 0;
@@ -856,17 +901,10 @@ static gboolean exec_launch(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *
         *pc = *pc + 1;
         return FALSE;
     }
-    int target_pc = bytecode_find_proc(chunk, name_text);
-    if (target_pc < 0) {
-        // Can't happen for a well-formed compiled program -- same
-        // defensive reasoning as OP_APPLY/OP_SEND's own equivalent check.
-        push(vm, num_val(0));
-        *pc = *pc + 1;
-        return FALSE;
-    }
+    int target_pc = def->start_pc;
     int scratch_depth = 0;
     ScopeStack launch_ss = {&vm->launch_scope, &scratch_depth, 1};
-    eval_push_scope_for_call(app, launch_ss, def, arg_vals, n); // always succeeds -- capacity 1, scratch_depth starts at 0
+    eval_push_scope_for_call(app, launch_ss, def->name, def->param_count, def->param_names, arg_vals, n); // always succeeds -- capacity 1, scratch_depth starts at 0
     vm->launch_target_pc = target_pc;
     vm->pc = *pc + 1;
     return TRUE;
@@ -1324,7 +1362,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 break;
             }
             case OP_CALL_PROC:
-                exec_call_proc(vm, app, pool, instr, &pc);
+                exec_call_proc(vm, app, chunk, instr, &pc);
                 break;
             case OP_CHECK_OUTPUT: {
                 // Only ever emitted right after a call construct used
@@ -1357,10 +1395,11 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 vm->vm_run_depth--;
                 return VM_RUN_HALTED;
             case OP_PUSH_LIST_LITERAL:
-                // See bytecode.h's own comment: the literal's contents
-                // stay in the AST, built fresh each visit exactly like
+                // See bytecode.h's own list_literals[] comment: .a
+                // indexes chunk's own rendered source text now, not an
+                // AST node -- built fresh each visit exactly like
                 // eval_expr's own AST_LIST_LITERAL case does.
-                push(vm, eval_build_list_literal(app, pool, instr->a));
+                push(vm, eval_build_list_literal_from_text(app, chunk->list_literals[instr->a]));
                 pc++;
                 break;
             case OP_LOCAL:
@@ -1368,11 +1407,19 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 pc++;
                 break;
             case OP_ERASE:
+                // Blanks both copies of this procedure's own identity:
+                // the AST_PROC_DEF node itself (still needed for
+                // TEXT/SAVE/SHOW, which stay pool-dependent -- see
+                // docs/BYTECODE_VM_DESIGN.md's "Self-contained
+                // BytecodeChunk" entry) and chunk->procs[] (needed by
+                // every OP_CALL_PROC/OP_SEND/OP_APPLY/OP_LAUNCH lookup
+                // now that none of them touch pool anymore).
                 eval_erase_declare(app, pool, instr->text);
+                bytecode_erase_proc(chunk, instr->text);
                 pc++;
                 break;
             case OP_SEND:
-                exec_send(vm, app, pool, chunk, &pc);
+                exec_send(vm, app, chunk, &pc);
                 break;
             case OP_CHECK_SEND_OUTPUT: {
                 // Same job as OP_CHECK_OUTPUT, but the name to report
@@ -1390,7 +1437,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 break;
             }
             case OP_APPLY:
-                exec_apply(vm, app, pool, chunk, &pc);
+                exec_apply(vm, app, chunk, &pc);
                 break;
             case OP_VOID_DISCARD:
                 pop(vm);
@@ -1568,7 +1615,7 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 return VM_RUN_SUSPENDED_ANIMATESPRITE;
             }
             case OP_LAUNCH:
-                if (exec_launch(vm, app, pool, chunk, &pc)) {
+                if (exec_launch(vm, app, chunk, &pc)) {
                     vm->vm_run_depth--;
                     return VM_RUN_SUSPENDED_LAUNCH;
                 }

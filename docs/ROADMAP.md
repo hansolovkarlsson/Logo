@@ -1059,6 +1059,32 @@ every other `vm_run_depth`-gated refusal.
   (`bytecode.h`, 64 bytes) — unrelated to `LAUNCH` or agents, present
   since `OP_PUSH_WORD` was first written.
 
+### Bytecode save/load/assembler
+
+Staged the way Stage 1/2 and Phase 6 were (user: "something that would
+be cool now though is the ability to save the bytecode to file, load
+bytecode, and even have an assembler for it", 2026-08-11): A, the
+architectural precondition both later stages need, is done; B/C/D are
+scoped but not yet built.
+
+- [x] **Stage A — self-contained `BytecodeChunk`** (shipped 2026-08-11;
+  full writeup in `docs/BYTECODE_VM_DESIGN.md`'s own entry of this
+  name). `OP_CALL_PROC`/`OP_SEND`/`OP_APPLY`/`OP_LAUNCH` no longer read
+  `pool` at runtime at all — `chunk->procs[]` (`ProcAddr`) now carries
+  its own copy of `param_count`/`param_names`/`source_text`, and
+  `OP_PUSH_LIST_LITERAL` reads a rendered-to-text list literal off a new
+  `chunk->list_literals[]` table instead of an AST node index. Purely
+  internal: no new syntax, no new builtins, `make`/`make test` output
+  byte-for-byte unchanged. `TEXT`/`SAVE`/`SHOW` deliberately stay
+  `pool`-dependent (out of scope for this stage, still fully
+  functional) — flagged as a real, separate follow-up if a future stage
+  wants loaded-only bytecode to support them too.
+- [ ] **Stage B — disassembler** (chunk → text). Not yet built.
+- [ ] **Stage C — assembler** (text → chunk, including label resolution
+  for jump targets). Not yet built.
+- [ ] **Stage D — `SAVEBYTECODE`/`LOADBYTECODE`** builtins wiring B/C
+  together, with round-trip tests. Not yet built.
+
 ### CLI ergonomics
 
 - [x] **Run a `.logo` file straight from the command line** (shipped

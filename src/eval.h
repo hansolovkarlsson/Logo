@@ -105,6 +105,9 @@ void eval_print_value(LogoApp *app, EvalValue v);
 // (app, EvalValue...) -> EvalValue helper), this is just removing
 // `static`, not new code.
 EvalValue eval_build_list_literal(LogoApp *app, AstPool *pool, int node_idx);
+// vm.c's own OP_PUSH_LIST_LITERAL entry point -- see eval.c's own
+// comment right above this function's definition.
+EvalValue eval_build_list_literal_from_text(LogoApp *app, const char *text);
 EvalValue eval_thing_value(LogoApp *app, ScopeStack ss, EvalValue name_val);
 void eval_local_declare(LogoApp *app, ScopeStack ss, const char *varname);
 EvalValue eval_first_value(LogoApp *app, EvalValue arg);
@@ -186,15 +189,21 @@ void eval_setcanvassize_value(LogoApp *app, EvalValue width_val, EvalValue heigh
 void eval_label_value(LogoApp *app, EvalValue val);
 void eval_eraserect_value(LogoApp *app, EvalValue w_val, EvalValue h_val);
 
-// SEND's own two pure pieces (see eval.c's own "prototype-style
-// objects" section) -- neither one calls another procedure, so both
-// are safe to reuse directly in vm.c's own exec_send, which cannot
-// reuse do_send/call_ast_procedure themselves (those run a resolved
+// SEND's own pure pieces (see eval.c's own "prototype-style objects"
+// section) -- none of these call another procedure, so all are safe to
+// reuse directly in vm.c's own exec_send, which cannot reuse
+// do_send/call_ast_procedure themselves (those run a resolved
 // procedure's body via the tree-walker's exec_block; the VM instead
 // has to push a VmFrame and jump into that procedure's own *compiled*
 // body, an entirely different calling mechanism -- see vm.c's own
-// exec_send comment).
+// exec_send comment). eval_resolve_method is pool-dependent (resolves
+// all the way to an AstPool node); exec_send instead calls
+// eval_resolve_message directly (pool-independent -- pure
+// app->plist_entries prototype-chain walk, ending at a procedure NAME)
+// and does its own chunk->procs[] lookup from there, self-contained --
+// see docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk" entry.
 int eval_resolve_method(LogoApp *app, AstPool *pool, const char *objname, const char *message);
+PlistEntry *eval_resolve_message(LogoApp *app, const char *objname, const char *message);
 int eval_send_unpack_args(LogoApp *app, const char *obj_text, EvalValue arglist_val, EvalValue *arg_vals, int max_args);
 
 // THROW/CATCH's own shared pieces (see eval.c's own comments on each
@@ -275,14 +284,20 @@ EvalValue do_procedures(LogoApp *app, AstPool *pool);
 // as call_ast_procedure's own setup does (that function now just calls
 // this, always with app_scope_stack(app)). Returns 0 (recursion too
 // deep, ss.capacity already reached) or 1 (scope pushed). Exposed so
-// vm.c's OP_CALL_PROC/OP_SEND/OP_APPLY can reuse the exact same
-// scope-binding logic against the VM's own, separate, much deeper
+// vm.c's OP_CALL_PROC/OP_SEND/OP_APPLY/OP_LAUNCH can reuse the exact
+// same scope-binding logic against the VM's own, separate, much deeper
 // scope stack (vm_scope_stack(vm), see vm.h) -- see ScopeStack's own
 // comment in logo_types.h: one shared implementation, two independent
 // storage arrays, so a VM-compiled procedure's AST_VARREF/OP_PUSH_VAR
 // reads and an interpreter-run procedure's variable reads still can't
 // drift on *semantics*, even though scope *capacity* now does differ.
-int eval_push_scope_for_call(LogoApp *app, ScopeStack ss, AstNode *def, EvalValue *arg_vals, int arg_count);
+// Takes `proc_name`/`param_count`/`param_names` directly rather than an
+// `AstNode *def` (`call_ast_procedure`'s own call site just passes
+// `def->text`/`def->param_count`/`def->param_names`) so vm.c's own
+// callers can bind against a self-contained `chunk->procs[]` entry
+// instead of needing a live AstPool at every call -- see
+// docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk" entry.
+int eval_push_scope_for_call(LogoApp *app, ScopeStack ss, const char *proc_name, int param_count, const char param_names[][32], EvalValue *arg_vals, int arg_count);
 
 // Runs `pool`'s program (the AST_BLOCK at `program_node`, as produced
 // by logo_parse) against `app`.

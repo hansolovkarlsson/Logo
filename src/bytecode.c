@@ -21,9 +21,32 @@ int bytecode_find_proc(const BytecodeChunk *chunk, const char *name) {
     return -1;
 }
 
+const ProcAddr *bytecode_find_proc_entry(const BytecodeChunk *chunk, const char *name) {
+    for (int i = 0; i < chunk->proc_count; i++) {
+        if (strcasecmp(chunk->procs[i].name, name) == 0) return &chunk->procs[i];
+    }
+    return NULL;
+}
+
+void bytecode_erase_proc(BytecodeChunk *chunk, const char *name) {
+    for (int i = 0; i < chunk->proc_count; i++) {
+        if (strcasecmp(chunk->procs[i].name, name) == 0) {
+            chunk->procs[i].name[0] = '\0';
+            return;
+        }
+    }
+}
+
 int bytecode_add_word_literal(BytecodeChunk *chunk, const char *text) {
     if (chunk->word_literal_count >= MAX_CHUNK_WORD_LITERALS) return -1;
     int index = chunk->word_literal_count++;
     snprintf(chunk->word_literals[index], AST_MAX_TEXT, "%s", text);
+    return index;
+}
+
+int bytecode_add_list_literal(BytecodeChunk *chunk, const char *text) {
+    if (chunk->list_literal_count >= MAX_CHUNK_LIST_LITERALS) return -1;
+    int index = chunk->list_literal_count++;
+    snprintf(chunk->list_literals[index], MAX_LIST_LITERAL_TEXT, "%s", text);
     return index;
 }

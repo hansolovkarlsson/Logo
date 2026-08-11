@@ -62,15 +62,27 @@ literal), and `text[INSTR_MAX_TEXT]` (64 bytes — an identifier: a
 variable/builtin/procedure name. **Not** used for `OP_PUSH_WORD`'s own
 literal word data — see below).
 
-**`BytecodeChunk`** (`bytecode.h`) — a compiled program: a fixed
-`code[MAX_INSTRUCTIONS]` array (8192 instructions) plus two side
-tables keyed by index instead of inlined into `Instr` itself:
-`procs[MAX_CHUNK_PROCS]` (name → start_pc, for `SEND`'s runtime-only
-procedure resolution) and `word_literals[MAX_CHUNK_WORD_LITERALS][AST_MAX_TEXT]`
-(2048 entries × 512 bytes — `OP_PUSH_WORD`'s own literal text, sized to
-the language's real word budget instead of `INSTR_MAX_TEXT`'s
-64-byte identifier budget; `Instr.a` is an index into this table for
-that one opcode).
+**`BytecodeChunk`** (`bytecode.h`) — a compiled program, and (since the
+"Self-contained BytecodeChunk" batch, `docs/BYTECODE_VM_DESIGN.md`)
+genuinely self-contained: nothing at runtime needs to reach back into
+the original `AstPool` for `OP_CALL_PROC`/`OP_SEND`/`OP_APPLY`/
+`OP_LAUNCH`/`OP_PUSH_LIST_LITERAL` to work. A fixed `code[MAX_INSTRUCTIONS]`
+array (8192 instructions) plus three side tables keyed by index instead
+of inlined into `Instr` itself:
+- `procs[MAX_CHUNK_PROCS]` (`ProcAddr`: name → start_pc, plus its own
+  copy of `param_count`/`param_names`/`source_text` — everything
+  `eval_push_scope_for_call` and `TEXT`/`SAVE`/`SHOW` need, so no call
+  opcode has to read an `AstNode` at runtime anymore)
+- `word_literals[MAX_CHUNK_WORD_LITERALS][AST_MAX_TEXT]` (2048 entries
+  × 512 bytes — `OP_PUSH_WORD`'s own literal text, sized to the
+  language's real word budget instead of `INSTR_MAX_TEXT`'s 64-byte
+  identifier budget)
+- `list_literals[MAX_CHUNK_LIST_LITERALS][MAX_LIST_LITERAL_TEXT]` (2048
+  entries × 2048 bytes — a list literal's own contents, rendered back
+  into bracket-wrapped Logo source text at compile time instead of left
+  as an `AstPool` node index)
+
+`Instr.a` is an index into the relevant table for each of these opcodes.
 
 **`Vm`** (`vm.h`) — one running (or suspended) VM: a value stack
 (`stack[MAX_VM_STACK]`/`stack_top`), a call-frame stack
@@ -157,7 +169,7 @@ check in this codebase already uses.
 
 | Opcode | Operands | Stack effect | Description |
 |---|---|---|---|
-| `OP_PUSH_LIST_LITERAL` | `.a` = the `AST_LIST_LITERAL` node's index in the `AstPool` | push 1 | Builds `eval_build_list_literal(app, pool, .a)` fresh on every visit — the one opcode whose payload lives in the AST rather than a flat `Instr` field, since a list literal's contents are recursive, variable-arity raw AST data |
+| `OP_PUSH_LIST_LITERAL` | `.a` = index into `chunk->list_literals[]` (bracket-wrapped Logo source text, e.g. `"[1 2 [3 4]]"`, rendered from the original `AST_LIST_LITERAL` at compile time) | push 1 | Builds `eval_build_list_literal_from_text(app, chunk->list_literals[.a])` fresh on every visit — lexes/parses the stored text into a scratch `AstPool`, same "re-parse text at runtime" shape `OP_RUN`/`OP_LOAD` use for arbitrary code, chosen so the chunk never needs the original `AstPool` back (see `docs/BYTECODE_VM_DESIGN.md`'s "Self-contained BytecodeChunk" entry) |
 
 ## LOCAL / ERASE / void result
 
@@ -178,7 +190,7 @@ check in this codebase already uses.
 
 | Opcode | Operands | Stack effect | Description |
 |---|---|---|---|
-| `OP_APPLY` | — (2 already-evaluated args) | pop 2 (name, arglist) | Resolves `name` via `find_proc_def` (non-prototype-chain, unlike `SEND`); pushes a frame + jumps in on success. Every failure path (unknown procedure, wrong arity, recursion too deep) pushes a throwaway `num_val(0)` and falls through instead of jumping |
+| `OP_APPLY` | — (2 already-evaluated args) | pop 2 (name, arglist) | Resolves `name` via `bytecode_find_proc_entry` (a plain name lookup against `chunk->procs[]`, non-prototype-chain, unlike `SEND`); pushes a frame + jumps in on success. Every failure path (unknown procedure, wrong arity, recursion too deep) pushes a throwaway `num_val(0)` and falls through instead of jumping |
 | `OP_VOID_DISCARD` | — | pop 1, push 1 | Always emitted right after `OP_APPLY` (both the eager-failure landing spot and the resolved procedure's own return): discards whatever's on top and replaces it with an ordinary void result — `APPLY` never hands back a value at all, matching `RUN` |
 
 ## RUN / LOAD

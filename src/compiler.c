@@ -766,13 +766,20 @@ static void compile_expr(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
             compile_call(c, pool, node_idx, chunk, /*want_value=*/1);
             return;
         case AST_LIST_LITERAL: {
-            // The literal's own contents stay in the AST -- see
-            // bytecode.h's own OP_PUSH_LIST_LITERAL comment for why
-            // this is the one opcode whose payload is an AST node
-            // index rather than a self-contained value.
+            // Rendered back into ordinary Logo source text right here
+            // (render_list_literal_source, the same renderer
+            // compile_template_call already trusts) and stored on the
+            // chunk itself instead of left as a pointer into this AST
+            // -- see bytecode.h's own list_literals[] comment. No
+            // placeholder substitution (NULL/NULL twice): this is a
+            // plain literal, not a MAP/FILTER/REDUCE template body.
+            char inner[MAX_LIST_LITERAL_TEXT];
+            render_list_literal_source(pool, node_idx, NULL, NULL, NULL, NULL, inner, sizeof(inner));
+            char full[MAX_LIST_LITERAL_TEXT];
+            snprintf(full, sizeof(full), "[%s]", inner);
             Instr instr = {0};
             instr.op = OP_PUSH_LIST_LITERAL;
-            instr.a = node_idx;
+            instr.a = bytecode_add_list_literal(chunk, full);
             emit(chunk, instr);
             return;
         }
@@ -1110,9 +1117,22 @@ int compile_program(AstPool *pool, int program_node, BytecodeChunk *chunk) {
     for (int i = 0; i < pool->node_count; i++) {
         if (pool->nodes[i].type != AST_PROC_DEF) continue;
         if (chunk->proc_count < MAX_CHUNK_PROCS) {
+            AstNode *proc_def = &pool->nodes[i];
             ProcAddr *pa = &chunk->procs[chunk->proc_count++];
-            snprintf(pa->name, sizeof(pa->name), "%s", pool->nodes[i].text);
+            snprintf(pa->name, sizeof(pa->name), "%s", proc_def->text);
             pa->start_pc = chunk->count;
+            // Own copy of what eval_push_scope_for_call/TEXT/SAVE/SHOW
+            // used to read straight off this AstNode at every call --
+            // see ProcAddr's own bytecode.h comment for why it lives
+            // here now instead.
+            pa->param_count = proc_def->param_count;
+            for (int p = 0; p < proc_def->param_count; p++) {
+                snprintf(pa->param_names[p], sizeof(pa->param_names[p]), "%s", proc_def->param_names[p]);
+            }
+            const char *body = proc_def->body_text != NULL ? proc_def->body_text : "";
+            int body_len = proc_def->body_len;
+            if (body_len >= MAX_PROC_SOURCE_TEXT) body_len = MAX_PROC_SOURCE_TEXT - 1;
+            snprintf(pa->source_text, sizeof(pa->source_text), "%.*s", body_len, body);
         }
         compile_block(&c, pool, pool->nodes[i].first_child, chunk, /*is_top_level=*/0);
         // Guarantees a return even if this body never explicitly

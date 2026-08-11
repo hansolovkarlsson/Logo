@@ -57,7 +57,7 @@ typedef enum {
 
     OP_HALT,     // stop the whole run (the very last instruction of the top-level program)
 
-    OP_PUSH_LIST_LITERAL, // .a = the AST_LIST_LITERAL node's own index in the AstPool vm.c was given; pushes eval_build_list_literal(app, pool, .a). A deliberate exception to every other opcode's "self-contained payload" shape: a list literal's contents are recursive, variable-arity raw AST data (untyped words, possibly nested literals -- see ast.h's own AST_LIST_LITERAL comment), not a flat value any Instr field could hold, so the compiler leaves the literal in the AST and the VM (which already needs `pool` for OP_CALL_PROC's own find_proc_def lookups) builds it fresh each time this instruction runs -- same as eval_expr's own AST_LIST_LITERAL case builds it fresh on every visit, not once.
+    OP_PUSH_LIST_LITERAL, // .a = root index into chunk->list_lit_nodes[] (grafted from the AST_LIST_LITERAL subtree at compile time -- see ListLitNode's own comment); pushes eval_build_list_literal_from_chunk(app, chunk, .a), built fresh each time this instruction runs, same as eval_expr's own AST_LIST_LITERAL case builds it fresh on every visit, not once.
 
     OP_LOCAL,        // .text = variable name; declares a same-named scope-local variable in the current call (0 if it's genuinely new, otherwise a no-op) -- no stack effect of its own; compile_call always follows this with OP_VOID_RESULT, same as OP_SET_VAR (MAKE)
     OP_ERASE,        // .text = procedure name; blanks that AST_PROC_DEF's own name so it can never be called/listed again (eval_erase_declare) -- same ".text carries a raw name, not an evaluated expression" shape as OP_LOCAL, and the same reason: ERASE's argument is ARG_QUOTED_WORD, never compiled as an ordinary expression
@@ -301,9 +301,31 @@ typedef struct {
 // compilation.
 #define MAX_CHUNK_PROCS 50 // matches MAX_PROCEDURES in logo_types.h
 
+// A procedure's own source text, from right after its name/params up
+// to (not including) END -- copied at compile time from the AST_PROC_DEF
+// node's own body_text/body_len (a pointer into the ORIGINAL SOURCE
+// BUFFER, which a saved/loaded/assembled chunk can't assume outlives
+// compilation the way an ordinary compile-then-run script's does).
+// 8192 matches interpreter.c's own established Procedure.body budget
+// for a procedure's body text, not a new number invented here.
+#define MAX_PROC_SOURCE_TEXT 8192
+
 typedef struct {
     char name[INSTR_MAX_TEXT];
     int start_pc;
+
+    // Own copy of what used to be read from the AstPool at every call
+    // (see docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk"
+    // entry): eval_push_scope_for_call needs param_count/param_names to
+    // bind arguments into scope, and TEXT/SAVE/SHOW need source_text --
+    // none of it available at compile time to be inlined into an
+    // OP_CALL_PROC/OP_SEND/OP_APPLY/OP_LAUNCH instruction directly (a
+    // procedure's own identity is only known by name at each call site),
+    // so it lives here instead, alongside the {name, start_pc} pair
+    // that already made this table necessary for SEND.
+    int param_count;
+    char param_names[AST_MAX_PARAMS][32]; // matches AstNode's own param_names sizing exactly
+    char source_text[MAX_PROC_SOURCE_TEXT];
 } ProcAddr;
 
 // OP_PUSH_WORD's own literal text, kept off Instr entirely (see
@@ -320,6 +342,23 @@ typedef struct {
 // deduplicating anything either.
 #define MAX_CHUNK_WORD_LITERALS 2048
 
+// A [ ... ] list literal's own contents, rendered back into ordinary
+// Logo source text at compile time (compiler.c's own
+// render_list_literal_source, already trusted for exactly this job by
+// MAP/FILTER/REDUCE/FOREACH's own compiled-template fast path -- see
+// compile_template_call) instead of left as a pointer into the AstPool
+// the way OP_PUSH_LIST_LITERAL originally worked (see
+// docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk" entry).
+// vm.c's own OP_PUSH_LIST_LITERAL handler re-lexes/parses this text at
+// each visit and builds the value from that fresh parse -- the exact
+// same "re-parse text at runtime" shape OP_RUN/OP_LOAD already use for
+// arbitrary code, just for one list-literal expression instead of a
+// whole program. 2048 bytes comfortably covers a real program's own
+// literal lists (matches MAX_CHUNK_WORD_LITERALS' own entry-count
+// scale, just repurposed as a per-entry byte budget here).
+#define MAX_LIST_LITERAL_TEXT 2048
+#define MAX_CHUNK_LIST_LITERALS 2048
+
 typedef struct {
     Instr code[MAX_INSTRUCTIONS];
     int count;
@@ -329,6 +368,9 @@ typedef struct {
 
     char word_literals[MAX_CHUNK_WORD_LITERALS][AST_MAX_TEXT];
     int word_literal_count;
+
+    char list_literals[MAX_CHUNK_LIST_LITERALS][MAX_LIST_LITERAL_TEXT];
+    int list_literal_count;
 } BytecodeChunk;
 
 // Appends `instr` to `chunk`, returning its own index (the position a
@@ -345,11 +387,37 @@ int bytecode_emit(BytecodeChunk *chunk, Instr instr);
 // SEND's callee is never known at compile time at all).
 int bytecode_find_proc(const BytecodeChunk *chunk, const char *name);
 
+// Same lookup as bytecode_find_proc, but returns the whole entry (NULL
+// if not found) instead of just start_pc -- what OP_CALL_PROC/OP_SEND/
+// OP_APPLY/OP_LAUNCH read param_count/param_names/source_text from at
+// runtime instead of reaching back into the original AstPool the way
+// they all used to (see docs/BYTECODE_VM_DESIGN.md's "Self-contained
+// BytecodeChunk" entry).
+const ProcAddr *bytecode_find_proc_entry(const BytecodeChunk *chunk, const char *name);
+
+// Blanks the matching entry's own name in `chunk->procs` (a no-op if
+// no entry matches), the same "blank the name so no lookup can ever
+// match it again" mechanism eval_erase_declare already uses against an
+// AstPool's own AST_PROC_DEF node -- OP_ERASE now has to do both:
+// chunk->procs[] is this VM's own independent copy of every procedure's
+// identity (see docs/BYTECODE_VM_DESIGN.md's "Self-contained
+// BytecodeChunk" entry), so blanking only the AST side would leave
+// OP_CALL_PROC/OP_SEND/OP_APPLY/OP_LAUNCH -- all chunk-only lookups now
+// -- still able to find and call an "erased" procedure.
+void bytecode_erase_proc(BytecodeChunk *chunk, const char *name);
+
 // Appends `text` to `chunk->word_literals`, returning its own index
 // (what OP_PUSH_WORD's own .a field stores), or -1 if the chunk's
 // word-literal table is full -- same "loud error, not silent
 // truncation" policy as bytecode_emit, and the whole reason this
 // table exists instead of just inlining into Instr.text.
 int bytecode_add_word_literal(BytecodeChunk *chunk, const char *text);
+
+// Appends `text` (already bracket-wrapped Logo source, e.g. "[1 2 [3
+// 4]]") to `chunk->list_literals`, returning its own index (what
+// OP_PUSH_LIST_LITERAL's own .a field stores), or -1 if the chunk's
+// list-literal table is full -- same "loud error, not silent
+// truncation" policy as bytecode_add_word_literal.
+int bytecode_add_list_literal(BytecodeChunk *chunk, const char *text);
 
 #endif

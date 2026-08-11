@@ -2545,3 +2545,124 @@ build, expanding on `docs/ROADMAP.md`'s own checklist:
     optional follow-ups. `ANIMATESPRITE`'s own sprite subsystem still
     needs manual confirmation of its real image-decoding half. No
     other named gap is currently open in Stage 2.
+- **Self-contained `BytecodeChunk` — Stage A of bytecode save/load/
+  assemble** (2026-08-11; user: "something that would be cool now
+  though is the ability to save the bytecode to file, load bytecode,
+  and even have an assembler for it" — see `docs/ROADMAP.md`'s own new
+  "Bytecode save/load/assembler" section for the full A/B/C/D staging).
+  **The finding that drove this**: `BytecodeChunk` wasn't actually
+  self-contained despite `bytecode.h`'s own "no dependency on GTK/GLib/
+  interpreter.h" framing — `OP_CALL_PROC`/`OP_SEND`/`OP_APPLY`/
+  `OP_LAUNCH` all called `find_proc_def(pool, name)` at *runtime*, on
+  every single call, not to find the target address (already
+  backpatched into the instruction at compile time) but to read the
+  callee's own `param_count`/`param_names` off the AST node for
+  argument binding; `OP_PUSH_LIST_LITERAL` stored an AST node index and
+  rebuilt the list from that raw subtree fresh each visit; `TEXT`/
+  `SAVE`/`SHOW` read a procedure's `body_text` — a pointer into the
+  *original source buffer*, not even the AST — to reproduce exact
+  source. A saved/loaded/hand-assembled chunk without its original
+  `AstPool` and source text would have crashed or misbehaved the
+  moment a program called a procedure, used a list literal, or called
+  `TEXT`/`SAVE`/`SHOW`. **Resolved with the user** (`AskUserQuestion`,
+  two rounds): make the chunk genuinely self-contained rather than
+  bundling a trimmed `AstPool` fragment alongside it — an assembler's
+  own hand-written input has no `AstPool` to lean on anyway, so
+  building the assembler (Stage C) basically forces this shape
+  regardless; better to do it once, properly, now.
+  **What moved onto the chunk**: `ProcAddr` (`bytecode.h`) gained
+  `param_count`/`param_names[AST_MAX_PARAMS][32]`/
+  `source_text[MAX_PROC_SOURCE_TEXT]` (8192, matching
+  `interpreter.c`'s own established `Procedure.body` budget) —
+  populated once in `compile_program`'s own pass 1, copied straight off
+  each `AST_PROC_DEF` node exactly as `find_proc_def`-based lookups used
+  to read it. A new `bytecode_find_proc_entry(chunk, name)` (returns the
+  whole `ProcAddr`, `NULL` if not found) is what every call opcode now
+  uses instead of a `find_proc_def(pool, ...)` + separate
+  `bytecode_find_proc(chunk, ...)` pair (`OP_APPLY`/`OP_SEND` used to
+  need both; now one lookup does it all).
+  **List literals**: rather than inventing a second, parallel node-pool
+  serialization for nested list structure, `compiler.c`'s own
+  `AST_LIST_LITERAL` case now calls `render_list_literal_source` — the
+  exact renderer `compile_template_call` already trusted for
+  `MAP`/`FILTER`/`REDUCE`/`FOREACH`'s own compiled-template fast path,
+  turning an `AST_LIST_LITERAL` subtree back into ordinary,
+  re-parseable Logo source text — wraps it in `[`/`]`, and stores it in
+  a new `chunk->list_literals[MAX_CHUNK_LIST_LITERALS][MAX_LIST_LITERAL_TEXT]`
+  table (2048 entries × 2048 bytes). `OP_PUSH_LIST_LITERAL`'s `.a` is
+  now an index into that table. `vm.c`'s handler calls a new
+  `eval_build_list_literal_from_text(app, text)` (`eval.c`) which
+  lexes/parses the text fresh into a throwaway scratch `ParseResult`
+  and defers to the original `eval_build_list_literal` for construction
+  — the same "re-parse text at runtime" shape `OP_RUN`/`OP_LOAD` already
+  use for arbitrary code, just for one list-literal expression. **Known,
+  accepted tradeoff**: unlike `MAP`/`FILTER`/`REDUCE`'s own per-call
+  *reused* scratch `ParseResult`, this allocates and frees a fresh
+  ~6.7MB `ParseResult` on *every visit* — a list literal inside a hot
+  loop now pays a real, measurable-but-modest re-parse cost it didn't
+  before. Deliberately not optimized away in this stage (would need a
+  `Vm`-owned persistent scratch pool, threaded through every `free(vm)`
+  call site across `agent.c`/`ui.c`/every test file) — flagged here as
+  a real, well-scoped follow-up rather than silently accepted or
+  silently over-engineered around.
+  **`eval_push_scope_for_call`** (`eval.h`/`eval.c`) — the shared
+  scope-binding function every call construct in both engines already
+  funneled through — had its signature changed from taking `AstNode
+  *def` to taking `(const char *proc_name, int param_count, const char
+  param_names[][32], ...)` directly, decoupling it from `AstPool`
+  entirely; `call_ast_procedure` (`ast_eval`'s own path, untouched
+  otherwise) just passes `def->text`/`def->param_count`/
+  `def->param_names` at its own call site.
+  **`SEND` specifically**: `eval_resolve_method` (pool-dependent) was
+  left untouched, but `exec_send` no longer calls it — `eval_resolve_message`
+  (the pure `app->plist_entries` prototype-chain walk half, previously
+  `static`, now exposed via `eval.h`) is called directly, and the
+  resulting procedure name is resolved against `chunk->procs[]` via
+  `bytecode_find_proc_entry` instead of `find_proc_def(pool, ...)` —
+  `exec_send` now reproduces `eval_resolve_method`'s own three error
+  messages ("does not understand"/"is not a method on"/"must take
+  :self as its first input") locally, the same "reimplement the exact
+  message independently in `vm.c`" pattern every other call opcode
+  here already follows.
+  **A real regression, caught by the existing shadow-diff test suite,
+  not written in from the start**: `ERASE` (`eval_erase_declare`)
+  blanks an `AST_PROC_DEF` node's own `.text` so no future lookup can
+  match it — but `chunk->procs[]` is now an independent copy of every
+  procedure's identity, so blanking only the AST side left
+  `OP_CALL_PROC`/`OP_SEND`/`OP_APPLY`/`OP_LAUNCH` (all chunk-only
+  lookups now) still able to find and call an "erased" procedure —
+  caught immediately by `test_erase_deletes_a_procedure_so_it_can_no_
+  longer_be_called` failing (`tree` correctly reported "I don't know
+  how to foo"; `vm` printed `1`, having called it anyway). Fixed with a
+  new `bytecode_erase_proc(chunk, name)` (mirrors `eval_erase_declare`'s
+  own "blank the name" mechanism, just against `chunk->procs[]`),
+  called from `OP_ERASE`'s handler alongside the existing
+  `eval_erase_declare` call, not instead of it.
+  **Deliberately out of scope for Stage A**: `TEXT`/`SAVE`/`SHOW` are
+  ordinary builtins dispatched through `call_builtin` straight into
+  `eval_text_value`/`eval_save_value`/`eval_show_value`
+  (`eval.c`), which still read `pool` directly (`find_proc_def` +
+  `body_text`/`body_len`, or `eval_append_procedure_text`) — fully
+  functional today (a live `AstPool` is still always available for an
+  ordinarily compiled-and-run script), but **not yet chunk-only**. A
+  future bytecode-loaded-only program (no original `AstPool` at all)
+  would need these three ported to read `chunk->procs[]`'s own new
+  `source_text` field instead, or would need to accept them reporting
+  "no such procedure" on a loaded program specifically — a real,
+  separate decision for whichever of Stage B/C/D actually needs it,
+  not silently bundled into "self-contained" here.
+  **Verified**: warning-free build; all 7 `make test` suites pass
+  (after the `ERASE` fix above — the *only* observed output diff
+  across the whole batch, everything else byte-for-byte identical to
+  before, matching the "no new syntax, no behavior change" scope);
+  a standalone headless driver covering plain + nested list literals
+  (quote/varref/leading-sign preservation, matching the exact
+  `PRINT [a "b c]`-class fidelity `parser.c`'s own `parse_list_literal`
+  already guarantees), an ordinary procedure call, `SEND` success + all
+  three failure paths, 500-level recursion (well past the old 200
+  shared limit, proving `chunk`-based param binding doesn't regress
+  depth), `ERASE` then a failed call, `APPLY`, `LAUNCH` (correctly
+  returns `VM_RUN_SUSPENDED_LAUNCH`), and `TEXT`/`SAVE`/`SHOW` (still
+  working) — run twice, plain and under ASan, both clean; a live
+  `bin/logo` launch confirmed via process liveness (no GUI screenshot,
+  per this project's own constraint).

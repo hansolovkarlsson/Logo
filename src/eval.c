@@ -654,16 +654,16 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
 // stack), only this setup half. Returns 0 (and leaves scope_depth/app
 // output untouched beyond the message) if already at `ss.capacity`,
 // matching call_ast_procedure's own prior behavior exactly.
-int eval_push_scope_for_call(LogoApp *app, ScopeStack ss, AstNode *def, EvalValue *arg_vals, int arg_count) {
+int eval_push_scope_for_call(LogoApp *app, ScopeStack ss, const char *proc_name, int param_count, const char param_names[][32], EvalValue *arg_vals, int arg_count) {
     if (*ss.scope_depth >= ss.capacity) {
         append_output(app, "Recursion too deep, call ignored\n");
         return 0;
     }
     Scope *scope = &ss.scopes[*ss.scope_depth];
-    scope->count = def->param_count;
-    snprintf(scope->proc_name, sizeof(scope->proc_name), "%s", def->text);
-    for (int i = 0; i < def->param_count; i++) {
-        snprintf(scope->vars[i].name, sizeof(scope->vars[i].name), "%s", def->param_names[i]);
+    scope->count = param_count;
+    snprintf(scope->proc_name, sizeof(scope->proc_name), "%s", proc_name);
+    for (int i = 0; i < param_count; i++) {
+        snprintf(scope->vars[i].name, sizeof(scope->vars[i].name), "%s", param_names[i]);
         Variable *slot = &scope->vars[i];
         if (i < arg_count) {
             slot->type = arg_vals[i].type;
@@ -699,7 +699,7 @@ int eval_push_scope_for_call(LogoApp *app, ScopeStack ss, AstNode *def, EvalValu
 // now capacity) differs.
 static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, EvalValue *arg_vals, int arg_count, int *produced) {
     AstNode *def = &pool->nodes[def_node];
-    if (!eval_push_scope_for_call(app, app_scope_stack(app), def, arg_vals, arg_count)) {
+    if (!eval_push_scope_for_call(app, app_scope_stack(app), def->text, def->param_count, def->param_names, arg_vals, arg_count)) {
         *produced = 0;
         return num_val(0);
     }
@@ -737,8 +737,14 @@ static EvalValue call_ast_procedure(LogoApp *app, AstPool *pool, int def_node, E
 // "prototype" links it takes to find one, bounded by
 // MAX_PROTOTYPE_CHAIN_DEPTH (logo_types.h) the same way
 // interpreter.c's own resolve_message is -- a cyclic or absurdly long
-// chain just runs out of hops rather than looping forever.
-static PlistEntry *eval_resolve_message(LogoApp *app, const char *objname, const char *message) {
+// chain just runs out of hops rather than looping forever. Exposed
+// (not static) so vm.c's own exec_send can do this same live,
+// pool-independent prototype-chain lookup directly, then resolve the
+// resulting procedure NAME against chunk->procs[] itself (self-
+// contained -- see docs/BYTECODE_VM_DESIGN.md's "Self-contained
+// BytecodeChunk" entry) instead of going through eval_resolve_method
+// below, which still resolves a name to an AstPool node specifically.
+PlistEntry *eval_resolve_message(LogoApp *app, const char *objname, const char *message) {
     char current[32];
     snprintf(current, sizeof(current), "%s", objname);
     for (int depth = 0; depth < MAX_PROTOTYPE_CHAIN_DEPTH; depth++) {
@@ -2925,12 +2931,12 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
 // functionally identical, since eval_expr's own AST_LIST_LITERAL case
 // just calls this, but avoids a pointless extra dispatch through the
 // whole eval_expr switch for something that can only ever be this one
-// node type). Exposed via eval.h so vm.c's OP_PUSH_LIST_LITERAL can
-// build the exact same structure at runtime: a list literal's contents
-// are recursive, variable-arity raw AST data (see ast.h's own note),
-// not a flat value a single Instr field could encode, so the VM keeps
-// a live AstPool reference and calls back into this rather than the
-// compiler trying to pre-flatten it into bytecode.
+// node type). ast_eval's own AST_LIST_LITERAL case is this function's
+// only remaining direct caller of the AstPool-based form -- vm.c's own
+// OP_PUSH_LIST_LITERAL instead calls eval_build_list_literal_from_text
+// below (see docs/BYTECODE_VM_DESIGN.md's "Self-contained
+// BytecodeChunk" entry for why the VM stopped keeping a live AstPool
+// reference for this).
 EvalValue eval_build_list_literal(LogoApp *app, AstPool *pool, int node_idx) {
     AstNode *node = &pool->nodes[node_idx];
     int head = -1;
@@ -2953,6 +2959,40 @@ EvalValue eval_build_list_literal(LogoApp *app, AstPool *pool, int node_idx) {
         next_slot = &app->list_pool[idx].next;
     }
     return list_val(head);
+}
+
+// vm.c's own OP_PUSH_LIST_LITERAL entry point: `text` is bracket-wrapped
+// Logo source (e.g. "[1 2 [3 4]]"), compiler.c's own rendering of the
+// original AST_LIST_LITERAL (render_list_literal_source) stored
+// verbatim on the chunk instead of an AstPool node index -- see
+// bytecode.h's own list_literals[] comment. Lexes/parses it fresh right
+// here (same "re-parse text at runtime" shape OP_RUN/OP_LOAD already
+// use for arbitrary code, just for one list-literal expression) into a
+// throwaway scratch ParseResult, then defers to eval_build_list_literal
+// above for the actual construction -- same tradeoff RUN/LOAD already
+// accept: a fresh ~6.7MB ParseResult alloc/free per call, not amortized
+// across repeated visits the way MAP/FILTER/REDUCE's own reused
+// `scratch` is, so a list literal inside a hot loop pays a real,
+// measurable-but-modest re-parse cost now that it didn't before. A
+// malformed rendering (would mean a real bug in render_list_literal_source
+// itself, not a user-facing error case) reads as an empty list, same
+// "quietly inert rather than crashing" fallback eval_apply_template_expr
+// already uses for its own lex/parse failures.
+#define LIST_LITERAL_MAX_TOKENS 512
+EvalValue eval_build_list_literal_from_text(LogoApp *app, const char *text) {
+    LogoToken tokens[LIST_LITERAL_MAX_TOKENS];
+    int n = logo_lex(text, tokens, LIST_LITERAL_MAX_TOKENS);
+    if (n < 0) return list_val(-1);
+    ParseResult *scratch = calloc(1, sizeof(ParseResult));
+    if (!scratch) return list_val(-1);
+    int node = logo_parse_expr(tokens, n, scratch);
+    if (node < 0 || scratch->error_count > 0) {
+        parse_result_destroy(scratch);
+        return list_val(-1);
+    }
+    EvalValue result = eval_build_list_literal(app, &scratch->pool, node);
+    parse_result_destroy(scratch);
+    return result;
 }
 
 static EvalValue eval_expr(LogoApp *app, AstPool *pool, int node_idx) {
