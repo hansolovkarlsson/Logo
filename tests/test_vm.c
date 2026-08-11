@@ -1970,6 +1970,41 @@ TEST(test_offclick_clears_a_registered_handler) {
     end_vm_session(s);
 }
 
+TEST(test_onmousemove_registers_a_valid_two_param_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :X :Y\nEND\nONMOUSEMOVE \"handler", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (strcasecmp(s.app->onmousemove_handler, "HANDLER") != 0) {
+        failures++;
+        printf("FAIL %s: onmousemove_handler -- expected \"HANDLER\", got \"%s\"\n", current_test, s.app->onmousemove_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onmousemove_of_a_wrong_arity_procedure_reports_an_error) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO BAD :X\nEND\nONMOUSEMOVE \"bad", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONMOUSEMOVE: procedure \"bad\" must take exactly two inputs (x, y)\n");
+    if (s.app->onmousemove_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onmousemove_handler -- expected empty, got \"%s\"\n", current_test, s.app->onmousemove_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_offmousemove_clears_a_registered_handler) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO HANDLER :X :Y\nEND\nONMOUSEMOVE \"handler\nOFFMOUSEMOVE", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (s.app->onmousemove_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onmousemove_handler -- expected empty after OFFMOUSEMOVE, got \"%s\"\n", current_test, s.app->onmousemove_handler);
+    }
+    end_vm_session(s);
+}
+
 // Stage C of the bytecode save/load/assembler initiative
 // (docs/ROADMAP.md): disassembles a normally-compiled chunk, feeds the
 // resulting text straight back through bytecode_assemble into a FRESH
@@ -2220,6 +2255,9 @@ int main(void) {
     RUN(test_onclick_registers_a_valid_three_param_handler);
     RUN(test_onclick_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offclick_clears_a_registered_handler);
+    RUN(test_onmousemove_registers_a_valid_two_param_handler);
+    RUN(test_onmousemove_of_a_wrong_arity_procedure_reports_an_error);
+    RUN(test_offmousemove_clears_a_registered_handler);
     RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);
 
     if (failures == 0) {

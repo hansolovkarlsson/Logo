@@ -159,6 +159,11 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "ONCLICK", 1, { ARG_QUOTED_WORD } },
     { "OFFCLICK", 0, { 0 } },
 
+    // ONMOUSEMOVE -- same shape again, this time for pointer motion
+    // (see vm.c's own exec_onmousemove).
+    { "ONMOUSEMOVE", 1, { ARG_QUOTED_WORD } },
+    { "OFFMOUSEMOVE", 0, { 0 } },
+
     // ERASE "name -- procedure deletion, not a drawing primitive
     // despite being grouped with the rest of this batch in
     // docs/ROADMAP.md (a miscategorization worth fixing there, not

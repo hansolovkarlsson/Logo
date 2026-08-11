@@ -1296,3 +1296,39 @@ saved to file, loaded back, and hand-assembled.
   process-liveness launches (the example script, and a smaller smoke
   test covering registration + `OFFKEY`/`OFFCLICK` clearing) confirming
   no crash on startup.
+
+- [x] **`ONMOUSEMOVE`/`OFFMOUSEMOVE`** (shipped shortly after the entry
+  above): the third event trigger, firing on every pointer motion over
+  the canvas with `:X :Y` (same coordinate space `ONCLICK` uses).
+  Exactly the same shape as `ONKEY`/`ONCLICK` throughout —
+  `exec_onmousemove` in `vm.c` validates a 2-param procedure at
+  registration time, `ui.c` gets a third retained-chunk slot
+  (`g_onmousemove_owner`) and `fire_onmousemove`, wired into the
+  existing `on_canvas_motion` controller right alongside `MOUSEPOS`'s
+  own `mouse_x`/`mouse_y` update.
+
+  The one real question this raised: motion events can fire dozens of
+  times a second, so would firing a full background invocation per
+  event let them pile up faster than they finish? Turned out not to
+  need any new debounce mechanism — `fire_handler`'s existing
+  `g_suspended_run != NULL` idle check (added for `ONKEY`/`ONCLICK`,
+  see the entry above) already drops a fire outright whenever the
+  interpreter isn't idle, which is exactly the behavior a busy handler
+  needs; confirmed with a live `examples/onmousemove.logo` run (the
+  turtle follows the pointer smoothly, pen down, no runaway pileup or
+  lag) rather than only reasoned about.
+
+  `release_retained_chunk` (shared by all three handlers' retained
+  chunks) needed a real generalization here, not just a third call
+  site: it used to take a single "other" slot to check against for the
+  shared-chunk case (two handlers registered by the same script,
+  sharing one chunk) -- with three slots now, a chunk shared by all
+  three needed checking against BOTH siblings, not one, so it now scans
+  a fixed array of all three owners instead of taking an explicit
+  "other" parameter. 3 new `test_vm.c` cases (registration, wrong
+  arity, `OFFMOUSEMOVE` clearing — mirroring `ONCLICK`'s own three);
+  a new `examples/onmousemove.logo`; verified via `make test` (all 8
+  suites), a standalone ASan build of `test_vm` (clean, same raised
+  `ulimit -s` workaround as before for the pre-existing recursion-depth
+  finding), and a live `bin/logo` process-liveness launch of the new
+  example.

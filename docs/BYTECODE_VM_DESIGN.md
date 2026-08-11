@@ -2994,3 +2994,19 @@ could ever run for that chunk. Not fixed here -- combining concurrent
 turtle agents with background event handlers in one script is an
 advanced combination beyond this feature's own scope, documented as a
 limitation rather than chased down.
+
+**`ONMOUSEMOVE`/`OFFMOUSEMOVE` added afterward**: a third handler,
+identical shape (`exec_onmousemove` validates a 2-param `:X :Y`
+procedure; a third `RetainedChunk` slot, `g_onmousemove_owner`, wired
+into the existing `on_canvas_motion` controller alongside `MOUSEPOS`'s
+own live `mouse_x`/`mouse_y` update). `release_retained_chunk` needed a
+real change, not just a third call site: with two slots it took a
+single "other" slot to check for the shared-chunk case; with three, a
+chunk shared across all three needs checking against both siblings, so
+it now scans a fixed 3-element array of every owner instead of taking
+an explicit "other" parameter. The debounce question this feature's own
+open item worried about (motion events firing 60+/sec) resolved itself
+for free: `fire_handler`'s existing idle check already drops a fire
+while the interpreter isn't idle, exactly the behavior needed, no new
+mechanism required -- confirmed with a live `examples/onmousemove.logo`
+run, not just reasoned about.

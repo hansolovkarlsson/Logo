@@ -358,6 +358,31 @@ static void exec_onclick(LogoApp *app, BytecodeChunk *chunk, const char *proc_na
     snprintf(app->onclick_handler, sizeof(app->onclick_handler), "%s", proc_name);
 }
 
+// ONMOUSEMOVE "procname -- same shape as exec_onclick above, but for
+// pointer motion: procname must take exactly two inputs, bound to the
+// pointer's x, y (canvas-relative pixels, same coordinate space
+// SETXY/POS/ONCLICK already use). Motion events can fire 60+/sec --
+// ui.c's own fire_handler already declines to fire at all while the
+// interpreter isn't idle (see its own comment), which is what actually
+// keeps a slow/suspending handler from piling up invocations; nothing
+// extra needed here at registration time.
+static void exec_onmousemove(LogoApp *app, BytecodeChunk *chunk, const char *proc_name) {
+    const ProcAddr *def = bytecode_find_proc_entry(chunk, proc_name);
+    if (def == NULL) {
+        append_output(app, "ONMOUSEMOVE: no such procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\n");
+        return;
+    }
+    if (def->param_count != 2) {
+        append_output(app, "ONMOUSEMOVE: procedure \"");
+        append_output(app, proc_name);
+        append_output(app, "\" must take exactly two inputs (x, y)\n");
+        return;
+    }
+    snprintf(app->onmousemove_handler, sizeof(app->onmousemove_handler), "%s", proc_name);
+}
+
 static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
     if (strcasecmp(name, "PRINT") == 0) {
@@ -440,6 +465,16 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     }
     if (strcasecmp(name, "OFFCLICK") == 0) {
         app->onclick_handler[0] = '\0';
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "ONMOUSEMOVE") == 0) {
+        exec_onmousemove(app, chunk, args[0].word);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "OFFMOUSEMOVE") == 0) {
+        app->onmousemove_handler[0] = '\0';
         *produced = 0;
         return num_val(0);
     }

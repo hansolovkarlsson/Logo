@@ -65,23 +65,20 @@ primitives genuinely missing — ranked roughly easiest first:
 
 ## Mouse/keyboard event triggers
 
-`ONKEY`/`OFFKEY`/`ONCLICK`/`OFFCLICK` shipped 2026-08-11 (see
-`docs/CHANGELOG.md`'s own entry for the full design and implementation
-writeup, and `docs/COMMAND_REFERENCE.md`'s "Event triggers" section for
-day-to-day usage). Still open, not yet built:
+`ONKEY`/`OFFKEY`/`ONCLICK`/`OFFCLICK` shipped 2026-08-11, and
+`ONMOUSEMOVE`/`OFFMOUSEMOVE` shortly after (see `docs/CHANGELOG.md`'s
+own entries for the full design and implementation writeup, and
+`docs/COMMAND_REFERENCE.md`'s "Event triggers" section for day-to-day
+usage). `ONMOUSEMOVE`'s own firing rate turned out not to need any
+dedicated debounce logic — the existing "drop an event while the
+interpreter isn't idle" rule `ONKEY`/`ONCLICK` already relied on covers
+it for free, confirmed live rather than only reasoned about. Still
+open, not yet built:
 
 - [ ] `ONKEYUP` / `OFFKEYUP` — mirror of `ONKEY`/`OFFKEY` for key
   *release* rather than press
 - [ ] `ONRELEASE` / `OFFRELEASE` — mirror of `ONCLICK`/`OFFCLICK` for
   button *release*
-- [ ] `ONMOUSEMOVE` / `OFFMOUSEMOVE` — fires on pointer motion, called
-  with `:X :Y`. Needs its own debounce: motion events can fire 60+/sec,
-  and firing a full background invocation per event would let them pile
-  up faster than they finish. `ONKEY`/`ONCLICK`'s own firing already
-  drops an event outright while the interpreter isn't idle (see the
-  CHANGELOG entry) — the same drop-not-queue behavior naturally covers
-  this too, just worth confirming it actually holds up at a real 60Hz
-  rate before calling this done, not only reasoning about it.
 - [ ] Joystick event triggers (`ONJOYBUTTON`/etc) — GTK4 has no built-in
   gamepad support on macOS, so this needs an extra dependency (e.g.
   GNOME's libmanette) or direct IOKit/HID access, a bigger lift than

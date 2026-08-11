@@ -1,0 +1,16 @@
+; ONMOUSEMOVE: the third background event trigger, alongside ONKEY/
+; ONCLICK (see examples/onkey_onclick.logo). Fires on every pointer
+; motion over the canvas -- unlike ONCLICK, this can fire dozens of
+; times a second, so MOUSEHANDLER below is deliberately cheap (just
+; SETXY, no drawing work) to stay smooth. Only makes sense from the
+; actual app: the headless test driver has no canvas to ever generate
+; a real motion event from.
+
+TO MOUSEHANDLER :X :Y
+  SETXY :X :Y
+END
+
+PENDOWN
+ONMOUSEMOVE "mousehandler
+
+PRINT 'Move the mouse over the canvas -- the turtle follows it, drawing as it goes.'
