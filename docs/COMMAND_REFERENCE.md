@@ -644,10 +644,13 @@ other).
 
 `OPENWRITE`/`OPENAPPEND` don't touch disk until `CLOSE` flushes the
 buffer — losing power or crashing first loses the data. **Known,
-unfixed bug**: a literal path (or any word literal) longer than 63
-characters is silently truncated at compile time — see the
-`INSTR_MAX_TEXT` entry in project memory / `docs/CHANGELOG.md`; this is
-exactly what's being scoped next.
+unfixed bug**: most word literals compile through `OP_PUSH_WORD`'s
+unbounded `word_literals[]` table and aren't affected, but `MAKE`/
+`LOCAL`/`ERASE`/`LOAD`'s own dedicated opcodes (`OP_SET_VAR`/
+`OP_LOCAL`/`OP_ERASE`/`OP_LOAD`) still write their name/path argument
+straight into `Instr.text[64]`, which silently truncates anything over
+63 bytes at compile time — see the `INSTR_MAX_TEXT` entry in project
+memory / `docs/CHANGELOG.md`.
 
 ## Turtle sprites
 
