@@ -1774,3 +1774,41 @@ parens-are-arithmetic-only rule, just without parens involved.) Added
 to `docs/COMMAND_REFERENCE.md`'s "Pen, color & canvas" table and
 worked example, and regenerated `website/reference.html`. Verified via
 `make test` (all 8 suites) and a clean full rebuild of `bin/logomotive`.
+
+## LOADSPRITE/LOADSPRITESHEET's "could not load" error path — the last gap from the 2026-08-12 error-path audit
+
+2026-08-12. Closes the one item the earlier error-path audit (see this
+file's "Nine more old-engine builtins ported to the VM" entry, and the
+`tests/test_vm.c` gap-fill entry before it) had left open: every other
+sprite test in `tests/test_vm.c` runs with `app->load_sprite_image ==
+NULL` (`new_app()`'s default), which makes `LOADSPRITE`/
+`LOADSPRITESHEET`'s failure branch — `"could not load"` — structurally
+unreachable, since the `NULL`-callback check short-circuits before it.
+
+Closed with a new `fake_load_sprite_image` test helper in
+`tests/test_vm.c`, not a mock: it calls the real `gdk_pixbuf_new_from_file`
+(available in the test binary because `gtk/gtk.h` is already pulled in
+transitively via `logo_types.h` and every test binary links against
+GTK/gdk-pixbuf, even though `ui.c` itself — and its own `static`
+`load_named_sprite_image` — isn't compiled into `test_vm`), then
+registers into `app->sprite_names`/`sprite_frame_cols`/
+`sprite_frame_rows`/`sprite_count` on success, mirroring
+`load_named_sprite_image` closely enough for VM-level tests (it skips
+storing an actual `cairo_surface_t`, since nothing at the VM level ever
+reads `sprite_images` — confirmed by the existing `ANIMATESPRITE` test
+comments this same file already carries).
+
+Four new tests, using real files from `examples/` rather than
+synthetic ones: `examples/ant.png` (already documented as a plain
+`LOADSPRITE` example) and `examples/walker.png` (already documented as
+a 4-column, 2-row, 8-frame `LOADSPRITESHEET` grid) each get a
+success-path test — confirms silent output and the correct
+name/cols/rows landing in `app`'s sprite tables — plus a matching
+failure-path test against a deliberately nonexistent path, confirming
+both the exact `"LOADSPRITE: could not load ..."` / `"LOADSPRITESHEET:
+could not load ..."` output and that nothing gets registered
+(`sprite_count` stays 0) when the load genuinely fails. Removes the
+last open item from `docs/ROADMAP.md`'s "Robustness" section, which
+had no more entries after this and was removed. Verified via `make
+test` (all 8 suites, run from the repo root so the `examples/*.png`
+relative paths resolve) and a clean full rebuild of `bin/logomotive`.

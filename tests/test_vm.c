@@ -1661,6 +1661,31 @@ TEST(test_load_of_a_file_with_a_bare_stop_at_its_top_level_reports_the_escaping_
 // separately, by directly poking app's sprite fields to set up "a
 // sprite exists" without going through the GUI-only load path at all.
 
+// A real (not mocked) load_sprite_image stand-in for the two tests
+// below that exercise LOADSPRITE/LOADSPRITESHEET's own load-failure
+// path -- ui.c's real callback (load_named_sprite_image) is `static`
+// and ui.c itself isn't linked into this test binary, but GdkPixbuf is
+// still available here (gtk/gtk.h, pulled in transitively via
+// logo_types.h, is linked into every test binary), so this decodes the
+// same way the real one does rather than faking success/failure by
+// filename. Registers into app->sprite_names/sprite_frame_cols/
+// sprite_frame_rows/sprite_count on success, matching production
+// closely enough for these tests (skips storing an actual
+// cairo_surface_t in sprite_images -- nothing at the VM level ever
+// reads it, per the ANIMATESPRITE comment above).
+static gboolean fake_load_sprite_image(LogoApp *app, const char *name, const char *path, int cols, int rows) {
+    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, NULL);
+    if (pixbuf == NULL) return FALSE;
+    g_object_unref(pixbuf);
+
+    if (app->sprite_count >= MAX_TURTLE_SPRITES) return FALSE;
+    int idx = app->sprite_count++;
+    snprintf(app->sprite_names[idx], sizeof(app->sprite_names[idx]), "%s", name);
+    app->sprite_frame_cols[idx] = cols;
+    app->sprite_frame_rows[idx] = rows;
+    return TRUE;
+}
+
 TEST(test_setsprite_of_unknown_name_reports_error_and_leaves_default) {
     VmRunResult status;
     VmTestSession s = start_vm_session("SETSPRITE \"turtle", &status);
@@ -1715,6 +1740,131 @@ TEST(test_loadspritesheet_with_zero_cols_reports_error) {
     expect_status(status, VM_RUN_HALTED, "run");
     expect_output("LOADSPRITESHEET: cols and rows must be at least 1\n");
     end_vm_session(s);
+}
+
+TEST(test_loadsprite_of_a_real_image_loads_silently_and_registers_it) {
+    // examples/ant.png -- a real gdk-pixbuf-decodable file, run through
+    // fake_load_sprite_image (see its own comment above) instead of the
+    // NULL callback every other test in this file uses. Confirms the
+    // success path: no error output, and the sprite actually lands in
+    // app->sprite_names/sprite_frame_cols/sprite_frame_rows.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->load_sprite_image = fake_load_sprite_image;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("LOADSPRITE \"ant \"examples/ant.png", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (app->sprite_count != 1 || strcasecmp(app->sprite_names[0], "ant") != 0 ||
+        app->sprite_frame_cols[0] != 1 || app->sprite_frame_rows[0] != 1) {
+        failures++;
+        printf("FAIL %s: expected sprite \"ant\" registered as a 1x1 grid, got count=%d name=\"%s\" cols=%d rows=%d\n",
+               current_test, app->sprite_count, app->sprite_names[0], app->sprite_frame_cols[0], app->sprite_frame_rows[0]);
+    }
+
+    free(vm);
+    free(chunk);
+    parse_result_destroy(result);
+    free(app);
+}
+
+TEST(test_loadspritesheet_of_a_real_image_loads_silently_and_registers_the_grid) {
+    // examples/walker.png -- documented (docs/TUTORIAL_II.md,
+    // examples/spritesheet.logo) as a 4-column, 2-row, 8-frame walk
+    // cycle. Same fake_load_sprite_image setup as the LOADSPRITE test
+    // above, but also confirms the cols/rows actually get recorded.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->load_sprite_image = fake_load_sprite_image;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("LOADSPRITESHEET \"walker \"examples/walker.png 4 2", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("");
+    if (app->sprite_count != 1 || strcasecmp(app->sprite_names[0], "walker") != 0 ||
+        app->sprite_frame_cols[0] != 4 || app->sprite_frame_rows[0] != 2) {
+        failures++;
+        printf("FAIL %s: expected sprite \"walker\" registered as a 4x2 grid, got count=%d name=\"%s\" cols=%d rows=%d\n",
+               current_test, app->sprite_count, app->sprite_names[0], app->sprite_frame_cols[0], app->sprite_frame_rows[0]);
+    }
+
+    free(vm);
+    free(chunk);
+    parse_result_destroy(result);
+    free(app);
+}
+
+TEST(test_loadsprite_of_a_missing_file_reports_could_not_load) {
+    // The actual gap this batch closes: with a real (non-NULL)
+    // load_sprite_image callback, a path gdk-pixbuf genuinely can't
+    // decode must hit LOADSPRITE's "could not load" branch, not just
+    // silently no-op the way the NULL-callback tests above do.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->load_sprite_image = fake_load_sprite_image;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("LOADSPRITE \"ant \"examples/no_such_file.png", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("LOADSPRITE: could not load \"examples/no_such_file.png\n");
+    if (app->sprite_count != 0) {
+        failures++;
+        printf("FAIL %s: sprite_count -- expected 0 (nothing registered on failure), got %d\n", current_test, app->sprite_count);
+    }
+
+    free(vm);
+    free(chunk);
+    parse_result_destroy(result);
+    free(app);
+}
+
+TEST(test_loadspritesheet_of_a_missing_file_reports_could_not_load) {
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->load_sprite_image = fake_load_sprite_image;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("LOADSPRITESHEET \"walker \"examples/no_such_file.png 4 2", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("LOADSPRITESHEET: could not load \"examples/no_such_file.png\n");
+    if (app->sprite_count != 0) {
+        failures++;
+        printf("FAIL %s: sprite_count -- expected 0 (nothing registered on failure), got %d\n", current_test, app->sprite_count);
+    }
+
+    free(vm);
+    free(chunk);
+    parse_result_destroy(result);
+    free(app);
 }
 
 TEST(test_setspriteframe_without_a_sprite_set_reports_error) {
@@ -3088,6 +3238,10 @@ int main(void) {
     RUN(test_stampsprite_records_default_triangle_when_no_sprite_set);
     RUN(test_loadsprite_is_a_safe_no_op_with_no_gui);
     RUN(test_loadspritesheet_with_zero_cols_reports_error);
+    RUN(test_loadsprite_of_a_real_image_loads_silently_and_registers_it);
+    RUN(test_loadspritesheet_of_a_real_image_loads_silently_and_registers_the_grid);
+    RUN(test_loadsprite_of_a_missing_file_reports_could_not_load);
+    RUN(test_loadspritesheet_of_a_missing_file_reports_could_not_load);
     RUN(test_setspriteframe_without_a_sprite_set_reports_error);
     RUN(test_setspriteframe_out_of_range_reports_error_and_leaves_the_frame_unchanged);
     RUN(test_animatesprite_without_a_sprite_set_reports_error_and_does_not_suspend);
