@@ -267,6 +267,65 @@ h1.title {
 .card.disabled { opacity: 0.55; cursor: default; }
 .card.disabled:hover { border-color: var(--rule); transform: none; }
 
+/* ---------- Landing-page "about" section + feature chips ---------- */
+
+.about-section {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 40px;
+  align-items: start;
+  padding: 16px 0 48px;
+  border-top: 1px dashed var(--rule);
+  margin-top: 8px;
+}
+@media (max-width: 760px) {
+  .about-section { grid-template-columns: 1fr; }
+}
+.about-section h2 { font-size: 1.5rem; margin: 32px 0 14px; }
+.about-section h2:first-child { margin-top: 0; }
+.about-section p { max-width: 62ch; margin: 0 0 16px; color: var(--ink-soft); }
+.about-section p strong { color: var(--ink); }
+
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+.chip {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.quicklook {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 20px;
+}
+.quicklook .quicklook-label {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 12px;
+}
+.quicklook pre.code { margin: 0 0 14px; }
+.quicklook .diagram-frame { margin: 0; width: 100%; }
+.quicklook .diagram-frame canvas { width: 100%; height: auto; }
+
+.section-label {
+  text-align: center;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 4px;
+}
+
 /* ---------- Two-column layout: sidebar index + content ---------- */
 
 .layout {

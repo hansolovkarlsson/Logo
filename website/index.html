@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LogoMotive — learning materials</title>
+<title>LogoMotive</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -21,21 +21,78 @@
 </header>
 
 <div class="wrap">
-  <div class="page-hero">
-    <p class="eyebrow">Learning materials</p>
-    <h1 class="title">Learn LogoMotive, start to finish</h1>
-    <p class="lede">
-      A from-scratch tutorial for total beginners, and a complete
-      command reference for looking things up once you're past that —
-      both for LogoMotive, this project's own dialect of Logo, turtle
-      graphics and all.
-    </p>
-    <div class="hero-actions">
-      <a class="btn primary" href="tutorial.html">Start the tutorial &rarr;</a>
-      <a class="btn" href="reference.html">Browse the reference</a>
+
+  <div class="tutorial-hero" style="padding-top:56px;">
+    <div>
+      <p class="eyebrow">A Logo dialect, from scratch</p>
+      <h1 class="title">LogoMotive</h1>
+      <p class="lede">
+        Type <code class="inline">FORWARD 100</code> and watch a line
+        become a triangle become a square become a spiral become
+        whatever you build next. LogoMotive is a complete Logo
+        interpreter — turtle graphics, procedures, recursion, lists —
+        with a real bytecode VM underneath, and a few things the
+        original language never had.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="tutorial.html">Start the tutorial &rarr;</a>
+        <a class="btn" href="https://github.com/hansolovkarlsson/LogoMotive/releases/latest" target="_blank" rel="noopener">Download for macOS</a>
+      </div>
+    </div>
+    <div>
+      <div class="hero-canvas-frame">
+        <canvas id="hero-canvas" width="440" height="360"></canvas>
+      </div>
+      <p class="hero-canvas-caption">REPEAT 90 [FORWARD REPCOUNT * 1.6 RIGHT 61]</p>
     </div>
   </div>
 
+  <div class="about-section">
+    <div>
+      <h2>What LogoMotive is</h2>
+      <p>
+        Logo turns programming into drawing: a turtle sits on a canvas,
+        and every command — <code class="inline">FORWARD</code>,
+        <code class="inline">RIGHT</code>, <code class="inline">REPEAT</code>
+        — moves it and leaves a trail. It's how a lot of people first
+        learned that code could <em>do</em> something, not just print
+        text. <strong>LogoMotive keeps that idea completely intact</strong>
+        — the same turtle, the same simple vocabulary — while replacing
+        everything underneath it with a real, modern interpreter: a
+        bytecode compiler and VM, not a line-by-line text scanner, with
+        thousands of levels of real recursion instead of dozens.
+      </p>
+      <p>
+        On top of the classic language, LogoMotive adds a few things
+        the original never had: independently-scheduled multi-turtle
+        agents, sprite animation, sound, real file I/O, prototype-style
+        objects, and mouse/keyboard event handlers — all while staying
+        a native, no-browser-required desktop app.
+      </p>
+      <div class="chip-row">
+        <span class="chip">Turtle graphics</span>
+        <span class="chip">Bytecode VM</span>
+        <span class="chip">Concurrent agents</span>
+        <span class="chip">Sprites &amp; sound</span>
+        <span class="chip">Prototype objects</span>
+        <span class="chip">File I/O</span>
+        <span class="chip">Native GTK4</span>
+      </div>
+    </div>
+    <div class="quicklook">
+      <p class="quicklook-label">A taste of the language</p>
+      <pre class="code">TO star :size
+  REPEAT 5 [FORWARD :size RIGHT 144]
+END
+
+star 100</pre>
+      <div class="diagram-frame">
+        <canvas id="dg-star" width="280" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <p class="section-label">Get started</p>
   <div class="card-grid">
     <a class="card" href="tutorial.html">
       <p class="card-eyebrow">Ten chapters</p>
@@ -52,6 +109,13 @@
       LogoMotive actually supports — turtle motion, lists, procedures,
       sprites, sound, files, concurrent agents, and more.</p>
     </a>
+    <a class="card" href="https://github.com/hansolovkarlsson/LogoMotive/releases/latest" target="_blank" rel="noopener">
+      <p class="card-eyebrow">macOS, Apple Silicon</p>
+      <h3>Download</h3>
+      <p>A pre-built binary plus the full examples/ folder, from the
+      GitHub Releases page. Requires GTK4 (<code class="inline">brew
+      install gtk4</code>) — not bundled yet.</p>
+    </a>
     <div class="card disabled">
       <p class="card-eyebrow">Coming later</p>
       <h3>Tutorial II</h3>
@@ -65,10 +129,96 @@
 <footer class="site-footer">
   <div class="wrap narrow">
     Built alongside LogoMotive's own C interpreter — see the
-    repository for the source, the language design docs, and the full
-    changelog.
+    <a href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">repository</a>
+    for the source, the language design docs, and the full changelog.
   </div>
 </footer>
+
+<script>
+(function () {
+  "use strict";
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function makeTurtle(ctx, cx, cy, strokeStyle) {
+    var x = cx, y = cy, heading = 0;
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    return {
+      forward: function (d) {
+        var rad = (heading - 90) * Math.PI / 180;
+        var nx = x + Math.cos(rad) * d;
+        var ny = y + Math.sin(rad) * d;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+        x = nx; y = ny;
+      },
+      right: function (deg) { heading += deg; }
+    };
+  }
+
+  function setupCanvas(id) {
+    var canvas = document.getElementById(id);
+    if (!canvas) return null;
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.width, h = canvas.height;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  function drawStarDiagram() {
+    var c = setupCanvas("dg-star");
+    if (!c) return;
+    var t = makeTurtle(c.ctx, c.w / 2, c.h / 2 + 60, "#f2a389");
+    for (var i = 0; i < 5; i++) { t.forward(110); t.right(144); }
+  }
+  drawStarDiagram();
+
+  var hero = document.getElementById("hero-canvas");
+  if (hero) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = hero.width, h = hero.height;
+    hero.style.width = w + "px";
+    hero.style.height = h + "px";
+    hero.width = w * dpr;
+    hero.height = h * dpr;
+    var hctx = hero.getContext("2d");
+    hctx.scale(dpr, dpr);
+
+    var n = 6;
+    var maxN = 90;
+    var growing = true;
+
+    function renderHero() {
+      hctx.clearRect(0, 0, w, h);
+      var t = makeTurtle(hctx, w / 2, h / 2, "#f2a389");
+      for (var i = 1; i <= n; i++) {
+        hctx.strokeStyle = "hsl(" + (14 + i * 2.4) + "deg 70% " + (62 + (i % 6)) + "%)";
+        t.forward(i * 1.6);
+        t.right(61);
+      }
+    }
+
+    renderHero();
+
+    if (!reduceMotion) {
+      setInterval(function () {
+        n += growing ? 1 : -1;
+        if (n >= maxN) growing = false;
+        if (n <= 6) growing = true;
+        renderHero();
+      }, 90);
+    }
+  }
+})();
+</script>
 
 </body>
 </html>
