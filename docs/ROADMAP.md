@@ -13,18 +13,17 @@ everything that's already landed.
   land (it currently covers turtle motion, procedures/scoping, `IF`/
   `WHILE`/booleans, words, and the error-message paths — see `make test`).
 
-## Mouse/keyboard event triggers
+## Future / unplanned
 
-`ONKEY`/`OFFKEY`/`ONCLICK`/`OFFCLICK` shipped 2026-08-11,
-`ONMOUSEMOVE`/`OFFMOUSEMOVE` shortly after, and `ONKEYUP`/`OFFKEYUP`/
-`ONRELEASE`/`OFFRELEASE` (the key/button *release* mirrors of `ONKEY`/
-`ONCLICK`) after that (see `docs/CHANGELOG.md`'s own entries for the
-full design and implementation writeup, and
-`docs/COMMAND_REFERENCE.md`'s "Event triggers" section for day-to-day
-usage). Only one item left, and it's the odd one out — a real new
-dependency, not just another handler in the same shape as the rest:
+Real ideas, not currently prioritized — pick up only on explicit request.
 
-- [ ] Joystick event triggers (`ONJOYBUTTON`/etc) — GTK4 has no built-in
-  gamepad support on macOS, so this needs an extra dependency (e.g.
-  GNOME's libmanette) or direct IOKit/HID access, a bigger lift than
-  mouse/keyboard and not needed to ship those.
+- [ ] Joystick event triggers (`ONJOYBUTTON`/etc) — the rest of the
+  mouse/keyboard event-trigger work (`ONKEY`/`OFFKEY`/`ONCLICK`/
+  `OFFCLICK`/`ONMOUSEMOVE`/`OFFMOUSEMOVE`/`ONKEYUP`/`OFFKEYUP`/
+  `ONRELEASE`/`OFFRELEASE`) shipped 2026-08-11 (see `docs/CHANGELOG.md`'s
+  own entries and `docs/COMMAND_REFERENCE.md`'s "Event triggers"
+  section). Joystick is the odd one out — a real new dependency, not
+  just another handler in the same shape as the rest: GTK4 has no
+  built-in gamepad support on macOS, so this needs an extra dependency
+  (e.g. GNOME's libmanette) or direct IOKit/HID access. Deprioritized
+  2026-08-12 at the user's request — not important right now.
