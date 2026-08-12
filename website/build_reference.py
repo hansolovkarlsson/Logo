@@ -187,7 +187,7 @@ PAGE_HEAD = """<!doctype html>
       <a href="tutorial.html">Tutorial</a>
       <a href="reference.html" class="current">Reference</a>
     </nav>
-    <a class="site-github" href="https://github.com/hansolovkarlsson/Logo" target="_blank" rel="noopener">GitHub &#8599;</a>
+    <a class="site-github" href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">GitHub &#8599;</a>
   </div>
 </header>
 
