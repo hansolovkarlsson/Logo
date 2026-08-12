@@ -22,17 +22,3 @@ Real ideas, not currently prioritized — pick up only on explicit request.
   (e.g. GNOME's libmanette) or direct IOKit/HID access. Deprioritized
   2026-08-12 at the user's request — not important right now.
 
-- [ ] `--headless` CLI flag for `bin/logomotive` — run a script with no
-  window shown at all, for scripting/automation use rather than
-  interactive use. Most of the hard part already exists:
-  `tools/vmrun_cli.c` (`bin/vmrun`, built 2026-08-12 for doc
-  verification) already runs a script with no GTK window/event loop,
-  auto-resolving suspensions and printing output — the natural path is
-  promoting that same approach into `bin/logomotive` itself as a real
-  flag (alongside the existing `--speed` one in `main.c`), not building
-  headless mode from scratch. Open design question: should headless
-  mode honor real timing (`SETSPEED`/`WAIT` actually pausing) or run
-  everything instantly like `vmrun`/the test harness do? Leaning
-  instant-by-default, since headless implies automation/batch use, not
-  watching a drawing unfold.
-

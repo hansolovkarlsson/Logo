@@ -1876,3 +1876,66 @@ itself, this is GTK teardown-ordering behavior with no VM-observable
 effect, and reproducing the exact timing race outside a real windowed
 run isn't something the headless test harness can do. Verified with a
 clean full rebuild and `make test` (all 8 suites).
+
+## `bin/logomotive --headless` — closes the last item on the roadmap that wasn't joystick support
+
+2026-08-12. Ships the other "Future / unplanned" `docs/ROADMAP.md`
+item: `bin/logomotive --headless script.logo` runs one script with no
+GTK window/event loop at all, prints its output, and exits — for
+scripting/automation use, not interactive use. Resolves the roadmap
+entry's own open design question (real timing vs. instant resolution)
+in favor of instant: every suspend point resolves with no real delay,
+since headless implies batch use, not watching a drawing unfold.
+
+New `src/headless.c`/`.h` (picked up automatically by the `bin/logomotive`
+build — its `Makefile` target already globs every `src/*.c`, so no
+`Makefile` change was needed), promoting `tools/vmrun_cli.c`'s same
+headless-VM-driver shape (built 2026-08-12 for doc verification) into
+the real app, but more complete in three ways `vmrun_cli.c` never
+needed to be, being just a doc-checking tool:
+
+- `WAITKEY`/`INPUT` read a genuine line from stdin instead of a canned
+  value — `INPUT` gets the line's own text; `WAITKEY` gets the same
+  line used as its "key name" (piping in `space` satisfies `WAITKEY =
+  "space`), a deliberate, documented stand-in for real single-keypress
+  capture (which would need raw terminal mode plus GDK-style key-name
+  mapping — see `ui.c`'s own `gdk_keyval_name` calls — that headless
+  mode's own batch-use case doesn't warrant). EOF resolves to `""`
+  rather than hanging.
+- `ANIMATESPRITE` resolves every remaining frame in a tight loop via
+  repeated `vm_resume_animatesprite` calls, rather than stopping at
+  "unsupported suspension" the way `vmrun_cli.c` deliberately does.
+- `LAUNCH` hands off to `agent.c`'s own `scheduler_run`, exactly the
+  construction `ui.c`'s `handle_vm_result` already uses for its own
+  `VM_RUN_SUSPENDED_LAUNCH` case (copy `vm` into a fresh `Agent`, run
+  the scheduler, minus the GTK redraw at the end since there's no
+  canvas here) — concurrent agents needed no changes at all to become
+  headless-safe, since `scheduler_run` was already a plain synchronous
+  loop with zero GTK dependency (confirmed directly: no
+  `gtk_`/`GTK_`/`g_timeout_add` call anywhere in `agent.c`).
+
+`main.c` gained `consume_headless_flag` (mirrors `consume_speed_flag`'s
+own argv-surgery approach exactly, just simpler — a bare flag, no
+value) and now branches before ever calling `gtk_application_new`:
+`--headless` skips `GtkApplication`/`g_application_run` entirely rather
+than opening and hiding a window, since `GApplication`'s own startup
+(session-bus registration, etc.) is overhead a script-only run
+shouldn't pay for. `LOADSPRITE`/`LOADSPRITESHEET` stay silent no-ops in
+headless mode, same as every other headless/test entry point already
+in this codebase (`request_redraw`/`load_sprite_image`/etc. all stay
+`NULL`) — so `SETSPRITE`/`ANIMATESPRITE` report their ordinary "no such
+sprite"/"no sprite set" errors if a script tries to use a sprite it
+never actually loaded.
+
+`README.md` gained a `--headless` usage example (next to the existing
+`--speed` one) and a `src/headless.h/c` line in the project-structure
+table; `docs/LANGUAGE.md`'s own "Interface" section gained a bullet
+covering the exact suspend-resolution rules above. No `tests/test_vm.c`
+coverage — this is process-level CLI/stdin/exit-code behavior with no
+VM-observable effect the existing harness's `output_sink`-capture
+pattern can check; verified instead by hand against several real
+scripts (a plain drawing script, `WAIT`/`SETSPEED` timing, `WAITKEY`/
+`INPUT` piped via stdin, `examples/concurrent_agents.logo`'s own
+`LAUNCH`/`AWAIT`/`YIELD`, `ANIMATESPRITE` with no sprite set, the
+missing-file and missing-argument error paths) and a clean full
+`make`/`make test` (all 8 suites, unaffected).

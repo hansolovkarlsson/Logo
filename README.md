@@ -61,6 +61,18 @@ step:
 bin/logomotive --speed 0.2 examples/multiple_turtles.logo
 ```
 
+Pass `--headless` to run a script with no window at all, for
+scripting/automation rather than interactive use -- prints whatever
+the script `PRINT`s, exits 0 on success, and every suspend point
+(`WAIT`, `SETSPEED`'s throttle, `ANIMATESPRITE`, `LAUNCH`'s concurrent
+agents) resolves instantly rather than pausing for real time.
+`WAITKEY`/`INPUT` read a real line from stdin instead of hanging:
+
+```sh
+bin/logomotive --headless examples/concurrent_agents.logo
+echo world | bin/logomotive --headless a_script_that_uses_input.logo
+```
+
 ## Example
 
 ```
@@ -94,6 +106,7 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 src/logo_types.h    shared structs (Turtle, Procedure, Variable, LogoApp)
 src/interpreter.h/c the Logo language core: eval_logo, expression parser
 src/ui.h/c          the GTK window: canvas, REPL entry, View menu
+src/headless.h/c    --headless: runs a script with no GTK window at all
 src/main.c          entry point
 tests/              headless tests for the interpreter core (make test)
 docs/               language reference and roadmap

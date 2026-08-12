@@ -1750,6 +1750,24 @@ unparseable expression just evaluates to `0`, same as always) — see
   runs synchronously start-to-finish, so short of this, a script with a
   runaway loop (or one that's simply taking a very long time) can't be
   stopped except by quitting the app entirely.
+- **`bin/logomotive --headless script.logo`** runs with no window at all,
+  for scripting/automation rather than interactive use: `PRINT` output
+  goes to stdout, the process exits when the script finishes (0 on
+  success), and every suspend point resolves instantly instead of
+  pausing for real time — `WAIT`/`SETSPEED`'s own throttle/`PAUSE`
+  resume immediately, `ANIMATESPRITE` resolves every frame in one tight
+  loop, and `LAUNCH`'s concurrent agents run to completion via the same
+  synchronous scheduler they always use (no real GTK timer was ever
+  involved there in the first place). `WAITKEY`/`INPUT` read a real
+  line from stdin (EOF resolves to an empty word/line rather than
+  hanging) — `WAITKEY` uses the whole line as its "key name", so piping
+  in `space` satisfies `WAITKEY = "space`, a deliberate simplification
+  of genuine single-keypress capture that headless mode's own batch-use
+  case doesn't need. `LOADSPRITE`/`LOADSPRITESHEET` are silent no-ops
+  (same as every other headless/test entry point in this codebase —
+  there's no window to decode an image into), so anything depending on
+  a loaded sprite (`SETSPRITE`, `ANIMATESPRITE`) reports its ordinary
+  "no such sprite"/"no sprite set" error if attempted.
 
 ## Known limitations (intentional, permanent design choices)
 
