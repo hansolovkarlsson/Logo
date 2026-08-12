@@ -65,8 +65,14 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 
 ## Documentation
 
+- [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — a from-scratch tutorial, for
+  learning Logo with no prior programming experience
+- [`docs/COMMAND_REFERENCE.md`](docs/COMMAND_REFERENCE.md) — every
+  command `bin/logo` actually supports, as a lookup table
 - [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — full language reference for the
   Logo dialect as implemented
+- [`docs/BYTECODE_REFERENCE.md`](docs/BYTECODE_REFERENCE.md) — the VM's
+  own instruction set, for anyone working on the interpreter itself
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned features and known gaps
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — history of completed work
 

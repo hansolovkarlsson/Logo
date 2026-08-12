@@ -116,7 +116,7 @@ LOGI_SRC = tools/logi_cli.c src/eval.c src/parser.c src/ast.c src/lexer.c src/in
 LOGI_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
 LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 
-.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm test-bytecode test-agent logi
+.PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm test-bytecode test-agent logi vmrun
 
 all: $(TARGET)
 
@@ -206,6 +206,22 @@ logi: $(LOGI_TARGET)
 $(LOGI_TARGET): $(LOGI_SRC) $(HEADERS)
 	@mkdir -p bin
 	$(CC) $(LOGI_CFLAGS) $(LOGI_SRC) -o $(LOGI_TARGET) $(LOGI_LDFLAGS)
+
+# tools/vmrun_cli.c -- logi's own counterpart for the VM
+# (compiler.c/bytecode.c/vm.c) instead of the tree-walker, needed
+# because bin/logo itself is a GTK event loop with no headless mode
+# (see vmrun_cli.c's own file comment). Same shape as LOGI_TARGET
+# above, plus compiler.c/bytecode.c linked in.
+VMRUN_TARGET = bin/vmrun
+VMRUN_SRC = tools/vmrun_cli.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
+VMRUN_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+VMRUN_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+
+vmrun: $(VMRUN_TARGET)
+
+$(VMRUN_TARGET): $(VMRUN_SRC) $(HEADERS)
+	@mkdir -p bin
+	$(CC) $(VMRUN_CFLAGS) $(VMRUN_SRC) -o $(VMRUN_TARGET) $(VMRUN_LDFLAGS)
 
 clean:
 	rm -rf build bin
