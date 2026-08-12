@@ -46,17 +46,6 @@ LogoMotive genuinely doesn't have — cross-checked against
   `docs/CONCURRENT_AGENTS_DESIGN.md`, worth comparing directly against
   it before designing.
 
-- [ ] **`.MACRO`** (UCBLogo) — a user-defined procedure whose *output*
-  (a list of Logo instructions) gets spliced back in and evaluated in
-  the caller's own context, rather than returned as a value — lets
-  users invent their own control structures (`REPEAT`/`IF`-like) that
-  can `STOP`/`OUTPUT`/`LOCAL` correctly in the caller's frame, which an
-  ordinary wrapper procedure can't do. LogoMotive already has the
-  building blocks (`RUN`/`EVAL`/`APPLY`, a real bytecode compiler) —
-  the missing piece is compile-time recognition of a macro name plus a
-  "run this list as if inlined" step. Genuinely new idiom (code that
-  writes code), not currently expressible at all.
-
 - [ ] **`ERRACT`-style error pause** (UCBLogo) — an uncaught error
   drops into an interactive pause at the failure point (locals still
   inspectable) instead of just printing a message and unwinding.
@@ -97,3 +86,48 @@ LogoMotive genuinely doesn't have — cross-checked against
   patch-grid or breeds ideas above (plot average patch value, or
   population size, over time). Lower priority than the others — more
   "new widget" than "new capability."
+
+## Not being considered yet — real complications found while scoping
+
+Unlike the list above, these aren't just unprioritized — scoping them
+out (2026-08-12) turned up a genuine architectural blocker, not just
+"nobody's gotten to it yet." Don't pick these up without discussing the
+complication first.
+
+- [ ] **`.MACRO`** (UCBLogo) — a user-defined procedure whose *output*
+  (a list of Logo instructions) gets spliced back in and evaluated in
+  the caller's own context, rather than returned as a value — lets
+  users invent their own control structures (`REPEAT`/`IF`-like) that
+  can `STOP`/`OUTPUT`/`LOCAL` correctly in the caller's frame, which an
+  ordinary wrapper procedure can't do.
+
+  **The complication**: that "`STOP`/`OUTPUT` reaches back into the
+  caller's frame" behavior is exactly the one thing `RUN`/`LOAD`/
+  `EXECTIME` already document as broken — `vm.c`'s own `exec_run`
+  comment says outright: `"RUN: OUTPUT/STOP escaping the RUN'd
+  snippet's own top level is not fully supported"`. Traced why: those
+  three all run a freshly-compiled scratch `BytecodeChunk` via a
+  recursive `vm_run` call that *shares the caller's own frame stack*
+  (`vm.h`'s `VmFrame` — deliberately, per `docs/BYTECODE_VM_DESIGN.md`)
+  — but a `VmFrame` only stores `{return_pc, value_stack_base}`, with
+  no record of *which chunk* that `return_pc` belongs to. If `STOP`/
+  `OUTPUT` inside the scratch code pops an ancestor frame that was
+  pushed against the *original* chunk, the recursive `vm_run` call
+  keeps interpreting that `return_pc` against its own *scratch* chunk
+  instead — a real correctness hazard (wrong bytecode array), not a
+  missing nice-to-have. A "shallow" `.MACRO` that just auto-`RUN`s a
+  macro's output would inherit this exact gap, which would kill the
+  entire point of macros: correct escape is what a macro-based custom
+  control structure needs to actually work.
+
+  A real port means fixing the underlying gap first — giving each
+  `VmFrame` its own chunk reference so `vm_run`'s dispatch loop can
+  correctly resume in the right chunk after a cross-boundary `STOP`/
+  `OUTPUT`. That's a change to the VM's core dispatch loop, not a
+  mechanical command port like everything shipped so far — bigger and
+  riskier than any single feature this project has shipped to date. One
+  real upside: fixing it would *also* retroactively fix `RUN`/`LOAD`/
+  `EXECTIME`'s own long-standing limitation, not just enable macros.
+  Deliberately not started (2026-08-12, at the user's request) —
+  discuss the frame/chunk redesign explicitly before picking this back
+  up.
