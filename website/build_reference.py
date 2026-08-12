@@ -175,13 +175,20 @@ PAGE_HEAD = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reference — LogoMotive</title>
+<link rel="icon" type="image/svg+xml" href="assets/turtle-mark.svg">
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
 <header class="site-header">
   <div class="site-header-inner">
-    <a class="site-logo" href="index.html"><span class="dot">&#9679;</span> LogoMotive</a>
+    <a class="site-logo" href="index.html">
+      <svg class="logo-mark" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path class="trail" d="M -22,24 A 22,22 0 0 1 -3,-20" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path class="turtle" d="M 0,-30 L 21,30 L -21,30 Z" transform="rotate(-14)"/>
+      </svg>
+      LogoMotive
+    </a>
     <nav class="site-nav">
       <a href="index.html">Home</a>
       <a href="tutorial.html">Tutorial</a>

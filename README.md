@@ -1,3 +1,5 @@
+<img src="website/assets/turtle-mark.svg" width="72" height="72" alt="">
+
 # LogoMotive
 
 LogoMotive is a small Logo interpreter with turtle graphics, built in C with

@@ -151,6 +151,9 @@ code, .mono {
   white-space: nowrap;
 }
 .site-logo .dot { color: var(--accent); }
+.site-logo .logo-mark { width: 22px; height: 22px; flex-shrink: 0; }
+.site-logo .logo-mark .trail { stroke: var(--accent2); }
+.site-logo .logo-mark .turtle { fill: var(--accent); }
 .site-nav {
   display: flex;
   gap: 4px;
