@@ -10,8 +10,11 @@ everything that's already landed.
 Nothing currently planned — every item previously listed here has
 shipped (see `docs/CHANGELOG.md` for the full history). Joystick event
 triggers (`ONJOYBUTTON`/etc, the one remaining item as of 2026-08-12)
-were dropped rather than deferred: `JOYSTICK?`/`JOYSTICKAXIS`/
-`JOYSTICKBUTTON?` (passive polling, already shipped in Phase 4) cover
-the common case, and event-style triggers would need either a real new
-dependency (e.g. GNOME's libmanette) or direct IOKit/HID access — not
-worth it for a feature the user doesn't consider a priority.
+were dropped rather than deferred: they'd need a real new dependency
+(GNOME's libmanette, or direct IOKit/HID access) not worth taking on
+for a feature the user doesn't consider a priority. Note this doesn't
+just mean triggers are missing — `JOYSTICK?`/`JOYSTICKAXIS`/
+`JOYSTICKBUTTON?` (plain polling) were never ported to the VM in the
+first place either, and stay listed in `docs/COMMAND_REFERENCE.md`'s
+own appendix of commands unreachable from `bin/logomotive` for the same
+reason: no joystick support of any kind is currently planned.
