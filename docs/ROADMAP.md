@@ -9,9 +9,21 @@ everything that's already landed.
 
 ## Robustness
 
-- [ ] Grow `tests/test_interpreter.c`'s coverage as new language features
-  land (it currently covers turtle motion, procedures/scoping, `IF`/
-  `WHILE`/booleans, words, and the error-message paths — see `make test`).
+- [ ] Grow `tests/test_vm.c`'s (and neighbors') error-path coverage as
+  new VM-only builtins land — `bin/logo` runs entirely on the VM, so
+  that's the suite that actually protects it, not
+  `tests/test_interpreter.c` (the old, frozen tree-walker `bin/logo`
+  no longer runs; still useful for its own regression tests and
+  shadow-diffing, just not a completeness target going forward). A
+  2026-08-12 audit of every `append_output` message in `vm.c` found 10
+  genuinely untested error/edge-case branches (`LAUNCH`/`AWAIT`/`YIELD`
+  used inside a deferred context, `RUN`/`LOAD`'s own OUTPUT/STOP-
+  escaping gap, `ONCLICK`/`ONKEYUP`/`ONMOUSEMOVE`/`ONRELEASE` registering
+  an undefined procedure, `SETSPRITEFRAME` out of range) — all now
+  covered; `LOADSPRITE`/`LOADSPRITESHEET`'s own "could not load" path is
+  the one still open, since it needs a fake `load_sprite_image` stub the
+  current test harness doesn't have (that callback is `NULL` in headless
+  tests, so its failure branch is structurally unreachable today).
 
 ## Future / unplanned
 

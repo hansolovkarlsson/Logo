@@ -1057,6 +1057,35 @@ TEST(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_su
     end_vm_session(s);
 }
 
+TEST(test_launch_inside_run_reports_an_error_instead_of_spawning_an_agent) {
+    // Same vm_run_depth>1 refusal WAIT/WAITKEY/INPUT/PAUSE/ANIMATESPRITE
+    // already use for a MAP/FILTER/REDUCE/FOREACH template (see above),
+    // but triggered via RUN instead -- LAUNCH/AWAIT/YIELD are VM-only
+    // (no tree-walker equivalent to shadow-diff against), so this is
+    // their first-ever automated coverage of any kind.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TO foo\nEND\nRUN [LAUNCH \"foo []]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("LAUNCH: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
+    end_vm_session(s);
+}
+
+TEST(test_await_inside_run_reports_an_error_instead_of_blocking) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("RUN [AWAIT]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("AWAIT: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
+    end_vm_session(s);
+}
+
+TEST(test_yield_inside_run_reports_an_error_instead_of_yielding) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("RUN [YIELD]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("YIELD: not supported inside a MAP/FILTER/REDUCE/FOREACH template, RUN, or LOAD\n");
+    end_vm_session(s);
+}
+
 TEST(test_setspeed_default_is_instant_no_delay_at_all) {
     // The default (0) is unchanged behavior -- FD never suspends unless
     // SETSPEED has actually been called.
@@ -1404,6 +1433,32 @@ TEST(test_run_self_referential_is_capped_not_a_crash) {
     shadow_diff_vm("MAKE \"x [RUN :x]\nRUN :x\nPRINT 1");
 }
 
+TEST(test_run_bare_stop_at_the_top_level_reports_the_escaping_gap) {
+    // The documented, VM-only frame-accounting gap exec_run's own
+    // comment describes: a bare STOP inside a RUN'd snippet's own top
+    // level (not inside its own TO...END) pops a frame belonging to
+    // CALLER, not the RUN'd snippet -- caught after the fact via
+    // frame_floor, not prevented. Confirmed here to do exactly what
+    // that comment says: the message fires, the statement right after
+    // RUN inside caller still executes (the corrupted frame carries on
+    // to caller's own next instruction), but caller's own return to the
+    // top level is skipped (top-level "after" below never prints) --
+    // this has no tree-walker equivalent to shadow-diff against.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO caller\n"
+        "  RUN [STOP]\n"
+        "  PRINT \"unreachable\n"
+        "END\n"
+        "caller\n"
+        "PRINT \"after", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output(
+        "RUN: OUTPUT/STOP escaping the RUN'd snippet's own top level is not fully supported\n"
+        "unreachable\n");
+    end_vm_session(s);
+}
+
 TEST(test_load_runs_a_files_contents_as_logo_source) {
     const char *path = "build/test_vm_load.logo";
     remove(path);
@@ -1430,6 +1485,31 @@ TEST(test_load_defined_procedure_is_callable_from_the_loading_script) {
     remove(path);
     g_file_set_contents(path, "TO greet :name\n  PRINT WORD \"hello- :name\nEND", -1, NULL);
     shadow_diff_vm("LOAD \"build/test_vm_load_callable.logo\ngreet \"world");
+    remove(path);
+}
+
+TEST(test_load_of_a_file_with_a_bare_stop_at_its_top_level_reports_the_escaping_gap) {
+    // LOAD's own version of exec_run's escaping gap above -- same
+    // frame_floor mechanism, same "message fires, corrupted frame
+    // carries on to the next statement inside caller, but caller's own
+    // return to the top level is skipped" shape, just triggered by a
+    // loaded FILE's bare top-level STOP instead of a RUN'd list's.
+    const char *path = "build/test_vm_load_escape.logo";
+    remove(path);
+    g_file_set_contents(path, "STOP\n", -1, NULL);
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO caller\n"
+        "  LOAD \"build/test_vm_load_escape.logo\n"
+        "  PRINT \"after-load\n"
+        "END\n"
+        "caller\n"
+        "PRINT \"after-caller", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output(
+        "LOAD: OUTPUT/STOP escaping the loaded file's own top level is not fully supported\n"
+        "after-load\n");
+    end_vm_session(s);
     remove(path);
 }
 
@@ -1507,6 +1587,43 @@ TEST(test_setspriteframe_without_a_sprite_set_reports_error) {
     expect_status(status, VM_RUN_HALTED, "run");
     expect_output("SETSPRITEFRAME: no sprite set (use SETSPRITE first)\n");
     end_vm_session(s);
+}
+
+TEST(test_setspriteframe_out_of_range_reports_error_and_leaves_the_frame_unchanged) {
+    // Same "poke app's own sprite fields directly" setup as
+    // test_animatesprite_with_a_positive_delay_advances_one_frame_per_suspend_then_completes
+    // below -- load_sprite_image is NULL here (no real GUI), so this is
+    // the only way to get "a sprite exists" without going through
+    // LOADSPRITE/SETSPRITE.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->sprite_count = 1;
+    snprintf(app->sprite_names[0], sizeof(app->sprite_names[0]), "test");
+    app->sprite_frame_cols[0] = 2;
+    app->sprite_frame_rows[0] = 2; // frame_count = 4, valid frames 0-3
+    app->turtles[0].sprite_index = 0;
+    app->turtles[0].sprite_frame = 1;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("SETSPRITEFRAME 10", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("SETSPRITEFRAME: frame out of range\n");
+    if (app->turtles[0].sprite_frame != 1) {
+        failures++;
+        printf("FAIL %s: sprite_frame -- expected unchanged (1), got %d\n", current_test, app->turtles[0].sprite_frame);
+    }
+
+    free(vm);
+    free(chunk);
+    parse_result_destroy(result);
+    free(app);
 }
 
 TEST(test_animatesprite_without_a_sprite_set_reports_error_and_does_not_suspend) {
@@ -2011,6 +2128,18 @@ TEST(test_onclick_registers_a_valid_three_param_handler) {
     end_vm_session(s);
 }
 
+TEST(test_onclick_of_a_missing_procedure_reports_an_error_and_registers_nothing) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("ONCLICK \"nosuchproc", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONCLICK: no such procedure \"nosuchproc\n");
+    if (s.app->onclick_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onclick_handler -- expected empty, got \"%s\"\n", current_test, s.app->onclick_handler);
+    }
+    end_vm_session(s);
+}
+
 TEST(test_onclick_of_a_wrong_arity_procedure_reports_an_error) {
     VmRunResult status;
     VmTestSession s = start_vm_session("TO BAD :X :Y\nEND\nONCLICK \"bad", &status);
@@ -2042,6 +2171,18 @@ TEST(test_onmousemove_registers_a_valid_two_param_handler) {
     if (strcasecmp(s.app->onmousemove_handler, "HANDLER") != 0) {
         failures++;
         printf("FAIL %s: onmousemove_handler -- expected \"HANDLER\", got \"%s\"\n", current_test, s.app->onmousemove_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onmousemove_of_a_missing_procedure_reports_an_error_and_registers_nothing) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("ONMOUSEMOVE \"nosuchproc", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONMOUSEMOVE: no such procedure \"nosuchproc\n");
+    if (s.app->onmousemove_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onmousemove_handler -- expected empty, got \"%s\"\n", current_test, s.app->onmousemove_handler);
     }
     end_vm_session(s);
 }
@@ -2081,6 +2222,18 @@ TEST(test_onkeyup_registers_a_valid_one_param_handler) {
     end_vm_session(s);
 }
 
+TEST(test_onkeyup_of_a_missing_procedure_reports_an_error_and_registers_nothing) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("ONKEYUP \"nosuchproc", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONKEYUP: no such procedure \"nosuchproc\n");
+    if (s.app->onkeyup_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onkeyup_handler -- expected empty, got \"%s\"\n", current_test, s.app->onkeyup_handler);
+    }
+    end_vm_session(s);
+}
+
 TEST(test_onkeyup_of_a_wrong_arity_procedure_reports_an_error) {
     VmRunResult status;
     VmTestSession s = start_vm_session("TO BAD :A :B\nEND\nONKEYUP \"bad", &status);
@@ -2112,6 +2265,18 @@ TEST(test_onrelease_registers_a_valid_three_param_handler) {
     if (strcasecmp(s.app->onrelease_handler, "HANDLER") != 0) {
         failures++;
         printf("FAIL %s: onrelease_handler -- expected \"HANDLER\", got \"%s\"\n", current_test, s.app->onrelease_handler);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_onrelease_of_a_missing_procedure_reports_an_error_and_registers_nothing) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("ONRELEASE \"nosuchproc", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ONRELEASE: no such procedure \"nosuchproc\n");
+    if (s.app->onrelease_handler[0] != '\0') {
+        failures++;
+        printf("FAIL %s: onrelease_handler -- expected empty, got \"%s\"\n", current_test, s.app->onrelease_handler);
     }
     end_vm_session(s);
 }
@@ -2732,6 +2897,9 @@ int main(void) {
     RUN(test_waitkey_suspends_and_resumes_correctly_through_several_nested_procedure_calls);
     RUN(test_waitkey_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
     RUN(test_wait_directly_inside_a_foreach_template_reports_an_error_instead_of_suspending);
+    RUN(test_launch_inside_run_reports_an_error_instead_of_spawning_an_agent);
+    RUN(test_await_inside_run_reports_an_error_instead_of_blocking);
+    RUN(test_yield_inside_run_reports_an_error_instead_of_yielding);
     RUN(test_setspeed_default_is_instant_no_delay_at_all);
     RUN(test_setspeed_makes_a_motion_command_suspend_then_resume_and_continue);
     RUN(test_setspeed_does_not_delay_non_motion_commands);
@@ -2765,15 +2933,18 @@ int main(void) {
     RUN(test_apply_never_hands_back_a_value_even_when_the_procedure_outputs);
     RUN(test_run_executes_a_stored_list_as_source);
     RUN(test_run_self_referential_is_capped_not_a_crash);
+    RUN(test_run_bare_stop_at_the_top_level_reports_the_escaping_gap);
     RUN(test_load_runs_a_files_contents_as_logo_source);
     RUN(test_load_of_missing_file_reports_error);
     RUN(test_load_defined_procedure_is_callable_from_the_loading_script);
+    RUN(test_load_of_a_file_with_a_bare_stop_at_its_top_level_reports_the_escaping_gap);
     RUN(test_setsprite_of_unknown_name_reports_error_and_leaves_default);
     RUN(test_setsprite_none_is_a_silent_reset_to_default);
     RUN(test_stampsprite_records_default_triangle_when_no_sprite_set);
     RUN(test_loadsprite_is_a_safe_no_op_with_no_gui);
     RUN(test_loadspritesheet_with_zero_cols_reports_error);
     RUN(test_setspriteframe_without_a_sprite_set_reports_error);
+    RUN(test_setspriteframe_out_of_range_reports_error_and_leaves_the_frame_unchanged);
     RUN(test_animatesprite_without_a_sprite_set_reports_error_and_does_not_suspend);
     RUN(test_animatesprite_directly_inside_a_map_template_reports_an_error_instead_of_suspending);
     RUN(test_animatesprite_with_a_positive_delay_advances_one_frame_per_suspend_then_completes);
@@ -2803,15 +2974,19 @@ int main(void) {
     RUN(test_onkey_of_a_wrong_arity_procedure_reports_an_error_and_leaves_the_previous_handler);
     RUN(test_offkey_clears_a_registered_handler);
     RUN(test_onclick_registers_a_valid_three_param_handler);
+    RUN(test_onclick_of_a_missing_procedure_reports_an_error_and_registers_nothing);
     RUN(test_onclick_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offclick_clears_a_registered_handler);
     RUN(test_onmousemove_registers_a_valid_two_param_handler);
+    RUN(test_onmousemove_of_a_missing_procedure_reports_an_error_and_registers_nothing);
     RUN(test_onmousemove_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offmousemove_clears_a_registered_handler);
     RUN(test_onkeyup_registers_a_valid_one_param_handler);
+    RUN(test_onkeyup_of_a_missing_procedure_reports_an_error_and_registers_nothing);
     RUN(test_onkeyup_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offkeyup_clears_a_registered_handler);
     RUN(test_onrelease_registers_a_valid_three_param_handler);
+    RUN(test_onrelease_of_a_missing_procedure_reports_an_error_and_registers_nothing);
     RUN(test_onrelease_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offrelease_clears_a_registered_handler);
     RUN(test_type_exact_output_has_no_trailing_newline);
