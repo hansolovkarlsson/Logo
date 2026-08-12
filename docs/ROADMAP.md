@@ -48,10 +48,9 @@ for the full writeup, and `docs/COMMAND_REFERENCE.md` for day-to-day
 usage). `REPCOUNT` — flagged there as the single highest-value
 remaining item, since it needed real VM support rather than a plain
 wrapper — shipped shortly after (see `docs/CHANGELOG.md`'s own
-"REPCOUNT" entry). What's left still needs real design work:
+"REPCOUNT" entry), and `READWORD`/`READCHAR` (file-channel reads
+finer-grained than the existing `READLINE`) after that. What's left:
 
-- [ ] `READWORD`/`READCHAR` — stdin reads finer-grained than the existing
-  `READLINE`
 - [ ] `EVAL` — run a list, collect outputs as a list
 
 ## Mouse/keyboard event triggers

@@ -625,6 +625,8 @@ self-referential `RUN` is capped and reported rather than crashing.
 | `OPENWRITE` | `"path` (operator) | Open a fresh write channel |
 | `OPENAPPEND` | `"path` (operator) | `OPENWRITE`, preloaded with the file's existing content |
 | `READLINE` | `channel` (operator) | Next line from an open read channel |
+| `READWORD` | `channel` (operator) | Next whitespace-delimited word from an open read channel |
+| `READCHAR` | `channel` (operator) | Next single raw character (whitespace included) from an open read channel |
 | `EOF?` | `channel` (operator) | Has a read channel run out of lines? |
 | `CLOSE` | `channel` | Close a channel — for a write channel, this is when it's saved |
 | `FILEPRINT` | `channel thing` | Append `thing` (rendered like `PRINT`) plus a newline |
@@ -644,6 +646,22 @@ CLOSE :rd
 
 PRINT MEMBER? "scratch.txt DIRECTORY   -> TRUE
 DELETEFILE "scratch.txt
+```
+
+`READWORD`/`READCHAR` are finer-grained than `READLINE`, sharing its
+own channel argument and EOF/bad-channel sentinel (an empty word,
+checkable via `EOF?` separately). `READWORD` skips any leading
+whitespace (space/tab/CR/LF), then reads up to the next whitespace or
+EOF, leaving that trailing whitespace for the *next* call to skip.
+`READCHAR` is the more primitive of the two: the single next raw byte,
+whitespace included, no skipping at all.
+
+```
+MAKE "ch OPENREAD "scratch.txt
+PRINT READWORD :ch    -> first (assuming scratch.txt starts "first line")
+PRINT READWORD :ch    -> line
+TYPE READCHAR :ch     -> the next single character, whatever it is
+CLOSE :ch
 ```
 
 `SAVEBYTECODE`/`LOADBYTECODE` (`docs/CHANGELOG.md`'s "Bytecode save/

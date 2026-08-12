@@ -1477,3 +1477,25 @@ saved to file, loaded back, and hand-assembled.
   way to count — a naive grep over the enum's own declaration lines
   undercounts, missing entries with an unusual comment layout) and
   updated from 55 to 58.
+
+- [x] **`READWORD`/`READCHAR`** (shipped shortly after `REPCOUNT`):
+  finer-grained file-channel reads than the existing `READLINE`, same
+  channel argument and EOF/bad-channel sentinel (an empty word, checked
+  via `EOF?` separately). No local precedent existed for word/char
+  boundary semantics anywhere in this codebase (not even in the old
+  tree-walking engine) — a fresh, deliberately simple design: `READWORD`
+  skips leading whitespace (space/tab/CR/LF) then reads to the next
+  whitespace or EOF, leaving trailing whitespace for the next call to
+  skip; `READCHAR` returns the single next raw byte, whitespace
+  included, no skipping. Both VM-only, like everything else added this
+  session — no existing `eval.c`/tree-walker wiring touched.
+
+  3 new `test_vm.c` cases (word-by-word across a multi-line file;
+  character-by-character including a mid-stream newline check via
+  `CHAR 10`; an invalid channel reporting empty for both); a new
+  `examples/readword_readchar.logo`; verified via `make test` (all 8
+  suites), a standalone ASan build of `test_vm` (clean, same raised
+  `ulimit -s` workaround), and a live `bin/logo` process-liveness
+  launch confirming the example's own scratch file gets created and
+  cleaned up correctly (proof every read succeeded without halting
+  early). Only `EVAL` remains open in `docs/ROADMAP.md`.

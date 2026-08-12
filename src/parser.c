@@ -129,6 +129,8 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "OPENWRITE", 1, { ARG_EXPR } },
     { "OPENAPPEND", 1, { ARG_EXPR } },
     { "READLINE", 1, { ARG_EXPR } },
+    { "READWORD", 1, { ARG_EXPR } },
+    { "READCHAR", 1, { ARG_EXPR } },
     { "EOF?", 1, { ARG_EXPR } },
     { "DIRECTORY", 0, { 0 } },
     { "CLOSE", 1, { ARG_EXPR } },

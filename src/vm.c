@@ -572,6 +572,58 @@ static EvalValue eval_repcount_value(Vm *vm) {
     return num_val(vm->repcount_depth > 0 ? vm->repcount_stack[vm->repcount_depth - 1] : -1);
 }
 
+// READWORD/READCHAR channel -- finer-grained reads than READLINE
+// (eval.c's own eval_readline_value, shared with the old tree-walker;
+// these two are VM-only, like every other builtin added this session
+// -- no existing convention anywhere in this codebase for word/char
+// boundaries to match, so both are a fresh, deliberately simple
+// design, not ported from anywhere).
+//
+// READWORD skips any leading whitespace (space/tab/CR/LF), then reads
+// up to the next whitespace or EOF, advancing past the word itself but
+// not past whatever whitespace follows it (so a second READWORD call
+// starts right after, ready to skip that leftover whitespace itself).
+// READCHAR returns the single next raw byte, whitespace included, with
+// no skipping at all -- the more primitive of the two. Both share
+// READLINE's own EOF/bad-channel sentinel (an empty word, checkable
+// via EOF? separately) rather than a distinct error path.
+static EvalValue eval_readword_value(LogoApp *app, EvalValue idx_val) {
+    int idx = (int)eval_to_number(idx_val);
+    if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
+        return word_val("");
+    }
+    FileChannel *fc = &app->file_channels[idx];
+    size_t len = strlen(fc->read_buffer);
+    size_t pos = fc->read_pos;
+    while (pos < len && isspace((unsigned char)fc->read_buffer[pos])) pos++;
+    if (pos >= len) {
+        fc->read_pos = pos;
+        return word_val("");
+    }
+    size_t start = pos;
+    while (pos < len && !isspace((unsigned char)fc->read_buffer[pos])) pos++;
+    char word[512];
+    size_t word_len = pos - start;
+    if (word_len >= sizeof(word)) word_len = sizeof(word) - 1;
+    memcpy(word, fc->read_buffer + start, word_len);
+    word[word_len] = '\0';
+    fc->read_pos = pos;
+    return word_val(word);
+}
+
+static EvalValue eval_readchar_value(LogoApp *app, EvalValue idx_val) {
+    int idx = (int)eval_to_number(idx_val);
+    if (idx < 0 || idx >= MAX_OPEN_FILES || app->file_channels[idx].mode != FILE_CHANNEL_READ) {
+        return word_val("");
+    }
+    FileChannel *fc = &app->file_channels[idx];
+    size_t len = strlen(fc->read_buffer);
+    if (fc->read_pos >= len) return word_val("");
+    char ch[2] = { fc->read_buffer[fc->read_pos], '\0' };
+    fc->read_pos++;
+    return word_val(ch);
+}
+
 // RANGE from to: integers from FROM to TO inclusive, counting by 1 if
 // FROM <= TO, otherwise by -1 -- standard Logo ISEQ convention, under a
 // more self-explanatory name (a deliberate user preference, same as
@@ -759,6 +811,8 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     if (strcasecmp(name, "OPENWRITE") == 0) return eval_openwrite_value(app, args[0]);
     if (strcasecmp(name, "OPENAPPEND") == 0) return eval_openappend_value(app, args[0]);
     if (strcasecmp(name, "READLINE") == 0) return eval_readline_value(app, args[0]);
+    if (strcasecmp(name, "READWORD") == 0) return eval_readword_value(app, args[0]);
+    if (strcasecmp(name, "READCHAR") == 0) return eval_readchar_value(app, args[0]);
     if (strcasecmp(name, "EOF?") == 0) return eval_eofp_value(app, args[0]);
     if (strcasecmp(name, "DIRECTORY") == 0) return eval_directory_value(app);
     if (strcasecmp(name, "CLOSE") == 0) {

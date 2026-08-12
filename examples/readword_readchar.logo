@@ -1,0 +1,30 @@
+; READWORD/READCHAR: finer-grained reads than READLINE, both taking an
+; OPENREAD'd channel just like it. READWORD skips leading whitespace
+; then reads up to the next whitespace (or EOF); READCHAR returns the
+; single next raw byte, whitespace included. Both share READLINE's own
+; EOF/bad-channel sentinel -- an empty word, checkable via EOF?.
+
+MAKE "wr OPENWRITE "scratch_readword.txt
+FILEPRINT :wr SENTENCE "hello "world
+FILEPRINT :wr "goodbye
+CLOSE :wr
+
+MAKE "wordch OPENREAD "scratch_readword.txt
+PRINT "one-word-at-a-time:
+PRINT READWORD :wordch
+PRINT READWORD :wordch
+PRINT READWORD :wordch
+PRINT EOF? :wordch
+CLOSE :wordch
+
+MAKE "charch OPENREAD "scratch_readword.txt
+PRINT "one-character-at-a-time:
+TYPE READCHAR :charch
+TYPE READCHAR :charch
+TYPE READCHAR :charch
+TYPE READCHAR :charch
+TYPE READCHAR :charch
+PRINT "
+CLOSE :charch
+
+DELETEFILE "scratch_readword.txt

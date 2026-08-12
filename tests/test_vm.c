@@ -1716,6 +1716,52 @@ TEST(test_openread_readline_reads_lines_then_eof) {
     end_vm_session(s);
 }
 
+TEST(test_openread_readword_reads_whitespace_delimited_words_then_eof) {
+    const char *path = "build/test_vm_readword.txt";
+    remove(path);
+    g_file_set_contents(path, "  hello   world\nfoo\tbar\n", -1, NULL);
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "MAKE \"ch OPENREAD \"build/test_vm_readword.txt\n"
+        "PRINT READWORD :ch\n"
+        "PRINT READWORD :ch\n"
+        "PRINT READWORD :ch\n"
+        "PRINT READWORD :ch\n"
+        "PRINT READWORD :ch\n"
+        "PRINT EOF? :ch\n"
+        "CLOSE :ch", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("hello\nworld\nfoo\nbar\n\nTRUE\n");
+    remove(path);
+    end_vm_session(s);
+}
+
+TEST(test_openread_readchar_reads_one_raw_byte_at_a_time_then_eof) {
+    const char *path = "build/test_vm_readchar.txt";
+    remove(path);
+    g_file_set_contents(path, "ab\n", -1, NULL);
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "MAKE \"ch OPENREAD \"build/test_vm_readchar.txt\n"
+        "PRINT READCHAR :ch\n"
+        "PRINT READCHAR :ch\n"
+        "IF READCHAR :ch = CHAR 10 [PRINT \"got-newline]\n"
+        "PRINT READCHAR :ch\n"
+        "CLOSE :ch", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("a\nb\ngot-newline\n\n");
+    remove(path);
+    end_vm_session(s);
+}
+
+TEST(test_readword_and_readchar_of_an_invalid_channel_report_empty) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT READWORD 99\nPRINT READCHAR 99", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("\n\n");
+    end_vm_session(s);
+}
+
 TEST(test_openappend_appends_to_existing_content) {
     const char *path = "build/test_vm_openappend.txt";
     remove(path);
@@ -2558,6 +2604,9 @@ int main(void) {
     RUN(test_save_writes_every_procedure_to_a_file);
     RUN(test_openwrite_fileprint_close_writes_the_file);
     RUN(test_openread_readline_reads_lines_then_eof);
+    RUN(test_openread_readword_reads_whitespace_delimited_words_then_eof);
+    RUN(test_openread_readchar_reads_one_raw_byte_at_a_time_then_eof);
+    RUN(test_readword_and_readchar_of_an_invalid_channel_report_empty);
     RUN(test_openappend_appends_to_existing_content);
     RUN(test_openread_of_missing_file_returns_negative_one);
     RUN(test_close_of_invalid_channel_reports_error);
