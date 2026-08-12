@@ -1,0 +1,1504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — Learning Logo</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-logo" href="index.html"><span class="dot">&#9679;</span> Logo</a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tutorial.html">Tutorial</a>
+      <a href="reference.html" class="current">Reference</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="page-hero" style="padding-bottom: 20px;">
+    <p class="eyebrow">Complete lookup table</p>
+    <h1 class="title" style="font-size: clamp(1.8rem, 3.5vw, 2.6rem);">Command reference</h1>
+    <p class="lede">Every command this interpreter actually recognizes, cross-checked directly against the parser's own grammar table — not copied from documentation without verification. Case-insensitive throughout.</p>
+  </div>
+
+  <div class="layout">
+    <aside class="index-nav">
+      <input class="index-search" type="search" id="ref-search" placeholder="Filter commands&hellip;" autocomplete="off">
+      <h4><a href="#sec-turtle-motion-state">Turtle motion &amp; state</a></h4>
+      <ul>
+        <li><a href="#forward" data-cmd="FORWARD">FORWARD</a></li>
+        <li><a href="#back" data-cmd="BACK">BACK</a></li>
+        <li><a href="#right" data-cmd="RIGHT">RIGHT</a></li>
+        <li><a href="#left" data-cmd="LEFT">LEFT</a></li>
+        <li><a href="#setxy" data-cmd="SETXY">SETXY</a></li>
+        <li><a href="#setx" data-cmd="SETX">SETX</a></li>
+        <li><a href="#sety" data-cmd="SETY">SETY</a></li>
+        <li><a href="#setheading" data-cmd="SETHEADING">SETHEADING</a></li>
+        <li><a href="#home" data-cmd="HOME">HOME</a></li>
+        <li><a href="#getx" data-cmd="GETX">GETX</a></li>
+        <li><a href="#gety" data-cmd="GETY">GETY</a></li>
+        <li><a href="#pos" data-cmd="POS">POS</a></li>
+        <li><a href="#heading" data-cmd="HEADING">HEADING</a></li>
+        <li><a href="#distance" data-cmd="DISTANCE">DISTANCE</a></li>
+        <li><a href="#towards" data-cmd="TOWARDS">TOWARDS</a></li>
+        <li><a href="#arc" data-cmd="ARC">ARC</a></li>
+      </ul>
+      <h4><a href="#sec-multiple-turtles">Multiple turtles</a></h4>
+      <ul>
+        <li><a href="#tell" data-cmd="TELL">TELL</a></li>
+        <li><a href="#who" data-cmd="WHO">WHO</a></li>
+        <li><a href="#turtles" data-cmd="TURTLES">TURTLES</a></li>
+      </ul>
+      <h4><a href="#sec-pen-color-canvas">Pen, color &amp; canvas</a></h4>
+      <ul>
+        <li><a href="#penup" data-cmd="PENUP">PENUP</a></li>
+        <li><a href="#pendown" data-cmd="PENDOWN">PENDOWN</a></li>
+        <li><a href="#setpencolor" data-cmd="SETPENCOLOR">SETPENCOLOR</a></li>
+        <li><a href="#setpenwidth" data-cmd="SETPENWIDTH">SETPENWIDTH</a></li>
+        <li><a href="#setbackground" data-cmd="SETBACKGROUND">SETBACKGROUND</a></li>
+        <li><a href="#clear" data-cmd="CLEAR">CLEAR</a></li>
+        <li><a href="#clean" data-cmd="CLEAN">CLEAN</a></li>
+        <li><a href="#cleartext" data-cmd="CLEARTEXT">CLEARTEXT</a></li>
+        <li><a href="#hideturtle" data-cmd="HIDETURTLE">HIDETURTLE</a></li>
+        <li><a href="#showturtle" data-cmd="SHOWTURTLE">SHOWTURTLE</a></li>
+        <li><a href="#wrap" data-cmd="WRAP">WRAP</a></li>
+        <li><a href="#fence" data-cmd="FENCE">FENCE</a></li>
+        <li><a href="#window" data-cmd="WINDOW">WINDOW</a></li>
+        <li><a href="#label" data-cmd="LABEL">LABEL</a></li>
+        <li><a href="#fill" data-cmd="FILL">FILL</a></li>
+        <li><a href="#eraserect" data-cmd="ERASERECT">ERASERECT</a></li>
+      </ul>
+      <h4><a href="#sec-turtle-speed">Turtle speed</a></h4>
+      <ul>
+        <li><a href="#setspeed" data-cmd="SETSPEED">SETSPEED</a></li>
+        <li><a href="#speed" data-cmd="SPEED">SPEED</a></li>
+      </ul>
+      <h4><a href="#sec-expressions-math">Expressions &amp; math</a></h4>
+      <ul>
+        <li><a href="#mod" data-cmd="MOD">MOD</a></li>
+        <li><a href="#power" data-cmd="POWER">POWER</a></li>
+        <li><a href="#sqrt" data-cmd="SQRT">SQRT</a></li>
+        <li><a href="#abs" data-cmd="ABS">ABS</a></li>
+        <li><a href="#round" data-cmd="ROUND">ROUND</a></li>
+        <li><a href="#int" data-cmd="INT">INT</a></li>
+        <li><a href="#sin" data-cmd="SIN">SIN</a></li>
+        <li><a href="#sec" data-cmd="SEC">SEC</a></li>
+        <li><a href="#asec" data-cmd="ASEC">ASEC</a></li>
+        <li><a href="#arctan2" data-cmd="ARCTAN2">ARCTAN2</a></li>
+        <li><a href="#log" data-cmd="LOG">LOG</a></li>
+        <li><a href="#ln" data-cmd="LN">LN</a></li>
+        <li><a href="#exp" data-cmd="EXP">EXP</a></li>
+        <li><a href="#pi" data-cmd="PI">PI</a></li>
+        <li><a href="#random" data-cmd="RANDOM">RANDOM</a></li>
+        <li><a href="#rerandom" data-cmd="RERANDOM">RERANDOM</a></li>
+        <li><a href="#bitand" data-cmd="BITAND">BITAND</a></li>
+        <li><a href="#bitnot" data-cmd="BITNOT">BITNOT</a></li>
+        <li><a href="#lshift" data-cmd="LSHIFT">LSHIFT</a></li>
+      </ul>
+      <h4><a href="#sec-variables">Variables</a></h4>
+      <ul>
+        <li><a href="#make" data-cmd="MAKE">MAKE</a></li>
+        <li><a href="#thing" data-cmd="THING">THING</a></li>
+        <li><a href="#local" data-cmd="LOCAL">LOCAL</a></li>
+        <li><a href="#names" data-cmd="NAMES">NAMES</a></li>
+        <li><a href="#procedures" data-cmd="PROCEDURES">PROCEDURES</a></li>
+      </ul>
+      <h4><a href="#sec-output">Output</a></h4>
+      <ul>
+        <li><a href="#print" data-cmd="PRINT">PRINT</a></li>
+        <li><a href="#type" data-cmd="TYPE">TYPE</a></li>
+      </ul>
+      <h4><a href="#sec-procedures">Procedures</a></h4>
+      <ul>
+        <li><a href="#to" data-cmd="TO">TO</a></li>
+        <li><a href="#output" data-cmd="OUTPUT">OUTPUT</a></li>
+        <li><a href="#stop" data-cmd="STOP">STOP</a></li>
+        <li><a href="#erase" data-cmd="ERASE">ERASE</a></li>
+        <li><a href="#text" data-cmd="TEXT">TEXT</a></li>
+        <li><a href="#show" data-cmd="SHOW">SHOW</a></li>
+        <li><a href="#defined" data-cmd="DEFINED?">DEFINED?</a></li>
+      </ul>
+      <h4><a href="#sec-conditionals">Conditionals</a></h4>
+      <ul>
+        <li><a href="#if" data-cmd="IF">IF</a></li>
+        <li><a href="#ifelse" data-cmd="IFELSE">IFELSE</a></li>
+      </ul>
+      <h4><a href="#sec-loops">Loops</a></h4>
+      <ul>
+        <li><a href="#repeat" data-cmd="REPEAT">REPEAT</a></li>
+        <li><a href="#repcount" data-cmd="REPCOUNT">REPCOUNT</a></li>
+        <li><a href="#while" data-cmd="WHILE">WHILE</a></li>
+        <li><a href="#for" data-cmd="FOR">FOR</a></li>
+        <li><a href="#forever" data-cmd="FOREVER">FOREVER</a></li>
+      </ul>
+      <h4><a href="#sec-words-lists">Words &amp; lists</a></h4>
+      <ul>
+        <li><a href="#first" data-cmd="FIRST">FIRST</a></li>
+        <li><a href="#butfirst" data-cmd="BUTFIRST">BUTFIRST</a></li>
+        <li><a href="#last" data-cmd="LAST">LAST</a></li>
+        <li><a href="#butlast" data-cmd="BUTLAST">BUTLAST</a></li>
+        <li><a href="#count" data-cmd="COUNT">COUNT</a></li>
+        <li><a href="#item" data-cmd="ITEM">ITEM</a></li>
+        <li><a href="#pick" data-cmd="PICK">PICK</a></li>
+        <li><a href="#word" data-cmd="WORD">WORD</a></li>
+        <li><a href="#sentence" data-cmd="SENTENCE">SENTENCE</a></li>
+        <li><a href="#list" data-cmd="LIST">LIST</a></li>
+        <li><a href="#fput" data-cmd="FPUT">FPUT</a></li>
+        <li><a href="#lput" data-cmd="LPUT">LPUT</a></li>
+        <li><a href="#flatten" data-cmd="FLATTEN">FLATTEN</a></li>
+        <li><a href="#parse" data-cmd="PARSE">PARSE</a></li>
+        <li><a href="#subst" data-cmd="SUBST">SUBST</a></li>
+        <li><a href="#ascii" data-cmd="ASCII">ASCII</a></li>
+        <li><a href="#char" data-cmd="CHAR">CHAR</a></li>
+        <li><a href="#uppercase" data-cmd="UPPERCASE">UPPERCASE</a></li>
+        <li><a href="#range" data-cmd="RANGE">RANGE</a></li>
+        <li><a href="#spacedrange" data-cmd="SPACEDRANGE">SPACEDRANGE</a></li>
+      </ul>
+      <h4><a href="#sec-type-membership-predicates">Type &amp; membership predicates</a></h4>
+      <ul>
+        <li><a href="#word-2" data-cmd="WORD?">WORD?</a></li>
+        <li><a href="#list-2" data-cmd="LIST?">LIST?</a></li>
+        <li><a href="#number" data-cmd="NUMBER?">NUMBER?</a></li>
+        <li><a href="#array" data-cmd="ARRAY?">ARRAY?</a></li>
+        <li><a href="#empty" data-cmd="EMPTY?">EMPTY?</a></li>
+        <li><a href="#member" data-cmd="MEMBER?">MEMBER?</a></li>
+      </ul>
+      <h4><a href="#sec-higher-order-iteration">Higher-order iteration</a></h4>
+      <ul>
+        <li><a href="#map" data-cmd="MAP">MAP</a></li>
+        <li><a href="#filter" data-cmd="FILTER">FILTER</a></li>
+        <li><a href="#reduce" data-cmd="REDUCE">REDUCE</a></li>
+        <li><a href="#foreach" data-cmd="FOREACH">FOREACH</a></li>
+      </ul>
+      <h4><a href="#sec-arrays">Arrays</a></h4>
+      <ul>
+        <li><a href="#array-2" data-cmd="ARRAY">ARRAY</a></li>
+        <li><a href="#item-2" data-cmd="ITEM">ITEM</a></li>
+        <li><a href="#setitem" data-cmd="SETITEM">SETITEM</a></li>
+        <li><a href="#fillarray" data-cmd="FILLARRAY">FILLARRAY</a></li>
+      </ul>
+      <h4><a href="#sec-vector-operators">Vector operators</a></h4>
+      <ul>
+        <li><a href="#dot" data-cmd="DOT">DOT</a></li>
+        <li><a href="#cross" data-cmd="CROSS">CROSS</a></li>
+      </ul>
+      <h4><a href="#sec-property-lists">Property lists</a></h4>
+      <ul>
+        <li><a href="#setprop" data-cmd="SETPROP">SETPROP</a></li>
+        <li><a href="#getprop" data-cmd="GETPROP">GETPROP</a></li>
+        <li><a href="#removeprop" data-cmd="REMOVEPROP">REMOVEPROP</a></li>
+        <li><a href="#proplist" data-cmd="PROPLIST">PROPLIST</a></li>
+      </ul>
+      <h4><a href="#sec-prototype-style-objects">Prototype-style objects</a></h4>
+      <ul>
+        <li><a href="#new" data-cmd="NEW">NEW</a></li>
+        <li><a href="#send" data-cmd="SEND">SEND</a></li>
+      </ul>
+      <h4><a href="#sec-error-handling">Error handling</a></h4>
+      <ul>
+        <li><a href="#catch" data-cmd="CATCH">CATCH</a></li>
+        <li><a href="#throw" data-cmd="THROW">THROW</a></li>
+      </ul>
+      <h4><a href="#sec-deferred-execution">Deferred execution</a></h4>
+      <ul>
+        <li><a href="#run" data-cmd="RUN">RUN</a></li>
+        <li><a href="#apply" data-cmd="APPLY">APPLY</a></li>
+        <li><a href="#eval" data-cmd="EVAL">EVAL</a></li>
+      </ul>
+      <h4><a href="#sec-files">Files</a></h4>
+      <ul>
+        <li><a href="#load" data-cmd="LOAD">LOAD</a></li>
+        <li><a href="#save" data-cmd="SAVE">SAVE</a></li>
+        <li><a href="#openread" data-cmd="OPENREAD">OPENREAD</a></li>
+        <li><a href="#openwrite" data-cmd="OPENWRITE">OPENWRITE</a></li>
+        <li><a href="#openappend" data-cmd="OPENAPPEND">OPENAPPEND</a></li>
+        <li><a href="#readline" data-cmd="READLINE">READLINE</a></li>
+        <li><a href="#readword" data-cmd="READWORD">READWORD</a></li>
+        <li><a href="#readchar" data-cmd="READCHAR">READCHAR</a></li>
+        <li><a href="#eof" data-cmd="EOF?">EOF?</a></li>
+        <li><a href="#close" data-cmd="CLOSE">CLOSE</a></li>
+        <li><a href="#fileprint" data-cmd="FILEPRINT">FILEPRINT</a></li>
+        <li><a href="#deletefile" data-cmd="DELETEFILE">DELETEFILE</a></li>
+        <li><a href="#directory" data-cmd="DIRECTORY">DIRECTORY</a></li>
+        <li><a href="#savebytecode" data-cmd="SAVEBYTECODE">SAVEBYTECODE</a></li>
+        <li><a href="#loadbytecode" data-cmd="LOADBYTECODE">LOADBYTECODE</a></li>
+      </ul>
+      <h4><a href="#sec-turtle-sprites">Turtle sprites</a></h4>
+      <ul>
+        <li><a href="#loadsprite" data-cmd="LOADSPRITE">LOADSPRITE</a></li>
+        <li><a href="#loadspritesheet" data-cmd="LOADSPRITESHEET">LOADSPRITESHEET</a></li>
+        <li><a href="#setsprite" data-cmd="SETSPRITE">SETSPRITE</a></li>
+        <li><a href="#setspriteframe" data-cmd="SETSPRITEFRAME">SETSPRITEFRAME</a></li>
+        <li><a href="#stampsprite" data-cmd="STAMPSPRITE">STAMPSPRITE</a></li>
+        <li><a href="#animatesprite" data-cmd="ANIMATESPRITE">ANIMATESPRITE</a></li>
+      </ul>
+      <h4><a href="#sec-resizable-canvas">Resizable canvas</a></h4>
+      <ul>
+        <li><a href="#setcanvassize" data-cmd="SETCANVASSIZE">SETCANVASSIZE</a></li>
+        <li><a href="#canvassize" data-cmd="CANVASSIZE">CANVASSIZE</a></li>
+      </ul>
+      <h4><a href="#sec-suspend-resume">Suspend/resume</a></h4>
+      <ul>
+        <li><a href="#wait" data-cmd="WAIT">WAIT</a></li>
+        <li><a href="#waitkey" data-cmd="WAITKEY">WAITKEY</a></li>
+        <li><a href="#input" data-cmd="INPUT">INPUT</a></li>
+        <li><a href="#pause" data-cmd="PAUSE">PAUSE</a></li>
+        <li><a href="#continue" data-cmd="CONTINUE">CONTINUE</a></li>
+      </ul>
+      <h4><a href="#sec-concurrent-agents">Concurrent agents</a></h4>
+      <ul>
+        <li><a href="#launch" data-cmd="LAUNCH">LAUNCH</a></li>
+        <li><a href="#await" data-cmd="AWAIT">AWAIT</a></li>
+        <li><a href="#yield" data-cmd="YIELD">YIELD</a></li>
+      </ul>
+      <h4><a href="#sec-clock">Clock</a></h4>
+      <ul>
+        <li><a href="#time" data-cmd="TIME">TIME</a></li>
+        <li><a href="#date" data-cmd="DATE">DATE</a></li>
+        <li><a href="#milliseconds" data-cmd="MILLISECONDS">MILLISECONDS</a></li>
+      </ul>
+      <h4><a href="#sec-event-triggers">Event triggers</a></h4>
+      <ul>
+        <li><a href="#onkey" data-cmd="ONKEY">ONKEY</a></li>
+        <li><a href="#offkey" data-cmd="OFFKEY">OFFKEY</a></li>
+        <li><a href="#onkeyup" data-cmd="ONKEYUP">ONKEYUP</a></li>
+        <li><a href="#offkeyup" data-cmd="OFFKEYUP">OFFKEYUP</a></li>
+        <li><a href="#onclick" data-cmd="ONCLICK">ONCLICK</a></li>
+        <li><a href="#offclick" data-cmd="OFFCLICK">OFFCLICK</a></li>
+        <li><a href="#onrelease" data-cmd="ONRELEASE">ONRELEASE</a></li>
+        <li><a href="#offrelease" data-cmd="OFFRELEASE">OFFRELEASE</a></li>
+        <li><a href="#onmousemove" data-cmd="ONMOUSEMOVE">ONMOUSEMOVE</a></li>
+        <li><a href="#offmousemove" data-cmd="OFFMOUSEMOVE">OFFMOUSEMOVE</a></li>
+      </ul>
+      <h4><a href="#sec-appendix-documented-elsewhere-not-available-in-bin-logo">Appendix: documented elsewhere, not available in <code class="inline">bin/logo</code></a></h4>
+    </aside>
+
+    <main class="ref-main">
+      <div class="ref-section" id="sec-turtle-motion-state">
+        <h2>Turtle motion &amp; state</h2>
+        <p>Turtle <code class="inline">0</code> starts at the canvas center (<code class="inline">250 250</code> on the default 500x500 canvas), facing angle <code class="inline">0</code> (north/up), pen down. Angle increases clockwise. Every command here acts on the <strong>current</strong> turtle (see "Multiple turtles").</p>
+        <div class="ref-entry" id="forward">
+          <h3><code class="inline">FORWARD</code></h3>
+          <p class="sig">Aliases: <code class="inline">FD</code> &nbsp;&middot;&nbsp; Args: <code class="inline">expr</code></p>
+          <p>Move forward, drawing if pen is down</p>
+        </div>
+        <div class="ref-entry" id="back">
+          <h3><code class="inline">BACK</code></h3>
+          <p class="sig">Aliases: <code class="inline">BK</code> &nbsp;&middot;&nbsp; Args: <code class="inline">expr</code></p>
+          <p>Move backward</p>
+        </div>
+        <div class="ref-entry" id="right">
+          <h3><code class="inline">RIGHT</code></h3>
+          <p class="sig">Aliases: <code class="inline">RT</code> &nbsp;&middot;&nbsp; Args: <code class="inline">expr</code></p>
+          <p>Turn clockwise <code class="inline">expr</code> degrees</p>
+        </div>
+        <div class="ref-entry" id="left">
+          <h3><code class="inline">LEFT</code></h3>
+          <p class="sig">Aliases: <code class="inline">LT</code> &nbsp;&middot;&nbsp; Args: <code class="inline">expr</code></p>
+          <p>Turn counter-clockwise <code class="inline">expr</code> degrees</p>
+        </div>
+        <div class="ref-entry" id="setxy">
+          <h3><code class="inline">SETXY</code></h3>
+          <p class="sig">Args: <code class="inline">x y</code></p>
+          <p>Jump to an absolute position; heading unchanged</p>
+        </div>
+        <div class="ref-entry" id="setx">
+          <h3><code class="inline">SETX</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code></p>
+          <p>Jump to a new x, y unchanged</p>
+        </div>
+        <div class="ref-entry" id="sety">
+          <h3><code class="inline">SETY</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code></p>
+          <p>Jump to a new y, x unchanged</p>
+        </div>
+        <div class="ref-entry" id="setheading">
+          <h3><code class="inline">SETHEADING</code></h3>
+          <p class="sig">Aliases: <code class="inline">SETH</code> &nbsp;&middot;&nbsp; Args: <code class="inline">expr</code></p>
+          <p>Set absolute heading (no movement)</p>
+        </div>
+        <div class="ref-entry" id="home">
+          <h3><code class="inline">HOME</code></h3>
+          <p>Jump back to the start position, heading <code class="inline">0</code></p>
+        </div>
+        <div class="ref-entry" id="getx">
+          <h3><code class="inline">GETX</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current x as a number</p>
+        </div>
+        <div class="ref-entry" id="gety">
+          <h3><code class="inline">GETY</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current y as a number</p>
+        </div>
+        <div class="ref-entry" id="pos">
+          <h3><code class="inline">POS</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current position as <code class="inline">[x y]</code></p>
+        </div>
+        <div class="ref-entry" id="heading">
+          <h3><code class="inline">HEADING</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current heading (raw, not normalized to 0-360)</p>
+        </div>
+        <div class="ref-entry" id="distance">
+          <h3><code class="inline">DISTANCE</code></h3>
+          <p class="sig">Args: <code class="inline">p1 p2</code> (operator)</p>
+          <p>Straight-line distance between two <code class="inline">[x y]</code> points</p>
+        </div>
+        <div class="ref-entry" id="towards">
+          <h3><code class="inline">TOWARDS</code></h3>
+          <p class="sig">Args: <code class="inline">point</code> (operator)</p>
+          <p>Heading from here to face <code class="inline">point</code></p>
+        </div>
+        <div class="ref-entry" id="arc">
+          <h3><code class="inline">ARC</code></h3>
+          <p class="sig">Args: <code class="inline">angle radius</code></p>
+          <p>Draw part/all of a circle centered here; turtle doesn't move</p>
+        </div>
+        <pre class="code">REPEAT 4 [FD 100 RT 90]        ; a square
+
+SETXY 0 0
+SETHEADING TOWARDS [120 90]
+FORWARD DISTANCE POS [120 90]  ; walk exactly to [120 90]
+PRINT POS                       -&gt; 120 90
+
+ARC 360 80                      ; a full circle, radius 80
+RT 45 ARC 90 40                 ; a quarter arc, offset by heading</pre>
+        <p><code class="inline">SETXY</code>/<code class="inline">HOME</code> draw a connecting line if the pen is down, exactly like <code class="inline">FORWARD</code>. <code class="inline">SETXY</code>/<code class="inline">SETHEADING</code>/<code class="inline">RT</code>/<code class="inline">LT</code> <em>set</em> position/heading; <code class="inline">POS</code>/<code class="inline">HEADING</code>/<code class="inline">GETX</code>/<code class="inline">GETY</code> <em>read</em> them back — both directions exist for every axis. See <code class="inline">docs/LANGUAGE.md</code>'s "Turtle commands"/"Turtle state queries" sections for edge behavior and the exact 0-360 vs raw heading convention.</p>
+      </div>
+      <div class="ref-section" id="sec-multiple-turtles">
+        <h2>Multiple turtles</h2>
+        <div class="ref-entry" id="tell">
+          <h3><code class="inline">TELL</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (0-9)</p>
+          <p>Switch which turtle is current, creating it on first use</p>
+        </div>
+        <div class="ref-entry" id="who">
+          <h3><code class="inline">WHO</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current turtle's index</p>
+        </div>
+        <div class="ref-entry" id="turtles">
+          <h3><code class="inline">TURTLES</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Count of turtles that exist so far (<code class="inline">TELL</code>'d or <code class="inline">LAUNCH</code>'d)</p>
+        </div>
+        <pre class="code">TELL 1
+FD 100
+TELL 0
+RT 90 FD 50
+PRINT WHO   -&gt; 0
+PRINT TURTLES -&gt; 2</pre>
+        <p>A script that never calls <code class="inline">TELL</code> behaves as if there were only ever one turtle. Turtle indices run <code class="inline">0</code>-<code class="inline">9</code> (<code class="inline">MAX_TURTLES</code> = 10, shared with <code class="inline">LAUNCH</code>'s own agent turtles — see "Concurrent agents").</p>
+      </div>
+      <div class="ref-section" id="sec-pen-color-canvas">
+        <h2>Pen, color &amp; canvas</h2>
+        <div class="ref-entry" id="penup">
+          <h3><code class="inline">PENUP</code></h3>
+          <p class="sig">Aliases: <code class="inline">PU</code></p>
+          <p>Stop drawing while moving</p>
+        </div>
+        <div class="ref-entry" id="pendown">
+          <h3><code class="inline">PENDOWN</code></h3>
+          <p class="sig">Aliases: <code class="inline">PD</code></p>
+          <p>Resume drawing while moving</p>
+        </div>
+        <div class="ref-entry" id="setpencolor">
+          <h3><code class="inline">SETPENCOLOR</code></h3>
+          <p class="sig">Aliases: <code class="inline">SETPC</code> &nbsp;&middot;&nbsp; Args: <code class="inline">r g b</code> (0-255 each)</p>
+          <p>Color new lines are drawn in</p>
+        </div>
+        <div class="ref-entry" id="setpenwidth">
+          <h3><code class="inline">SETPENWIDTH</code></h3>
+          <p class="sig">Aliases: <code class="inline">SETPW</code> &nbsp;&middot;&nbsp; Args: <code class="inline">expr</code> (clamped 0.5-20)</p>
+          <p>Width new lines are drawn with</p>
+        </div>
+        <div class="ref-entry" id="setbackground">
+          <h3><code class="inline">SETBACKGROUND</code></h3>
+          <p class="sig">Aliases: <code class="inline">SETBG</code> &nbsp;&middot;&nbsp; Args: <code class="inline">r g b</code> (0-255 each)</p>
+          <p>Canvas background color (single, canvas-wide)</p>
+        </div>
+        <div class="ref-entry" id="clear">
+          <h3><code class="inline">CLEAR</code></h3>
+          <p class="sig">Aliases: <code class="inline">CS</code></p>
+          <p>Erase canvas, reset every turtle's position/angle</p>
+        </div>
+        <div class="ref-entry" id="clean">
+          <h3><code class="inline">CLEAN</code></h3>
+          <p>Erase canvas only — turtle position/angle untouched</p>
+        </div>
+        <div class="ref-entry" id="cleartext">
+          <h3><code class="inline">CLEARTEXT</code>\*</h3>
+          <p class="sig">Aliases: <code class="inline">CT</code>\*</p>
+          <p>Clear the history pane</p>
+        </div>
+        <div class="ref-entry" id="hideturtle">
+          <h3><code class="inline">HIDETURTLE</code></h3>
+          <p class="sig">Aliases: <code class="inline">HT</code></p>
+          <p>Stop drawing the turtle marker (trail still draws)</p>
+        </div>
+        <div class="ref-entry" id="showturtle">
+          <h3><code class="inline">SHOWTURTLE</code></h3>
+          <p class="sig">Aliases: <code class="inline">ST</code></p>
+          <p>Draw the turtle marker again</p>
+        </div>
+        <div class="ref-entry" id="wrap">
+          <h3><code class="inline">WRAP</code></h3>
+          <p>Canvas-edge crossing wraps to the opposite side</p>
+        </div>
+        <div class="ref-entry" id="fence">
+          <h3><code class="inline">FENCE</code></h3>
+          <p>Canvas-edge crossing stops the turtle there, with an error</p>
+        </div>
+        <div class="ref-entry" id="window">
+          <h3><code class="inline">WINDOW</code></h3>
+          <p>No canvas boundary (the default)</p>
+        </div>
+        <div class="ref-entry" id="label">
+          <h3><code class="inline">LABEL</code></h3>
+          <p class="sig">Args: <code class="inline">word</code>/<code class="inline">list</code></p>
+          <p>Draw text at the turtle's position, in its pen color</p>
+        </div>
+        <div class="ref-entry" id="fill">
+          <h3><code class="inline">FILL</code></h3>
+          <p>Flood-fill the region containing the turtle with pen color</p>
+        </div>
+        <div class="ref-entry" id="eraserect">
+          <h3><code class="inline">ERASERECT</code></h3>
+          <p class="sig">Args: <code class="inline">width height</code></p>
+          <p>Erase a rectangle centered on the turtle to background color</p>
+        </div>
+        <p>\* <code class="inline">CLEARTEXT</code>/<code class="inline">CT</code> are documented here to match <code class="inline">LANGUAGE.md</code>'s own listing, but see the Appendix — <strong>not currently reachable from <code class="inline">bin/logo</code></strong> (old-engine-only).</p>
+        <pre class="code">SETPENCOLOR 255 0 0
+FD 80 RT 90
+SETPC 0 100 255
+FD 80
+
+WRAP
+SETXY 600 250      ; wraps to 100 250 on a 500-wide canvas
+
+SETPENCOLOR 200 0 0
+LABEL &quot;hello
+REPEAT 4 [FD 100 RT 90]
+PENUP SETXY 300 200 PENDOWN
+SETPENCOLOR 255 200 0
+FILL</pre>
+        <p>Each drawn line/label/fill/erase remembers the pen state (color, width) it was made with — <code class="inline">SETPENCOLOR</code> doesn't recolor what's already drawn. <code class="inline">FILL</code>/<code class="inline">ERASERECT</code>/<code class="inline">LABEL</code> are all frozen the instant they're called: a line drawn afterward doesn't retroactively interact with them. See <code class="inline">docs/LANGUAGE.md</code>'s "Turtle commands" section for the exact <code class="inline">WRAP</code>/<code class="inline">FENCE</code> boundary behavior.</p>
+      </div>
+      <div class="ref-section" id="sec-turtle-speed">
+        <h2>Turtle speed</h2>
+        <div class="ref-entry" id="setspeed">
+          <h3><code class="inline">SETSPEED</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (seconds)</p>
+          <p>Pause this long after every motion command; <code class="inline">0</code> (default) is instant</p>
+        </div>
+        <div class="ref-entry" id="speed">
+          <h3><code class="inline">SPEED</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current setting, in seconds</p>
+        </div>
+        <pre class="code">SETSPEED 0.1
+REPEAT 4 [FD 100 RT 90]   ; each side/turn now takes 0.1s to appear
+SETSPEED 0                ; back to instant</pre>
+        <p>Applies to every turtle-<em>motion</em> command (<code class="inline">FD</code>/<code class="inline">BK</code>/<code class="inline">RT</code>/<code class="inline">LT</code>/<code class="inline">SETXY</code>/ <code class="inline">SETX</code>/<code class="inline">SETY</code>/<code class="inline">SETHEADING</code>/<code class="inline">HOME</code>/<code class="inline">ARC</code>) — not <code class="inline">PENUP</code>/<code class="inline">SETPENCOLOR</code>/ <code class="inline">TELL</code>/etc. Also settable from the command line: <code class="inline">bin/logo --speed 0.2 script.logo</code>. See <code class="inline">docs/LANGUAGE.md</code>'s "Turtle commands" section for its interaction with templates/<code class="inline">RUN</code>/<code class="inline">LOAD</code>/concurrent agents.</p>
+      </div>
+      <div class="ref-section" id="sec-expressions-math">
+        <h2>Expressions &amp; math</h2>
+        <p>Anywhere a command expects a number, a full expression is accepted: literals (<code class="inline">100</code>, <code class="inline">3.5</code>, <code class="inline">-2</code>), operators (<code class="inline">+ - <em> /</code>, standard precedence, unary <code class="inline">+</code>/<code class="inline">-</code>), parentheses (<code class="inline">(1 + 2) </em> 3</code>), variables (<code class="inline">:name</code>), and the prefix operators below (tighter-binding than <code class="inline">* / + -</code>, so <code class="inline">MOD 7 3 + 1</code> is <code class="inline">(MOD 7 3) + 1</code>).</p>
+        <div class="ref-entry" id="mod">
+          <h3><code class="inline">MOD</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code></p>
+          <p>Remainder, sign of <code class="inline">b</code> (<code class="inline">MOD -7 3</code> is <code class="inline">2</code>, not <code class="inline">-1</code>)</p>
+        </div>
+        <div class="ref-entry" id="power">
+          <h3><code class="inline">POWER</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code></p>
+          <p><code class="inline">a</code> raised to the power <code class="inline">b</code></p>
+        </div>
+        <div class="ref-entry" id="sqrt">
+          <h3><code class="inline">SQRT</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Square root</p>
+        </div>
+        <div class="ref-entry" id="abs">
+          <h3><code class="inline">ABS</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Absolute value</p>
+        </div>
+        <div class="ref-entry" id="round">
+          <h3><code class="inline">ROUND</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Round to nearest integer</p>
+        </div>
+        <div class="ref-entry" id="int">
+          <h3><code class="inline">INT</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Truncate toward zero (<code class="inline">INT -2.9</code> is <code class="inline">-2</code>, unlike <code class="inline">ROUND -2.9</code> = <code class="inline">-3</code>)</p>
+        </div>
+        <div class="ref-entry" id="sin">
+          <h3><code class="inline">SIN</code> <code class="inline">COS</code> <code class="inline">TAN</code> <code class="inline">ASIN</code> <code class="inline">ACOS</code> <code class="inline">ARCTAN</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Trig, degrees not radians</p>
+        </div>
+        <div class="ref-entry" id="sec">
+          <h3><code class="inline">SEC</code> <code class="inline">CSC</code> <code class="inline">COT</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Secant/cosecant/cotangent, degrees (<code class="inline">1/COS</code>, <code class="inline">1/SIN</code>, <code class="inline">1/TAN</code>)</p>
+        </div>
+        <div class="ref-entry" id="asec">
+          <h3><code class="inline">ASEC</code> <code class="inline">ACSC</code> <code class="inline">ACOT</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Their inverses, returning degrees</p>
+        </div>
+        <div class="ref-entry" id="arctan2">
+          <h3><code class="inline">ARCTAN2</code></h3>
+          <p class="sig">Args: <code class="inline">y x</code></p>
+          <p>Two-argument arctangent (full-circle heading), degrees</p>
+        </div>
+        <div class="ref-entry" id="log">
+          <h3><code class="inline">LOG</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Base-10 logarithm</p>
+        </div>
+        <div class="ref-entry" id="ln">
+          <h3><code class="inline">LN</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Natural logarithm</p>
+        </div>
+        <div class="ref-entry" id="exp">
+          <h3><code class="inline">EXP</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p><code class="inline">e</code> raised to a power (<code class="inline">LN</code>'s inverse)</p>
+        </div>
+        <div class="ref-entry" id="pi">
+          <h3><code class="inline">PI</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>The constant π</p>
+        </div>
+        <div class="ref-entry" id="random">
+          <h3><code class="inline">RANDOM</code></h3>
+          <p class="sig">Args: <code class="inline">n</code></p>
+          <p>Random integer in <code class="inline">[0, n)</code></p>
+        </div>
+        <div class="ref-entry" id="rerandom">
+          <h3><code class="inline">RERANDOM</code></h3>
+          <p>Reseed <code class="inline">RANDOM</code> to a fixed, reproducible sequence (instead of the clock)</p>
+        </div>
+        <div class="ref-entry" id="bitand">
+          <h3><code class="inline">BITAND</code> <code class="inline">BITOR</code> <code class="inline">BITXOR</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code></p>
+          <p>Bitwise AND/OR/XOR</p>
+        </div>
+        <div class="ref-entry" id="bitnot">
+          <h3><code class="inline">BITNOT</code></h3>
+          <p class="sig">Args: <code class="inline">a</code></p>
+          <p>Bitwise complement</p>
+        </div>
+        <div class="ref-entry" id="lshift">
+          <h3><code class="inline">LSHIFT</code> <code class="inline">RSHIFT</code></h3>
+          <p class="sig">Args: <code class="inline">a n</code></p>
+          <p>Bit-shift <code class="inline">a</code> left/right by <code class="inline">n</code></p>
+        </div>
+        <pre class="code">PRINT MOD 7 3            -&gt; 1
+PRINT MOD -7 3            -&gt; 2
+PRINT POWER 2 10          -&gt; 1024
+PRINT SQRT 16              -&gt; 4
+PRINT ABS -5                -&gt; 5
+PRINT ROUND 2.6             -&gt; 3
+PRINT INT -2.9               -&gt; -2
+PRINT SIN 90                  -&gt; 1
+PRINT SEC 60                   -&gt; 2
+PRINT ARCTAN2 1 1                -&gt; 45
+PRINT PI                          -&gt; 3.14159
+REPEAT 5 [PRINT RANDOM 10]
+PRINT BITAND 12 10                 -&gt; 8
+PRINT LSHIFT 1 4                    -&gt; 16
+PRINT RSHIFT 16 4                    -&gt; 1</pre>
+        <p>Division by zero evaluates to <code class="inline">0</code>. <code class="inline">SQRT</code> of a negative, <code class="inline">ASIN</code>/<code class="inline">ACOS</code> outside <code class="inline">[-1, 1]</code>, and <code class="inline">LOG</code>/<code class="inline">LN</code> of a non-positive number all return <code class="inline">nan</code> rather than erroring. <code class="inline">BITAND</code>/<code class="inline">BITOR</code>/<code class="inline">BITXOR</code>/<code class="inline">BITNOT</code>/ <code class="inline">LSHIFT</code>/<code class="inline">RSHIFT</code> truncate through a 64-bit integer first, same as <code class="inline">INT</code>'s own truncate-toward-zero, just wide enough for real bit patterns. <code class="inline">LSHIFT</code>/<code class="inline">RSHIFT</code> each also tolerate a negative <code class="inline">n</code> by flipping direction (so <code class="inline">LSHIFT a (-n)</code> behaves like <code class="inline">RSHIFT a n</code>), a robustness fallback rather than the intended way to ask for the other direction — use the other operator instead. A negative literal written as a <em>later</em> argument to a prefix operator needs parentheses (<code class="inline">RSHIFT 16 (-4)</code>, not <code class="inline">RSHIFT 16 -4</code>) — unparenthesized, the trailing <code class="inline">-4</code> greedily continues as binary subtraction on the argument before it instead of starting a fresh one.</p>
+      </div>
+      <div class="ref-section" id="sec-variables">
+        <h2>Variables</h2>
+        <div class="ref-entry" id="make">
+          <h3><code class="inline">MAKE</code></h3>
+          <p class="sig">Args: <code class="inline">"name expr</code></p>
+          <p>Set (or create) a variable</p>
+        </div>
+        <div class="ref-entry" id="thing">
+          <h3><code class="inline">THING</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (operator)</p>
+          <p>Read a variable back, name computed at runtime</p>
+        </div>
+        <div class="ref-entry" id="local">
+          <h3><code class="inline">LOCAL</code></h3>
+          <p class="sig">Args: <code class="inline">"name</code></p>
+          <p>Declare a variable scoped to the current call</p>
+        </div>
+        <div class="ref-entry" id="names">
+          <h3><code class="inline">NAMES</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>List of every currently-defined global variable's name</p>
+        </div>
+        <div class="ref-entry" id="procedures">
+          <h3><code class="inline">PROCEDURES</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>List of every currently-defined procedure's name</p>
+        </div>
+        <pre class="code">MAKE &quot;size 100
+FD :size
+MAKE &quot;size :size + 10
+
+TO uselocal
+  LOCAL &quot;x
+  MAKE &quot;x 1
+  PRINT :x
+END</pre>
+        <p><code class="inline">:name</code> reads a variable inline (only ever a literal name written in source); <code class="inline">THING</code> takes any expression evaluating to a word, so the name to read can be computed (<code class="inline">THING WORD "item :n</code>). Procedure parameters and <code class="inline">LOCAL</code>s are dynamically-scoped, real recursion-safe variables, not text substitution — see <code class="inline">docs/LANGUAGE.md</code>'s "Variables &amp; scoping" section for the full shadowing rules. Real recursion depth is ~2000 nested calls before "Recursion too deep, call ignored" (raised from the original 200 — see <code class="inline">docs/BYTECODE_VM_DESIGN.md</code>'s "VM-owned scope storage" entry).</p>
+      </div>
+      <div class="ref-section" id="sec-output">
+        <h2>Output</h2>
+        <div class="ref-entry" id="print">
+          <h3><code class="inline">PRINT</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code></p>
+          <p>Write to the history pane, with a trailing newline</p>
+        </div>
+        <div class="ref-entry" id="type">
+          <h3><code class="inline">TYPE</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code></p>
+          <p>Same as <code class="inline">PRINT</code>, but no trailing newline</p>
+        </div>
+        <pre class="code">PRINT &quot;hello
+PRINT 2 + 2
+PRINT [hello there, this prints as one line]
+
+TYPE &quot;Hello, TYPE &quot; TYPE &quot;world!    -&gt; Hello, world! (one line, three calls)</pre>
+        <p>A word prints as itself; a list prints as its elements space-joined (its own outer brackets never shown, but a nested sublist's brackets are, since that's the only way to tell elements apart) — see <code class="inline">docs/LANGUAGE.md</code>'s "Output" section for the exact nesting rule. <code class="inline">TYPE</code> follows the same rendering rules as <code class="inline">PRINT</code>, just without the newline each call would otherwise add — several <code class="inline">TYPE</code>s (or a <code class="inline">TYPE</code> followed by a <code class="inline">PRINT</code>) build up one line piece by piece.</p>
+      </div>
+      <div class="ref-section" id="sec-procedures">
+        <h2>Procedures</h2>
+        <div class="ref-entry" id="to">
+          <h3><code class="inline">TO ... END</code></h3>
+          <p class="sig">Args: (special grammar)</p>
+          <p>Define a procedure, up to 8 parameters</p>
+        </div>
+        <div class="ref-entry" id="output">
+          <h3><code class="inline">OUTPUT</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code></p>
+          <p>End the call, handing <code class="inline">expr</code> back as a value</p>
+        </div>
+        <div class="ref-entry" id="stop">
+          <h3><code class="inline">STOP</code></h3>
+          <p>End the call with no value</p>
+        </div>
+        <div class="ref-entry" id="erase">
+          <h3><code class="inline">ERASE</code></h3>
+          <p class="sig">Args: <code class="inline">"name</code></p>
+          <p>Delete a procedure definition</p>
+        </div>
+        <div class="ref-entry" id="text">
+          <h3><code class="inline">TEXT</code></h3>
+          <p class="sig">Args: <code class="inline">"name</code> (operator)</p>
+          <p>Procedure's raw body, tokenized into a list of words</p>
+        </div>
+        <div class="ref-entry" id="show">
+          <h3><code class="inline">SHOW</code></h3>
+          <p class="sig">Args: <code class="inline">"name</code></p>
+          <p>Print a procedure's own definition back out</p>
+        </div>
+        <div class="ref-entry" id="defined">
+          <h3><code class="inline">DEFINED?</code></h3>
+          <p class="sig">Args: <code class="inline">word</code> (operator)</p>
+          <p>Whether a procedure by this name currently exists</p>
+        </div>
+        <pre class="code">TO rect :w :h
+  REPEAT 2 [FD :w RT 90 FD :h RT 90]
+END
+rect 100 40
+
+TO fact :n
+  IF :n = 0 [OUTPUT 1]
+  OUTPUT :n * fact :n - 1
+END
+PRINT fact 5     -&gt; 120
+
+PRINT DEFINED? &quot;rect   -&gt; TRUE
+PRINT DEFINED? &quot;bogus  -&gt; FALSE</pre>
+        <p>Defining a <code class="inline">TO</code> with an existing name overwrites it in place. Calling a procedure that never reaches <code class="inline">OUTPUT</code> as if it were a value is a reported error, not a silent <code class="inline">0</code>. See <code class="inline">docs/LANGUAGE.md</code>'s "Procedures"/"OUTPUT, STOP" sections for the full detail.</p>
+      </div>
+      <div class="ref-section" id="sec-conditionals">
+        <h2>Conditionals</h2>
+        <div class="ref-entry" id="if">
+          <h3><code class="inline">IF &lt;condition&gt; [block]</code></h3>
+          <p>Run <code class="inline">block</code> only if true</p>
+          <p>Same as <code class="inline">IFELSE</code> below</p>
+        </div>
+        <div class="ref-entry" id="ifelse">
+          <h3><code class="inline">IFELSE &lt;condition&gt; [block] [block]</code></h3>
+          <p>Run the first block if true, the second if false</p>
+        </div>
+        <pre class="code">IF :size &gt; 10 [PRINT &quot;big]
+IFELSE :size &gt; 10 [PRINT &quot;big] [PRINT &quot;small]
+IF :x &gt; 0 AND :x &lt; 10 [PRINT &quot;in-range]
+IF NOT :x = 0 [PRINT &quot;nonzero]</pre>
+        <p>A condition is an expression optionally followed by a relational operator (<code class="inline">&lt; &gt; = &lt;= &gt;= &lt;&gt;</code>) and a second expression — no operator means truthiness (nonzero number, non-empty word, or the literal word <code class="inline">TRUE</code>; <code class="inline">FALSE</code> is the one special-cased false word). <code class="inline">AND</code>/<code class="inline">OR</code>/<code class="inline">NOT</code> combine clauses, standard precedence, <strong>no parentheses for grouping</strong> booleans (parens are arithmetic-only).</p>
+      </div>
+      <div class="ref-section" id="sec-loops">
+        <h2>Loops</h2>
+        <div class="ref-entry" id="repeat">
+          <h3><code class="inline">REPEAT</code></h3>
+          <p class="sig">Args: <code class="inline">expr [block]</code></p>
+          <p>Run <code class="inline">block</code> <code class="inline">expr</code> times</p>
+        </div>
+        <div class="ref-entry" id="repcount">
+          <h3><code class="inline">REPCOUNT</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>The innermost running <code class="inline">REPEAT</code>'s 1-indexed pass number, or <code class="inline">-1</code> outside any <code class="inline">REPEAT</code></p>
+        </div>
+        <div class="ref-entry" id="while">
+          <h3><code class="inline">WHILE</code></h3>
+          <p class="sig">Args: <code class="inline">&lt;condition&gt; [block]</code></p>
+          <p>Re-check <code class="inline">condition</code> before each pass</p>
+        </div>
+        <div class="ref-entry" id="for">
+          <h3><code class="inline">FOR</code></h3>
+          <p class="sig">Args: <code class="inline">[var start limit step] [block]</code></p>
+          <p>Counted loop exposing <code class="inline">:var</code></p>
+        </div>
+        <div class="ref-entry" id="forever">
+          <h3><code class="inline">FOREVER</code></h3>
+          <p class="sig">Args: <code class="inline">[block]</code></p>
+          <p>Loop forever — only <code class="inline">STOP</code>/<code class="inline">OUTPUT</code>/<code class="inline">THROW</code> end it</p>
+        </div>
+        <pre class="code">REPEAT 4 [FD 100 RT 90]
+REPEAT 5 [PRINT REPCOUNT]  -&gt; 1  2  3  4  5
+
+MAKE &quot;i 0
+WHILE :i &lt; 4 [FD 80 RT 90 MAKE &quot;i :i + 1]
+
+FOR [i 1 5] [PRINT :i]
+FOR [i 0 10 5] [PRINT :i]
+
+TO countdown
+  MAKE &quot;i 5
+  FOREVER [
+    PRINT :i
+    MAKE &quot;i :i - 1
+    IF :i &lt; 1 [STOP]
+  ]
+END</pre>
+        <p><code class="inline">FOR</code>'s <code class="inline">step</code> defaults to <code class="inline">1</code>, or <code class="inline">-1</code> when counting down. <code class="inline">WHILE</code>/ <code class="inline">FOR</code>/<code class="inline">FOREVER</code> all stop themselves after 1,000,000 iterations as a runaway-loop safety net.</p>
+        <p><code class="inline">REPCOUNT</code> is dynamic, not lexical: a procedure called from inside a <code class="inline">REPEAT</code> sees the <em>caller's</em> <code class="inline">REPCOUNT</code>, not <code class="inline">-1</code> — it reflects whichever <code class="inline">REPEAT</code> is innermost at the moment <code class="inline">REPCOUNT</code> actually runs, regardless of how many procedure calls sit in between. Nested <code class="inline">REPEAT</code>s each get their own count; <code class="inline">REPCOUNT</code> always reports the innermost one, and the outer one's own count is unaffected once the inner loop ends. <code class="inline">WHILE</code>/<code class="inline">FOR</code>/<code class="inline">FOREVER</code> don't have a <code class="inline">REPCOUNT</code> of their own — <code class="inline">FOR</code> already exposes its own counter as <code class="inline">:var</code>.</p>
+      </div>
+      <div class="ref-section" id="sec-words-lists">
+        <h2>Words &amp; lists</h2>
+        <div class="ref-entry" id="first">
+          <h3><code class="inline">FIRST</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>First top-level element (list) / character (word)</p>
+        </div>
+        <div class="ref-entry" id="butfirst">
+          <h3><code class="inline">BUTFIRST</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>Everything after the first element/character</p>
+        </div>
+        <div class="ref-entry" id="last">
+          <h3><code class="inline">LAST</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>Last top-level element/character</p>
+        </div>
+        <div class="ref-entry" id="butlast">
+          <h3><code class="inline">BUTLAST</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>Everything except the last element/character</p>
+        </div>
+        <div class="ref-entry" id="count">
+          <h3><code class="inline">COUNT</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>Number of top-level elements/characters</p>
+        </div>
+        <div class="ref-entry" id="item">
+          <h3><code class="inline">ITEM</code></h3>
+          <p class="sig">Args: <code class="inline">index thing</code> (operator)</p>
+          <p>Element/character at position <code class="inline">index</code> (1-indexed)</p>
+        </div>
+        <div class="ref-entry" id="pick">
+          <h3><code class="inline">PICK</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>A random element/character/array slot</p>
+        </div>
+        <div class="ref-entry" id="word">
+          <h3><code class="inline">WORD</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code> (operator)</p>
+          <p>Concatenate two words, no space</p>
+        </div>
+        <div class="ref-entry" id="sentence">
+          <h3><code class="inline">SENTENCE</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code> (operator, alias <code class="inline">SE</code>)</p>
+          <p>Splice two values into one flat list</p>
+        </div>
+        <div class="ref-entry" id="list">
+          <h3><code class="inline">LIST</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code> (operator)</p>
+          <p>Wrap two values as a 2-element list</p>
+        </div>
+        <div class="ref-entry" id="fput">
+          <h3><code class="inline">FPUT</code></h3>
+          <p class="sig">Args: <code class="inline">thing list</code> (operator)</p>
+          <p>Prepend <code class="inline">thing</code> as a new first element</p>
+        </div>
+        <div class="ref-entry" id="lput">
+          <h3><code class="inline">LPUT</code></h3>
+          <p class="sig">Args: <code class="inline">thing list</code> (operator)</p>
+          <p>Append <code class="inline">thing</code> as a new last element</p>
+        </div>
+        <div class="ref-entry" id="flatten">
+          <h3><code class="inline">FLATTEN</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>Collapse every level of nesting into one flat list</p>
+        </div>
+        <div class="ref-entry" id="parse">
+          <h3><code class="inline">PARSE</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>Tokenize printed text by whitespace into a list of words</p>
+        </div>
+        <div class="ref-entry" id="subst">
+          <h3><code class="inline">SUBST</code></h3>
+          <p class="sig">Args: <code class="inline">old new thing</code> (operator)</p>
+          <p>Replace every element equal to <code class="inline">old</code> with <code class="inline">new</code></p>
+        </div>
+        <div class="ref-entry" id="ascii">
+          <h3><code class="inline">ASCII</code></h3>
+          <p class="sig">Args: <code class="inline">word</code> (operator)</p>
+          <p>A single character's code point (0-255, plain C <code class="inline">char</code>, not Unicode)</p>
+        </div>
+        <div class="ref-entry" id="char">
+          <h3><code class="inline">CHAR</code></h3>
+          <p class="sig">Args: <code class="inline">n</code> (operator)</p>
+          <p>The inverse of <code class="inline">ASCII</code> — code point to single-character word</p>
+        </div>
+        <div class="ref-entry" id="uppercase">
+          <h3><code class="inline">UPPERCASE</code> <code class="inline">LOWERCASE</code></h3>
+          <p class="sig">Args: <code class="inline">word</code> (operator)</p>
+          <p>Case-convert every character</p>
+        </div>
+        <div class="ref-entry" id="range">
+          <h3><code class="inline">RANGE</code></h3>
+          <p class="sig">Args: <code class="inline">from to</code> (operator)</p>
+          <p>List of integers from <code class="inline">from</code> to <code class="inline">to</code> inclusive, counting by ±1</p>
+        </div>
+        <div class="ref-entry" id="spacedrange">
+          <h3><code class="inline">SPACEDRANGE</code></h3>
+          <p class="sig">Args: <code class="inline">from to count</code> (operator)</p>
+          <p><code class="inline">count</code> equally-spaced numbers from <code class="inline">from</code> to <code class="inline">to</code> inclusive</p>
+        </div>
+        <pre class="code">MAKE &quot;colors [red green blue]
+PRINT FIRST :colors       -&gt; red
+PRINT BUTFIRST :colors    -&gt; green blue
+PRINT ITEM 2 :colors      -&gt; green
+
+PRINT WORD &quot;hello &quot;world  -&gt; helloworld
+PRINT SENTENCE &quot;a &quot;b      -&gt; a b
+PRINT SE [1 2] [3 4]      -&gt; 1 2 3 4
+PRINT LIST [1 2] [3 4]    -&gt; [1 2] [3 4]
+PRINT FPUT &quot;red [green blue] -&gt; red green blue
+
+PRINT FLATTEN [1 [2 3] [4 [5 6]] 7]  -&gt; 1 2 3 4 5 6 7
+PRINT PARSE &quot;hello                    -&gt; hello
+PRINT SUBST &quot;b &quot;x [a b c b]           -&gt; a x c x
+
+PRINT ASCII &quot;A          -&gt; 65
+PRINT CHAR 65            -&gt; A
+PRINT UPPERCASE &quot;shout    -&gt; SHOUT
+PRINT RANGE 1 5                       -&gt; 1 2 3 4 5
+PRINT SPACEDRANGE 0 10 3              -&gt; 0 5 10</pre>
+        <p>A word is a sequence of characters, so <code class="inline">FIRST</code>/<code class="inline">BUTFIRST</code>/<code class="inline">LAST</code>/ <code class="inline">BUTLAST</code>/<code class="inline">COUNT</code>/<code class="inline">ITEM</code>/<code class="inline">PICK</code> all work one level deeper on a word than on a list (substrings, no separate syntax needed) — see <code class="inline">docs/LANGUAGE.md</code>'s "List operators (and substrings)" section for the full detail. <code class="inline">'raw text with spaces'</code> (single-quoted) is the one way to write a literal-whitespace word directly in source.</p>
+      </div>
+      <div class="ref-section" id="sec-type-membership-predicates">
+        <h2>Type &amp; membership predicates</h2>
+        <div class="ref-entry" id="word-2">
+          <h3><code class="inline">WORD?</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (operator)</p>
+          <p>Is this a word?</p>
+        </div>
+        <div class="ref-entry" id="list-2">
+          <h3><code class="inline">LIST?</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (operator)</p>
+          <p>Is this a list?</p>
+        </div>
+        <div class="ref-entry" id="number">
+          <h3><code class="inline">NUMBER?</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (operator)</p>
+          <p>Is this a number?</p>
+        </div>
+        <div class="ref-entry" id="array">
+          <h3><code class="inline">ARRAY?</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (operator)</p>
+          <p>Is this an array?</p>
+        </div>
+        <div class="ref-entry" id="empty">
+          <h3><code class="inline">EMPTY?</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (operator)</p>
+          <p>Is this list/word empty?</p>
+        </div>
+        <div class="ref-entry" id="member">
+          <h3><code class="inline">MEMBER?</code></h3>
+          <p class="sig">Args: <code class="inline">thing container</code> (operator)</p>
+          <p>Is <code class="inline">thing</code> an element (list) / substring (word) of <code class="inline">container</code>?</p>
+        </div>
+        <pre class="code">PRINT WORD? &quot;hi            -&gt; TRUE
+PRINT EMPTY? []             -&gt; TRUE
+PRINT MEMBER? &quot;b [a b c]     -&gt; TRUE
+PRINT MEMBER? &quot;ell &quot;hello    -&gt; TRUE
+IF WORD? &quot;hi [PRINT &quot;yes]</pre>
+        <p>All six return <code class="inline">TRUE</code>/<code class="inline">FALSE</code> (real, printable words — see <code class="inline">docs/LANGUAGE.md</code>'s "TRUE, FALSE" section), usable directly in <code class="inline">IF</code>/<code class="inline">WHILE</code>.</p>
+      </div>
+      <div class="ref-section" id="sec-higher-order-iteration">
+        <h2>Higher-order iteration</h2>
+        <div class="ref-entry" id="map">
+          <h3><code class="inline">MAP</code></h3>
+          <p class="sig">Args: <code class="inline">[template] list</code> (operator)</p>
+          <p>New list from evaluating <code class="inline">template</code> once per element</p>
+        </div>
+        <div class="ref-entry" id="filter">
+          <h3><code class="inline">FILTER</code></h3>
+          <p class="sig">Args: <code class="inline">[template] list</code> (operator)</p>
+          <p>Elements where <code class="inline">template</code> (as a condition) is true</p>
+        </div>
+        <div class="ref-entry" id="reduce">
+          <h3><code class="inline">REDUCE</code></h3>
+          <p class="sig">Args: <code class="inline">[template] list</code> (operator)</p>
+          <p>Fold left to right; template uses <code class="inline">?1</code>/<code class="inline">?2</code></p>
+        </div>
+        <div class="ref-entry" id="foreach">
+          <h3><code class="inline">FOREACH</code></h3>
+          <p class="sig">Args: <code class="inline">[template] list</code></p>
+          <p>Run <code class="inline">template</code> once per element for side effects</p>
+        </div>
+        <pre class="code">PRINT MAP [? * 2] [1 2 3]         -&gt; 2 4 6
+PRINT FILTER [? &gt; 2] [1 2 3 4]    -&gt; 3 4
+PRINT REDUCE [?1 + ?2] [1 2 3 4]  -&gt; 10
+FOREACH [PRINT ?] [1 2 3]</pre>
+        <p><code class="inline">?</code> stands for the current element inside the bracketed template (<code class="inline">?1</code>/<code class="inline">?2</code> for <code class="inline">REDUCE</code>'s accumulator/element pair). Only the bracketed-template form exists — no procedure-name template.</p>
+      </div>
+      <div class="ref-section" id="sec-arrays">
+        <h2>Arrays</h2>
+        <div class="ref-entry" id="array-2">
+          <h3><code class="inline">ARRAY</code></h3>
+          <p class="sig">Args: <code class="inline">size</code> (operator)</p>
+          <p>New array of <code class="inline">size</code> slots, each defaulting to <code class="inline">[]</code></p>
+        </div>
+        <div class="ref-entry" id="item-2">
+          <h3><code class="inline">ITEM</code></h3>
+          <p class="sig">Args: <code class="inline">index array</code> (operator)</p>
+          <p>Read a slot (1-indexed) — shared with lists/words above</p>
+        </div>
+        <div class="ref-entry" id="setitem">
+          <h3><code class="inline">SETITEM</code></h3>
+          <p class="sig">Args: <code class="inline">index array value</code></p>
+          <p>Overwrite one slot in place</p>
+        </div>
+        <div class="ref-entry" id="fillarray">
+          <h3><code class="inline">FILLARRAY</code></h3>
+          <p class="sig">Args: <code class="inline">array value</code></p>
+          <p>Overwrite every slot with the same value</p>
+        </div>
+        <pre class="code">MAKE &quot;a ARRAY 3
+SETITEM 1 :a &quot;red
+SETITEM 2 :a &quot;green
+SETITEM 3 :a &quot;blue
+PRINT :a               -&gt; {red green blue}
+PRINT ITEM 2 :a        -&gt; green</pre>
+        <p><strong>Arrays are the one mutable, reference-like value in this language</strong> — <code class="inline">MAKE "b :a</code> shares the same underlying slots, so <code class="inline">SETITEM</code> through either is visible from both. Always prints inside <code class="inline">{ }</code>. See <code class="inline">docs/LANGUAGE.md</code>'s "Arrays" section for what operators don't support them.</p>
+      </div>
+      <div class="ref-section" id="sec-vector-operators">
+        <h2>Vector operators</h2>
+        <div class="ref-entry" id="dot">
+          <h3><code class="inline">DOT</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code> (operator)</p>
+          <p>Dot product of two same-length numeric lists</p>
+        </div>
+        <div class="ref-entry" id="cross">
+          <h3><code class="inline">CROSS</code></h3>
+          <p class="sig">Args: <code class="inline">a b</code> (operator)</p>
+          <p>3D cross product of two 3-element numeric lists</p>
+        </div>
+        <pre class="code">PRINT DOT [1 2 3] [4 5 6]     -&gt; 32
+PRINT CROSS [1 0 0] [0 1 0]   -&gt; 0 0 1</pre>
+      </div>
+      <div class="ref-section" id="sec-property-lists">
+        <h2>Property lists</h2>
+        <div class="ref-entry" id="setprop">
+          <h3><code class="inline">SETPROP</code></h3>
+          <p class="sig">Args: <code class="inline">plistname propname value</code></p>
+          <p>Store a value under a key</p>
+        </div>
+        <div class="ref-entry" id="getprop">
+          <h3><code class="inline">GETPROP</code></h3>
+          <p class="sig">Args: <code class="inline">plistname propname</code> (operator)</p>
+          <p>Retrieve it, or <code class="inline">[]</code> if unset</p>
+        </div>
+        <div class="ref-entry" id="removeprop">
+          <h3><code class="inline">REMOVEPROP</code></h3>
+          <p class="sig">Args: <code class="inline">plistname propname</code></p>
+          <p>Delete an entry</p>
+        </div>
+        <div class="ref-entry" id="proplist">
+          <h3><code class="inline">PROPLIST</code></h3>
+          <p class="sig">Args: <code class="inline">plistname</code> (operator)</p>
+          <p>Whole record as a flat <code class="inline">[name value name value ...]</code> list</p>
+        </div>
+        <pre class="code">SETPROP &quot;turtle1 &quot;color &quot;red
+SETPROP &quot;turtle1 &quot;speed 5
+PRINT GETPROP &quot;turtle1 &quot;color   -&gt; red
+PRINT PROPLIST &quot;turtle1          -&gt; color red speed 5
+REMOVEPROP &quot;turtle1 &quot;color</pre>
+        <p>A separate namespace from <code class="inline">MAKE</code>/<code class="inline">:name</code> variables, shared globally — no <code class="inline">LOCAL</code>-style scoping for properties.</p>
+      </div>
+      <div class="ref-section" id="sec-prototype-style-objects">
+        <h2>Prototype-style objects</h2>
+        <div class="ref-entry" id="new">
+          <h3><code class="inline">NEW</code></h3>
+          <p class="sig">Args: <code class="inline">objname prototypename</code></p>
+          <p>Set <code class="inline">objname</code>'s <code class="inline">"prototype</code> property</p>
+        </div>
+        <div class="ref-entry" id="send">
+          <h3><code class="inline">SEND</code></h3>
+          <p class="sig">Args: <code class="inline">obj "message arglist</code></p>
+          <p>Call a method, walking the prototype chain</p>
+        </div>
+        <pre class="code">TO animal_speak :self
+  PRINT SENTENCE :self GETPROP :self &quot;sound
+END
+NEW &quot;animal &quot;nothing
+SETPROP &quot;animal &quot;speak &quot;animal_speak
+SETPROP &quot;animal &quot;sound &quot;generic
+NEW &quot;dog &quot;animal
+SETPROP &quot;dog &quot;sound &quot;Woof
+SEND &quot;dog &quot;speak []    -&gt; dog Woof</pre>
+        <p>An "object" is just a property list with a <code class="inline">"prototype</code> link — no classes, no new value type. <code class="inline">SEND</code>'s own arglist is required (<code class="inline">[]</code> for zero args) — see <code class="inline">docs/LANGUAGE.md</code>'s "Prototype-style objects" section for why <code class="inline">SEND</code>'s own syntax deliberately differs from real Logo's positional form, and the full method-resolution/error rules.</p>
+      </div>
+      <div class="ref-section" id="sec-error-handling">
+        <h2>Error handling</h2>
+        <div class="ref-entry" id="catch">
+          <h3><code class="inline">CATCH</code></h3>
+          <p class="sig">Args: <code class="inline">"tag [block]</code></p>
+          <p>Run <code class="inline">block</code>; catch a matching <code class="inline">THROW</code> from anywhere inside it</p>
+        </div>
+        <div class="ref-entry" id="throw">
+          <h3><code class="inline">THROW</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code></p>
+          <p>Unwind to the nearest enclosing <code class="inline">CATCH</code> with a matching tag</p>
+        </div>
+        <pre class="code">CATCH &quot;err [
+  PRINT &quot;before
+  THROW &quot;err
+  PRINT &quot;unreachable
+]
+PRINT &quot;after            ; prints: before / after (THROW skips &quot;unreachable)</pre>
+        <p>A <code class="inline">THROW</code> with no matching <code class="inline">CATCH</code> prints an error and execution resumes with the next top-level command — not a crash.</p>
+      </div>
+      <div class="ref-section" id="sec-deferred-execution">
+        <h2>Deferred execution</h2>
+        <div class="ref-entry" id="run">
+          <h3><code class="inline">RUN</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code></p>
+          <p>Execute a stored word/list as Logo source</p>
+        </div>
+        <div class="ref-entry" id="apply">
+          <h3><code class="inline">APPLY</code></h3>
+          <p class="sig">Args: <code class="inline">"name arglist</code></p>
+          <p>Call procedure <code class="inline">name</code> with arguments taken from <code class="inline">arglist</code></p>
+        </div>
+        <div class="ref-entry" id="eval">
+          <h3><code class="inline">EVAL</code></h3>
+          <p class="sig">Args: <code class="inline">list</code> (operator)</p>
+          <p>Run each element of <code class="inline">list</code> independently, collecting the results into a new list</p>
+        </div>
+        <pre class="code">RUN [FD 100 RT 90]
+MAKE &quot;prog [FD 50 RT 90]
+RUN :prog
+
+TO add2 :a :b
+  PRINT :a + :b
+END
+APPLY &quot;add2 [3 4]        -&gt; 7
+
+PRINT EVAL [[3 * 4] [SQRT 16] [1 + 2]]   -&gt; 12 4 3</pre>
+        <p><code class="inline">RUN</code>/<code class="inline">APPLY</code> are commands, not operators — no <code class="inline">PRINT RUN [...]</code>. A self-referential <code class="inline">RUN</code> is capped and reported rather than crashing.</p>
+        <p><code class="inline">EVAL</code>, unlike <code class="inline">RUN</code>, <em>is</em> an operator: each element of its own list argument is either a <code class="inline">LIST</code> (treated as one standalone piece of Logo code — the same "list = deferred code" convention <code class="inline">RUN</code> itself uses) or a plain value (passed straight through unchanged, since there's no code to run), and the collected results always come back the same length as the input, one per element. A code element must itself produce a value — <code class="inline">EVAL [[PRINT 5]]</code> reports the same "didn't output a value" error any command misused in expression position already does elsewhere in this language, not an <code class="inline">EVAL</code>-specific one, and that element's own slot in the result comes back empty. Useful for running a list of computations built up at runtime, when you don't know in advance how many there'll be or what they are:</p>
+        <pre class="code">MAKE &quot;jobs [[2 * 3] [4 * 5] [6 * 7]]
+PRINT EVAL :jobs          -&gt; 6 20 42</pre>
+      </div>
+      <div class="ref-section" id="sec-files">
+        <h2>Files</h2>
+        <div class="ref-entry" id="load">
+          <h3><code class="inline">LOAD</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Read a file and run its contents as Logo source</p>
+        </div>
+        <div class="ref-entry" id="save">
+          <h3><code class="inline">SAVE</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Write every currently-defined procedure out as <code class="inline">TO ... END</code> source</p>
+        </div>
+        <div class="ref-entry" id="openread">
+          <h3><code class="inline">OPENREAD</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code> (operator)</p>
+          <p>Open a file for reading, output a channel number</p>
+        </div>
+        <div class="ref-entry" id="openwrite">
+          <h3><code class="inline">OPENWRITE</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code> (operator)</p>
+          <p>Open a fresh write channel</p>
+        </div>
+        <div class="ref-entry" id="openappend">
+          <h3><code class="inline">OPENAPPEND</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code> (operator)</p>
+          <p><code class="inline">OPENWRITE</code>, preloaded with the file's existing content</p>
+        </div>
+        <div class="ref-entry" id="readline">
+          <h3><code class="inline">READLINE</code></h3>
+          <p class="sig">Args: <code class="inline">channel</code> (operator)</p>
+          <p>Next line from an open read channel</p>
+        </div>
+        <div class="ref-entry" id="readword">
+          <h3><code class="inline">READWORD</code></h3>
+          <p class="sig">Args: <code class="inline">channel</code> (operator)</p>
+          <p>Next whitespace-delimited word from an open read channel</p>
+        </div>
+        <div class="ref-entry" id="readchar">
+          <h3><code class="inline">READCHAR</code></h3>
+          <p class="sig">Args: <code class="inline">channel</code> (operator)</p>
+          <p>Next single raw character (whitespace included) from an open read channel</p>
+        </div>
+        <div class="ref-entry" id="eof">
+          <h3><code class="inline">EOF?</code></h3>
+          <p class="sig">Args: <code class="inline">channel</code> (operator)</p>
+          <p>Has a read channel run out of lines?</p>
+        </div>
+        <div class="ref-entry" id="close">
+          <h3><code class="inline">CLOSE</code></h3>
+          <p class="sig">Args: <code class="inline">channel</code></p>
+          <p>Close a channel — for a write channel, this is when it's saved</p>
+        </div>
+        <div class="ref-entry" id="fileprint">
+          <h3><code class="inline">FILEPRINT</code></h3>
+          <p class="sig">Args: <code class="inline">channel thing</code></p>
+          <p>Append <code class="inline">thing</code> (rendered like <code class="inline">PRINT</code>) plus a newline</p>
+        </div>
+        <div class="ref-entry" id="deletefile">
+          <h3><code class="inline">DELETEFILE</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Remove a file from disk</p>
+        </div>
+        <div class="ref-entry" id="directory">
+          <h3><code class="inline">DIRECTORY</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Every file/subdirectory name in the current directory</p>
+        </div>
+        <div class="ref-entry" id="savebytecode">
+          <h3><code class="inline">SAVEBYTECODE</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Write the running program's own compiled bytecode to disk (VM only)</p>
+        </div>
+        <div class="ref-entry" id="loadbytecode">
+          <h3><code class="inline">LOADBYTECODE</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Read a file written by <code class="inline">SAVEBYTECODE</code> and run it standalone (VM only)</p>
+        </div>
+        <pre class="code">MAKE &quot;ch OPENWRITE &quot;scratch.txt
+FILEPRINT :ch SENTENCE &quot;first &quot;line
+CLOSE :ch
+
+MAKE &quot;rd OPENREAD &quot;scratch.txt
+WHILE NOT EOF? :rd [PRINT READLINE :rd]
+CLOSE :rd
+
+PRINT MEMBER? &quot;scratch.txt DIRECTORY   -&gt; TRUE
+DELETEFILE &quot;scratch.txt</pre>
+        <p><code class="inline">READWORD</code>/<code class="inline">READCHAR</code> are finer-grained than <code class="inline">READLINE</code>, sharing its own channel argument and EOF/bad-channel sentinel (an empty word, checkable via <code class="inline">EOF?</code> separately). <code class="inline">READWORD</code> skips any leading whitespace (space/tab/CR/LF), then reads up to the next whitespace or EOF, leaving that trailing whitespace for the <em>next</em> call to skip. <code class="inline">READCHAR</code> is the more primitive of the two: the single next raw byte, whitespace included, no skipping at all.</p>
+        <pre class="code">MAKE &quot;ch OPENREAD &quot;scratch.txt
+PRINT READWORD :ch    -&gt; first (assuming scratch.txt starts &quot;first line&quot;)
+PRINT READWORD :ch    -&gt; line
+TYPE READCHAR :ch     -&gt; the next single character, whatever it is
+CLOSE :ch</pre>
+        <p><code class="inline">SAVEBYTECODE</code>/<code class="inline">LOADBYTECODE</code> (<code class="inline">docs/CHANGELOG.md</code>'s "Bytecode save/ load/assembler" Stage D) save/reload a whole COMPILED program, not Logo source — <code class="inline">SAVEBYTECODE "path</code> writes the currently-running program's own bytecode (see <code class="inline">docs/BYTECODE_REFERENCE.md</code>'s text format), and <code class="inline">LOADBYTECODE "path</code> reads it back and runs it, needing nothing else — not even the original <code class="inline">.logo</code> file — to work correctly:</p>
+        <pre class="code">TO SQUARE :SIDE
+REPEAT 4 [FD :SIDE RT 90]
+END
+PRINT &quot;drawn
+SAVEBYTECODE &quot;square.lgb</pre>
+        <p>then, in a later, completely separate run:</p>
+        <pre class="code">LOADBYTECODE &quot;square.lgb   -&gt; prints &quot;drawn&quot; and draws the square again</pre>
+        <p>Unlike <code class="inline">LOAD</code>, a procedure defined inside a <code class="inline">LOADBYTECODE</code>d file is <strong>not</strong> callable from the rest of the script that called <code class="inline">LOADBYTECODE</code> — <code class="inline">LOAD</code>'s own procedures are visible to the outer script only because the parser eagerly re-parses and hoists the loaded file's <code class="inline">TO...END</code> blocks at compile time; a <code class="inline">.lgb</code> file isn't Logo source at all, so there's nothing to hoist. <code class="inline">LOADBYTECODE</code> just runs the whole saved program, top to bottom, as its own self-contained unit — the useful pattern is a program that does its own real work at the top level (as <code class="inline">SQUARE</code> above is called from, not left for the caller to invoke). VM-only: there's no bytecode chunk for the tree-walking engines (<code class="inline">eval_logo</code>/<code class="inline">ast_eval</code>, unreachable from <code class="inline">bin/logo</code> and used only for this project's own internal shadow-diff testing) to save at all.</p>
+        <p>See <code class="inline">examples/bytecode_save.logo</code> and <code class="inline">examples/bytecode_load.logo</code> for a full working demo (run the first, then the second, as two separate <code class="inline">bin/logo</code> invocations — <code class="inline">SAVEBYTECODE</code> must be a program's own last statement, for the same reason described above) plus <code class="inline">examples/hand_assembled.lgb</code>, a bytecode file written by hand instead of produced by <code class="inline">SAVEBYTECODE</code>, loaded by <code class="inline">bytecode_load.logo</code>'s own last line.</p>
+        <p><strong>File menu equivalents</strong> (native macOS menu bar, <code class="inline">⌘⇧S</code>/<code class="inline">⌘⇧O</code>): <em>File &gt; Save Bytecode…</em> compiles whatever's currently in the entry box and saves the result, without running it — no side effects (no drawing, no <code class="inline">PRINT</code> output), unlike the <code class="inline">SAVEBYTECODE</code> builtin itself, which only ever runs mid-script and saves whatever chunk is already executing. <em>File &gt; Load Bytecode…</em> reads a chosen <code class="inline">.lgb</code> file and runs it exactly like <code class="inline">LOADBYTECODE</code>, participating fully in this app's own suspend/ resume machinery (a loaded program can <code class="inline">WAIT</code>/<code class="inline">PAUSE</code>/etc. same as any other).</p>
+        <p><code class="inline">OPENWRITE</code>/<code class="inline">OPENAPPEND</code> don't touch disk until <code class="inline">CLOSE</code> flushes the buffer — losing power or crashing first loses the data. <strong>Known, unfixed bug</strong>: most word literals compile through <code class="inline">OP_PUSH_WORD</code>'s unbounded <code class="inline">word_literals[]</code> table and aren't affected, but <code class="inline">MAKE</code>/ <code class="inline">LOCAL</code>/<code class="inline">ERASE</code>/<code class="inline">LOAD</code>'s own dedicated opcodes (<code class="inline">OP_SET_VAR</code>/ <code class="inline">OP_LOCAL</code>/<code class="inline">OP_ERASE</code>/<code class="inline">OP_LOAD</code>) still write their name/path argument straight into <code class="inline">Instr.text[64]</code>, which silently truncates anything over 63 bytes at compile time — see the <code class="inline">INSTR_MAX_TEXT</code> entry in project memory / <code class="inline">docs/CHANGELOG.md</code>.</p>
+      </div>
+      <div class="ref-section" id="sec-turtle-sprites">
+        <h2>Turtle sprites</h2>
+        <div class="ref-entry" id="loadsprite">
+          <h3><code class="inline">LOADSPRITE</code></h3>
+          <p class="sig">Args: <code class="inline">"name "path</code></p>
+          <p>Load an image, register it under <code class="inline">name</code> (40x40)</p>
+        </div>
+        <div class="ref-entry" id="loadspritesheet">
+          <h3><code class="inline">LOADSPRITESHEET</code></h3>
+          <p class="sig">Args: <code class="inline">"name "path cols rows</code></p>
+          <p>Load a grid of frames under <code class="inline">name</code></p>
+        </div>
+        <div class="ref-entry" id="setsprite">
+          <h3><code class="inline">SETSPRITE</code></h3>
+          <p class="sig">Args: <code class="inline">"name</code></p>
+          <p>Assign a loaded shape to the current turtle (<code class="inline">"NONE</code> resets it)</p>
+        </div>
+        <div class="ref-entry" id="setspriteframe">
+          <h3><code class="inline">SETSPRITEFRAME</code></h3>
+          <p class="sig">Args: <code class="inline">n</code></p>
+          <p>Pick which grid cell is shown</p>
+        </div>
+        <div class="ref-entry" id="stampsprite">
+          <h3><code class="inline">STAMPSPRITE</code></h3>
+          <p>Bake a permanent copy of the current shape onto the canvas</p>
+        </div>
+        <div class="ref-entry" id="animatesprite">
+          <h3><code class="inline">ANIMATESPRITE</code></h3>
+          <p class="sig">Args: <code class="inline">delay frames</code></p>
+          <p>Play sprite-sheet frames in place, over real time</p>
+        </div>
+        <pre class="code">LOADSPRITE &quot;ant &quot;ant.png
+SETSPRITE &quot;ant
+REPEAT 12 [STAMPSPRITE FD 40 RT 30]
+SETSPRITE &quot;NONE
+
+LOADSPRITESHEET &quot;walker &quot;walker.png 4 2
+SETSPRITE &quot;walker
+ANIMATESPRITE 0.15 24
+SETSPRITE &quot;NONE</pre>
+      </div>
+      <div class="ref-section" id="sec-resizable-canvas">
+        <h2>Resizable canvas</h2>
+        <div class="ref-entry" id="setcanvassize">
+          <h3><code class="inline">SETCANVASSIZE</code></h3>
+          <p class="sig">Args: <code class="inline">width height</code></p>
+          <p>Resize the canvas (50-4000 each), resets like <code class="inline">CLEAR</code></p>
+        </div>
+        <div class="ref-entry" id="canvassize">
+          <h3><code class="inline">CANVASSIZE</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current size as <code class="inline">[width height]</code></p>
+        </div>
+        <pre class="code">SETCANVASSIZE 800 400
+PRINT CANVASSIZE</pre>
+      </div>
+      <div class="ref-section" id="sec-suspend-resume">
+        <h2>Suspend/resume</h2>
+        <p>These pause the running script — the window stays fully responsive while waiting (a real GLib timer/event, not a blocking sleep).</p>
+        <div class="ref-entry" id="wait">
+          <h3><code class="inline">WAIT</code></h3>
+          <p class="sig">Args: <code class="inline">expr</code> (seconds)</p>
+          <p>Pause before the next command</p>
+        </div>
+        <div class="ref-entry" id="waitkey">
+          <h3><code class="inline">WAITKEY</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Wait for a keypress, output its name</p>
+        </div>
+        <div class="ref-entry" id="input">
+          <h3><code class="inline">INPUT</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Wait for a submitted line, output it as a word</p>
+        </div>
+        <div class="ref-entry" id="pause">
+          <h3><code class="inline">PAUSE</code></h3>
+          <p>Halt and wait for <code class="inline">CONTINUE</code>, letting other commands run meanwhile</p>
+        </div>
+        <div class="ref-entry" id="continue">
+          <h3><code class="inline">CONTINUE</code></h3>
+          <p class="sig">Args: — (alias <code class="inline">CO</code>)</p>
+          <p>Resume the innermost active <code class="inline">PAUSE</code></p>
+        </div>
+        <pre class="code">TO drive
+  MAKE &quot;key WAITKEY
+  WHILE MEMBER? :key [Up Down Left Right] [
+    IF :key = &quot;Up [FD 20]
+    MAKE &quot;key WAITKEY
+  ]
+END
+
+PRINT &#x27;What is your name?&#x27;
+MAKE &quot;name INPUT
+PRINT SENTENCE &quot;Hello :name</pre>
+        <p>Only actually wait in the real app — a silent no-op in the headless test driver. Nested <code class="inline">PAUSE</code>s stack; each <code class="inline">CONTINUE</code> resumes only the innermost one.</p>
+      </div>
+      <div class="ref-section" id="sec-concurrent-agents">
+        <h2>Concurrent agents</h2>
+        <p>MultiLogo-style: multiple independently-scheduled turtle "processes," genuinely interleaved (not just <code class="inline">TELL</code> switching which turtle a single sequential script steers). See <code class="inline">docs/CONCURRENT_AGENTS_DESIGN.md</code> for the full design and mechanism — not yet in <code class="inline">docs/LANGUAGE.md</code> at all.</p>
+        <div class="ref-entry" id="launch">
+          <h3><code class="inline">LAUNCH</code></h3>
+          <p class="sig">Args: <code class="inline">"procname arglist</code></p>
+          <p>Spawn a fresh-turtle agent running <code class="inline">procname</code>, with <code class="inline">arglist</code> bound as its parameters (<code class="inline">[]</code> for none)</p>
+        </div>
+        <div class="ref-entry" id="await">
+          <h3><code class="inline">AWAIT</code></h3>
+          <p>Block until every currently-launched agent has finished</p>
+        </div>
+        <div class="ref-entry" id="yield">
+          <h3><code class="inline">YIELD</code></h3>
+          <p>Hand control to other running agents, explicit only (no automatic per-loop yielding)</p>
+        </div>
+        <pre class="code">TO polygon :sides :length :start_x :start_y :r :g :b
+  SETPENCOLOR :r :g :b
+  PENUP SETXY :start_x :start_y PENDOWN
+  REPEAT :sides [FD :length RT (360 / :sides) YIELD]
+END
+
+LAUNCH &quot;polygon [3 90 120 350 220 40 40]
+LAUNCH &quot;polygon [4 70 250 380 40 140 220]
+AWAIT
+PRINT &quot;all-agents-done</pre>
+        <p><code class="inline">WAIT</code>/<code class="inline">WAITKEY</code>/<code class="inline">INPUT</code>/<code class="inline">PAUSE</code>/<code class="inline">ANIMATESPRITE</code> used <em>inside</em> an agent are deliberately deferred (an explicit, reported error, not a silent hang). <code class="inline">SETSPEED</code> has no visible slow-motion effect on agents yet. See <code class="inline">examples/concurrent_agents.logo</code> for a full working demo.</p>
+      </div>
+      <div class="ref-section" id="sec-clock">
+        <h2>Clock</h2>
+        <div class="ref-entry" id="time">
+          <h3><code class="inline">TIME</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current wall-clock time, <code class="inline">HH:MM:SS</code></p>
+        </div>
+        <div class="ref-entry" id="date">
+          <h3><code class="inline">DATE</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current date, <code class="inline">YYYY-MM-DD</code></p>
+        </div>
+        <div class="ref-entry" id="milliseconds">
+          <h3><code class="inline">MILLISECONDS</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Milliseconds since the Unix epoch (1970-01-01)</p>
+        </div>
+        <pre class="code">PRINT TIME    -&gt; 14:32:07
+PRINT DATE    -&gt; 2026-08-11
+PRINT MILLISECONDS -&gt; 1.78649e+12</pre>
+      </div>
+      <div class="ref-section" id="sec-event-triggers">
+        <h2>Event triggers</h2>
+        <p>Unlike <code class="inline">WAITKEY</code> above (which blocks the running script until the next key), <code class="inline">ONKEY</code>/<code class="inline">ONCLICK</code>/<code class="inline">ONMOUSEMOVE</code>/<code class="inline">ONKEYUP</code>/<code class="inline">ONRELEASE</code> register a procedure to run in the background whenever a key/click/pointer-motion/ key-release/button-release event happens, without pausing anything. See <code class="inline">docs/ROADMAP.md</code>'s "Mouse/keyboard event triggers" for the original design writeup.</p>
+        <div class="ref-entry" id="onkey">
+          <h3><code class="inline">ONKEY</code></h3>
+          <p class="sig">Args: <code class="inline">"procname</code></p>
+          <p>Run <code class="inline">procname</code> on every keypress (entry box focused), called with the key's name as its one input (<code class="inline">:KEY</code>) — same name convention as <code class="inline">WAITKEY</code>'s own output</p>
+        </div>
+        <div class="ref-entry" id="offkey">
+          <h3><code class="inline">OFFKEY</code></h3>
+          <p>Clear the current <code class="inline">ONKEY</code> handler</p>
+        </div>
+        <div class="ref-entry" id="onkeyup">
+          <h3><code class="inline">ONKEYUP</code></h3>
+          <p class="sig">Args: <code class="inline">"procname</code></p>
+          <p>Same as <code class="inline">ONKEY</code>, but on key <em>release</em> rather than press</p>
+        </div>
+        <div class="ref-entry" id="offkeyup">
+          <h3><code class="inline">OFFKEYUP</code></h3>
+          <p>Clear the current <code class="inline">ONKEYUP</code> handler</p>
+        </div>
+        <div class="ref-entry" id="onclick">
+          <h3><code class="inline">ONCLICK</code></h3>
+          <p class="sig">Args: <code class="inline">"procname</code></p>
+          <p>Run <code class="inline">procname</code> on every mouse button press on the canvas, called with <code class="inline">:X :Y :BUTTON</code> (canvas-relative pixels, same coordinate space <code class="inline">SETXY</code>/<code class="inline">POS</code> use; button 1/2/3, GDK's own left/middle/right convention)</p>
+        </div>
+        <div class="ref-entry" id="offclick">
+          <h3><code class="inline">OFFCLICK</code></h3>
+          <p>Clear the current <code class="inline">ONCLICK</code> handler</p>
+        </div>
+        <div class="ref-entry" id="onrelease">
+          <h3><code class="inline">ONRELEASE</code></h3>
+          <p class="sig">Args: <code class="inline">"procname</code></p>
+          <p>Same as <code class="inline">ONCLICK</code>, but on button <em>release</em> rather than press</p>
+        </div>
+        <div class="ref-entry" id="offrelease">
+          <h3><code class="inline">OFFRELEASE</code></h3>
+          <p>Clear the current <code class="inline">ONRELEASE</code> handler</p>
+        </div>
+        <div class="ref-entry" id="onmousemove">
+          <h3><code class="inline">ONMOUSEMOVE</code></h3>
+          <p class="sig">Args: <code class="inline">"procname</code></p>
+          <p>Run <code class="inline">procname</code> on every pointer motion over the canvas, called with <code class="inline">:X :Y</code></p>
+        </div>
+        <div class="ref-entry" id="offmousemove">
+          <h3><code class="inline">OFFMOUSEMOVE</code></h3>
+          <p>Clear the current <code class="inline">ONMOUSEMOVE</code> handler</p>
+        </div>
+        <pre class="code">TO KEYHANDLER :KEY
+  IF :KEY = &quot;space [PRINT &quot;jump]
+END
+ONKEY &quot;keyhandler
+
+TO CLICKHANDLER :X :Y :BUTTON
+  SETXY :X :Y
+END
+ONCLICK &quot;clickhandler
+
+TO MOUSEHANDLER :X :Y
+  SETXY :X :Y
+END
+ONMOUSEMOVE &quot;mousehandler
+
+TO STOPHANDLER :KEY
+  PRINT &quot;released
+END
+ONKEYUP &quot;stophandler</pre>
+        <p><code class="inline">procname</code> must take <em>exactly</em> one input for <code class="inline">ONKEY</code>/<code class="inline">ONKEYUP</code> (three for <code class="inline">ONCLICK</code>/<code class="inline">ONRELEASE</code>, two for <code class="inline">ONMOUSEMOVE</code>) — a mismatch is a reported error at registration time, and leaves any previously- registered handler untouched rather than clearing it. A typo'd or undefined <code class="inline">procname</code> is likewise reported immediately, not silently ignored the first time it would have fired.</p>
+        <p>Each handler slot holds at most one procedure — registering a new one replaces the old, same as <code class="inline">SETSPEED</code>. An event that fires while the interpreter isn't idle (the main script or a previous handler invocation is still running/suspended) is simply missed, not queued — same "at most one script thread" rule every ordinary REPL submission already follows; this is also what keeps <code class="inline">ONMOUSEMOVE</code>'s own much higher firing rate (dozens of events/sec while the mouse moves) from piling up invocations faster than they finish, with no separate debounce logic needed. <code class="inline">ONKEY</code>/<code class="inline">ONKEYUP</code> only see keys while the entry box has focus (the app's only keyboard-capture point); a handler registered inside a script that also uses <code class="inline">LAUNCH</code> is not retained once that script finishes (a known, narrow gap — register these from a script that doesn't also <code class="inline">LAUNCH</code>, if both are needed).</p>
+      </div>
+      <div class="ref-section" id="sec-appendix-documented-elsewhere-not-available-in-bin-logo">
+        <h2>Appendix: documented elsewhere, not available in <code class="inline">bin/logo</code></h2>
+        <p><code class="inline">docs/LANGUAGE.md</code> documents these commands in prose, but a systematic audit against <code class="inline">src/parser.c</code>'s own grammar table (confirmed directly — each one produces <code class="inline">unknown word: X</code> when parsed, not guessed from reading) found none of them are actually reachable from the live app. All are implemented only in the old, pre-Stage-2 text-based <code class="inline">eval_logo</code> engine (<code class="inline">src/interpreter.c</code>), which only <code class="inline">tests/test_interpreter.c</code> still exercises — <code class="inline">bin/logo</code> has run entirely on the bytecode VM since Stage 2 finished, and none of these were ever ported to the VM's own grammar (<code class="inline">src/parser.c</code>'s <code class="inline">BUILTIN_SIGNATURES</code>).</p>
+        <p><code class="inline">TYPE</code> and <code class="inline">PR</code> shipped 2026-08-12 (see <code class="inline">docs/CHANGELOG.md</code>) — caught when an example script using <code class="inline">TYPE</code> silently failed to parse against <code class="inline">bin/logo</code>; the rest of this table is still accurate.</p>
+        <div class="note"><ul style="margin:0 0 0 18px;"><li><code class="inline"><code class="inline">CLEARTEXT</code> / <code class="inline">CT</code></code> &mdash; Clear the history pane</li><li><code class="inline"><code class="inline">BACKTRACE</code> / <code class="inline">BT</code></code> &mdash; Debugger: print the current call stack</li><li><code class="inline"><code class="inline">EXECTIME</code></code> &mdash; Debugger: time how long a <code class="inline">RUN</code>-like call takes</li><li><code class="inline"><code class="inline">LOADPIC</code></code> &mdash; Background image</li><li><code class="inline"><code class="inline">SAVEPIC</code></code> &mdash; Export canvas as PNG</li><li><code class="inline"><code class="inline">MOUSEPOS</code> / <code class="inline">MOUSEX</code> / <code class="inline">MOUSEY</code> / <code class="inline">BUTTON?</code></code> &mdash; Mouse state</li><li><code class="inline"><code class="inline">JOYSTICK?</code> / <code class="inline">JOYSTICKAXIS</code> / <code class="inline">JOYSTICKBUTTON?</code></code> &mdash; Joystick/game-controller input</li><li><code class="inline"><code class="inline">TONE</code> / <code class="inline">PLAYSOUND</code> / <code class="inline">STOPSOUND</code></code> &mdash; Sound</li></ul></div>
+        <p>This is a real, previously-undocumented gap between what <code class="inline">docs/LANGUAGE.md</code> claims ("the Logo dialect actually implemented in <code class="inline">src/main.c</code>") and what the live app can actually run — worth its own scoping pass if any of these are wanted in <code class="inline">bin/logo</code>, likely following the same <code class="inline">eval_X_value</code>-core-extraction pattern the 35-name VM instruction-coverage audit already used for every other builtin.</p>
+      </div>
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap narrow">
+    Generated from this project's own <code class="inline">docs/COMMAND_REFERENCE.md</code> by <code class="inline">website/build_reference.py</code> — see the repository for the full markdown source and every other design/reference doc.
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var input = document.getElementById("ref-search");
+  var nav = document.querySelector("aside.index-nav");
+  if (!input || !nav) return;
+
+  var lists = Array.prototype.slice.call(nav.querySelectorAll("ul"));
+
+  input.addEventListener("input", function () {
+    var q = input.value.trim().toLowerCase();
+    lists.forEach(function (ul) {
+      var heading = ul.previousElementSibling; // the <h4> right before this <ul>
+      var anyVisible = false;
+      Array.prototype.forEach.call(ul.querySelectorAll("li"), function (li) {
+        var cmd = (li.getAttribute("data-cmd") || li.textContent).toLowerCase();
+        var match = q === "" || cmd.indexOf(q) !== -1;
+        li.classList.toggle("hidden", !match);
+        if (match) anyVisible = true;
+      });
+      var show = q === "" || anyVisible;
+      ul.style.display = show ? "" : "none";
+      if (heading && heading.tagName === "H4") heading.style.display = show ? "" : "none";
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

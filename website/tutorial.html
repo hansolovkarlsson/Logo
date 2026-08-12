@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial — Learning Logo</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-logo" href="index.html"><span class="dot">&#9679;</span> Logo</a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tutorial.html" class="current">Tutorial</a>
+      <a href="reference.html">Reference</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap narrow">
+
+  <div class="tutorial-hero">
+    <div>
+      <p class="eyebrow">A from-scratch tutorial</p>
+      <h1 class="title">Learning Logo</h1>
+      <p class="lede">
+        Turtles, turns, and a language built entirely out of them.
+        No prior programming experience assumed &mdash; every example
+        here has actually been run against the real interpreter before
+        being written down.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#ch1">Start reading &rarr;</a>
+        <a class="btn" href="#ch10">Jump to the capstone</a>
+      </div>
+    </div>
+    <div>
+      <div class="hero-canvas-frame">
+        <canvas id="hero-canvas" width="440" height="360"></canvas>
+      </div>
+      <p class="hero-canvas-caption">REPEAT 90 [FORWARD REPCOUNT * 1.6 RIGHT 61]</p>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="chapter-toc">
+      <p class="toc-label">Contents</p>
+      <ol>
+        <li><a href="#ch1"><span class="num">1</span>Turtle basics</a></li>
+        <li><a href="#ch2"><span class="num">2</span>Repetition</a></li>
+        <li><a href="#ch3"><span class="num">3</span>Procedures</a></li>
+        <li><a href="#ch4"><span class="num">4</span>Variables &amp; data</a></li>
+        <li><a href="#ch5"><span class="num">5</span>Conditionals</a></li>
+        <li><a href="#ch6"><span class="num">6</span>Recursion</a></li>
+        <li><a href="#ch7"><span class="num">7</span>Lists in depth</a></li>
+        <li><a href="#ch8"><span class="num">8</span>Color &amp; turtles</a></li>
+        <li><a href="#ch9"><span class="num">9</span>Input &amp; events</a></li>
+        <li><a href="#ch10"><span class="num">10</span>Capstone</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <div class="howto">
+        <h2>How to run these examples</h2>
+        <p>Save a chapter's example into a file, say <code class="inline">try.logo</code>, and run <code class="inline">bin/logo try.logo</code> from this project's root.</p>
+        <p>A window opens with the turtle's canvas on one side and a history pane on the other. You can also just type commands straight into the entry box at the bottom instead of saving a file first.</p>
+      </div>
+
+      <section class="chapter" id="ch1">
+        <div class="chapter-head"><span class="chapter-num">1</span><h2>Turtle basics</h2></div>
+        <p>Picture a turtle standing at the center of the canvas, facing up. It holds a pen. Tell it to move, and it drags the pen behind it &mdash; that trail is your drawing.</p>
+        <pre class="code">FORWARD 100
+RIGHT 90
+FORWARD 100</pre>
+        <p><code class="inline">FORWARD</code> (or <code class="inline">FD</code> for short) moves the turtle that many steps in the direction it's currently facing. <code class="inline">RIGHT</code> (<code class="inline">RT</code>) turns it clockwise by that many degrees, without moving it. <code class="inline">LEFT</code>/<code class="inline">LT</code> turns the other way, and <code class="inline">BACK</code>/<code class="inline">BK</code> moves backward.</p>
+        <p>Run those three lines and you'll get two sides of a square. Typing the same pair of commands four times is exactly the kind of repetition a computer should be doing for you &mdash; the whole subject of the next chapter.</p>
+        <p>Two more basics worth knowing now:</p>
+        <pre class="code"><span class="kw">PENUP</span>
+FORWARD 50    <span class="cm">; moves, but draws nothing</span>
+<span class="kw">PENDOWN</span>
+FORWARD 50    <span class="cm">; draws again</span></pre>
+        <p><code class="inline">PENUP</code> lifts the pen so the turtle can reposition without leaving a line; <code class="inline">PENDOWN</code> puts it back down. <code class="inline">CLEAR</code> (<code class="inline">CS</code>) wipes the canvas and resets the turtle, for a fresh start.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Draw a triangle (three <code class="inline">FORWARD</code>/<code class="inline">RIGHT 120</code> pairs).</li>
+            <li>Draw a shape with a gap in one side, using <code class="inline">PENUP</code>/<code class="inline">PENDOWN</code>.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch2">
+        <div class="chapter-head"><span class="chapter-num">2</span><h2>Repetition</h2></div>
+        <p><code class="inline">REPEAT</code> runs a block of commands a fixed number of times. The block goes in square brackets:</p>
+        <pre class="code">REPEAT 4 [FORWARD 100 RIGHT 90]</pre>
+        <div class="diagram-frame"><canvas id="dg-square" width="180" height="150"></canvas></div>
+        <p>That one line draws the whole square from Chapter 1. The general shape is "however many sides, turn <code class="inline">360 / sides</code> degrees each time":</p>
+        <pre class="code">REPEAT 6 [FORWARD 60 RIGHT 360 / 6]     <span class="cm">; a hexagon</span>
+REPEAT 100 [FORWARD 2 RIGHT 3.6]        <span class="cm">; enough tiny sides to look like a circle</span></pre>
+        <p>Inside a <code class="inline">REPEAT</code>, the operator <code class="inline">REPCOUNT</code> tells you which pass you're currently on, counting from 1:</p>
+        <pre class="code">REPEAT 5 [PRINT REPCOUNT]</pre>
+        <div class="output">1
+2
+3
+4
+5</div>
+        <p>That's useful for shapes that change slightly each time around &mdash; a spiral, where each side is a little longer than the last:</p>
+        <pre class="code">REPEAT 20 [FORWARD REPCOUNT * 5 RIGHT 90]</pre>
+        <div class="diagram-frame"><canvas id="dg-spiral" width="220" height="200"></canvas></div>
+        <p>There's also <code class="inline">WHILE</code>, for when you don't know the count in advance &mdash; it re-checks its condition before every pass:</p>
+        <pre class="code">MAKE "steps 0
+WHILE :steps < 4 [
+  FORWARD 100
+  RIGHT 90
+  MAKE "steps :steps + 1
+]</pre>
+        <p>And <code class="inline">FOR</code> bundles the counter into the loop itself:</p>
+        <pre class="code">FOR [i 1 5] [PRINT :i]</pre>
+        <div class="output">1
+2
+3
+4
+5</div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Draw a five-pointed star with one <code class="inline">REPEAT</code> (hint: the turn angle for a star isn't <code class="inline">360 / sides</code>).</li>
+            <li>Use <code class="inline">REPCOUNT</code> to draw a spiral of squares, each one bigger than the last.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch3">
+        <div class="chapter-head"><span class="chapter-num">3</span><h2>Procedures</h2></div>
+        <p>Once a shape is worth drawing more than once, give it a name. <code class="inline">TO</code> starts a definition, <code class="inline">END</code> closes it:</p>
+        <pre class="code"><span class="kw">TO</span> square
+  REPEAT 4 [FORWARD 100 RIGHT 90]
+<span class="kw">END</span>
+
+square
+square</pre>
+        <p>Now <code class="inline">square</code> is a command, exactly like <code class="inline">FORWARD</code> or <code class="inline">REPEAT</code>. But a square that's always the same size isn't very useful &mdash; give the procedure an input:</p>
+        <pre class="code"><span class="kw">TO</span> square :size
+  REPEAT 4 [FORWARD :size RIGHT 90]
+<span class="kw">END</span>
+
+square 100
+square 30</pre>
+        <p><code class="inline">:size</code> inside the procedure stands for whatever value was passed when it was called. A procedure can take up to eight inputs, and procedures can call each other &mdash; that's how you build anything non-trivial:</p>
+        <pre class="code"><span class="kw">TO</span> triangle :size
+  REPEAT 3 [FORWARD :size RIGHT 120]
+<span class="kw">END</span>
+
+<span class="kw">TO</span> house :size
+  square :size
+  PENUP FORWARD :size PENDOWN
+  triangle :size
+<span class="kw">END</span>
+
+house 80</pre>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Write a <code class="inline">polygon :sides :size</code> procedure that draws any regular polygon.</li>
+            <li>Write a procedure that draws a row of houses using a <code class="inline">REPEAT</code> around a call to <code class="inline">house</code>.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch4">
+        <div class="chapter-head"><span class="chapter-num">4</span><h2>Variables &amp; data</h2></div>
+        <p><code class="inline">MAKE</code> creates or updates a variable; <code class="inline">:name</code> reads it back:</p>
+        <pre class="code">MAKE "size 50
+FORWARD :size
+MAKE "size :size + 10
+FORWARD :size</pre>
+        <div class="note">
+          The quote before <code class="inline">size</code> in <code class="inline">MAKE "size ...</code> means "the word <code class="inline">size</code> itself" &mdash; <code class="inline">MAKE</code> needs to know <em>which</em> variable to set. <code class="inline">:size</code> means the opposite: "the value currently stored in <code class="inline">size</code>." Mixing these two up is the single most common beginner mistake in Logo.
+        </div>
+        <p>Numbers work as you'd expect (<code class="inline">+ - * /</code>, with <code class="inline">*</code>/<code class="inline">/</code> binding tighter, and parentheses for grouping):</p>
+        <pre class="code">PRINT (2 + 3) * 4
+PRINT SQRT 16
+PRINT ROUND 3.7</pre>
+        <div class="output">20
+4
+4</div>
+        <p>Words and lists are the other two kinds of data. A word is text, written with a leading quote (<code class="inline">"hello</code>); a list is a bracketed sequence of things:</p>
+        <pre class="code">MAKE "greeting "hello
+MAKE "colors [red green blue]
+PRINT :greeting
+PRINT :colors</pre>
+        <div class="output">hello
+red green blue</div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Store your name in a variable and <code class="inline">PRINT SENTENCE "Hello :yourname</code>.</li>
+            <li>Write a procedure that takes a <code class="inline">:size</code> input, doubles it into a variable, and draws a square with that doubled size.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch5">
+        <div class="chapter-head"><span class="chapter-num">5</span><h2>Conditionals</h2></div>
+        <p><code class="inline">IF</code> runs a block only when a condition is true:</p>
+        <pre class="code">MAKE "age 10
+IF :age >= 13 [PRINT "teenager]</pre>
+        <p>Nothing prints &mdash; <code class="inline">10 >= 13</code> is false. Add an <code class="inline">ELSE</code>, or use <code class="inline">IFELSE</code> for the same thing spelled differently:</p>
+        <pre class="code">IF :age >= 13 [PRINT "teenager] ELSE [PRINT "kid]
+IFELSE :age >= 13 [PRINT "teenager] [PRINT "kid]</pre>
+        <div class="output">kid
+kid</div>
+        <p>Comparisons are <code class="inline">&lt; &gt; = &lt;= &gt;= &lt;&gt;</code>. Combine conditions with <code class="inline">AND</code>/<code class="inline">OR</code>/<code class="inline">NOT</code> &mdash; no parentheses needed, those are for arithmetic only:</p>
+        <pre class="code">IF :age > 0 AND :age < 13 [PRINT "kid]
+IF NOT :age = 0 [PRINT "nonzero]</pre>
+        <p>A condition doesn't need a comparison at all &mdash; any nonzero number or non-empty word counts as true:</p>
+        <pre class="code">IF WORD? "hi [PRINT "yes-a-word]</pre>
+        <p><code class="inline">WORD?</code> is one of a family of predicates (<code class="inline">NUMBER?</code>, <code class="inline">LIST?</code>, <code class="inline">EMPTY?</code>, <code class="inline">MEMBER?</code>, &hellip;) that answer yes/no questions about a value.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Write <code class="inline">classify :n</code>, printing <code class="inline">"negative</code>, <code class="inline">"zero</code>, or <code class="inline">"positive</code>.</li>
+            <li>Combine <code class="inline">IF</code> with <code class="inline">REPCOUNT</code> to draw a shape where every other side is a different length.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch6">
+        <div class="chapter-head"><span class="chapter-num">6</span><h2>Recursion</h2></div>
+        <p>A procedure can call itself &mdash; Logo's natural replacement for a loop when each step shrinks a problem down to a smaller version of itself:</p>
+        <pre class="code"><span class="kw">TO</span> countdown :n
+  IF :n = 0 [PRINT "liftoff STOP]
+  PRINT :n
+  countdown :n - 1
+<span class="kw">END</span>
+
+countdown 5</pre>
+        <div class="output">5
+4
+3
+2
+1
+liftoff</div>
+        <p>Every recursive procedure needs a <strong>base case</strong> that stops it (here, <code class="inline">:n = 0</code>), and a step that moves toward it (<code class="inline">:n - 1</code>). Miss either and it calls itself until "Recursion too deep."</p>
+        <p><code class="inline">STOP</code> ends a procedure with no value; <code class="inline">OUTPUT</code> ends it <em>with</em> a value, for a procedure used as an operator:</p>
+        <pre class="code"><span class="kw">TO</span> factorial :n
+  IF :n = 0 [OUTPUT 1]
+  OUTPUT :n * factorial :n - 1
+<span class="kw">END</span>
+
+PRINT factorial 5</pre>
+        <div class="output">120</div>
+        <p>Recursion is also how you draw things whose complexity grows with a parameter:</p>
+        <pre class="code"><span class="kw">TO</span> spiral :size
+  IF :size > 200 [STOP]
+  FORWARD :size
+  RIGHT 20
+  spiral :size + 5
+<span class="kw">END</span>
+
+spiral 5</pre>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Write <code class="inline">sum_to :n</code>, outputting <code class="inline">1 + 2 + ... + n</code> recursively.</li>
+            <li>Modify <code class="inline">spiral</code> to change pen color each time it recurses (Chapter 8).</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch7">
+        <div class="chapter-head"><span class="chapter-num">7</span><h2>Lists in depth</h2></div>
+        <p>A list's elements are pulled apart with <code class="inline">FIRST</code>/<code class="inline">BUTFIRST</code>/<code class="inline">LAST</code>/<code class="inline">BUTLAST</code>, counted with <code class="inline">COUNT</code>, and indexed with <code class="inline">ITEM</code> (1-indexed):</p>
+        <pre class="code">MAKE "fruits [apple banana cherry]
+PRINT FIRST :fruits
+PRINT BUTFIRST :fruits
+PRINT ITEM 2 :fruits</pre>
+        <div class="output">apple
+banana cherry
+banana</div>
+        <p>New lists get built with <code class="inline">FPUT</code>/<code class="inline">LPUT</code>, <code class="inline">SENTENCE</code> (splice into one flat list), or <code class="inline">LIST</code> (wrap without flattening):</p>
+        <pre class="code">PRINT FPUT "red [green blue]
+PRINT SENTENCE [1 2] [3 4]
+PRINT LIST [1 2] [3 4]</pre>
+        <div class="output">red green blue
+1 2 3 4
+[1 2] [3 4]</div>
+        <p>Rather than writing your own loop, three higher-order operators handle common patterns directly. Each takes a bracketed <strong>template</strong> where <code class="inline">?</code> stands for "the current element":</p>
+        <pre class="code">PRINT MAP [WORD ? "!] [apple banana cherry]
+PRINT FILTER [NOT ? = "banana] [apple banana cherry]
+PRINT REDUCE [SENTENCE ?1 ?2] [1 2 3 4]</pre>
+        <div class="output">apple! banana! cherry!
+apple cherry
+1 2 3 4</div>
+        <p><code class="inline">MAP</code> transforms every element; <code class="inline">FILTER</code> keeps elements where the template is true; <code class="inline">REDUCE</code> folds the list to one value (<code class="inline">?1</code> = running result, <code class="inline">?2</code> = next element). <code class="inline">FOREACH</code> is the side-effect version, for when you don't need a new list back.</p>
+        <p>A word is really a list of characters underneath &mdash; <code class="inline">FIRST</code>/<code class="inline">ITEM</code>/<code class="inline">COUNT</code> all work one level deeper on a word too.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Given <code class="inline">MAKE "nums [4 8 15 16 23 42]</code>, use <code class="inline">FILTER</code> to get only the even numbers.</li>
+            <li>Use <code class="inline">REDUCE</code> to find the largest number in a list.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch8">
+        <div class="chapter-head"><span class="chapter-num">8</span><h2>Color, pen, and multiple turtles</h2></div>
+        <p><code class="inline">SETPENCOLOR</code> (or <code class="inline">SETPC</code>) takes red, green, blue, each <code class="inline">0</code>-<code class="inline">255</code>. Each line remembers the color/width it was drawn with:</p>
+        <pre class="code">SETPENCOLOR 255 0 0
+FORWARD 80
+SETPENCOLOR 0 100 255
+RIGHT 90 FORWARD 80</pre>
+        <p>By default there's exactly one turtle. <code class="inline">TELL</code> switches which turtle is current &mdash; commands always act on whichever turtle is current, creating a fresh one on first use:</p>
+        <pre class="code">TELL 1
+SETPENCOLOR 0 200 0
+FORWARD 100
+
+TELL 0
+RIGHT 90
+FORWARD 50
+
+PRINT WHO
+PRINT TURTLES</pre>
+        <div class="output">0
+2</div>
+        <p>Each turtle keeps its own independent position, heading, and pen state &mdash; switching back with <code class="inline">TELL 0</code> picks up exactly where it left off.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Draw a scene with two turtles in different colors, each drawing a different shape.</li>
+            <li>Draw a rainbow &mdash; a <code class="inline">REPEAT</code> around a shape, changing <code class="inline">SETPENCOLOR</code> a little each pass using <code class="inline">REPCOUNT</code>.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch9">
+        <div class="chapter-head"><span class="chapter-num">9</span><h2>Input &amp; interactivity</h2></div>
+        <p><code class="inline">INPUT</code> pauses the script and waits for a typed line, handing it back as a word:</p>
+        <pre class="code">PRINT [What is your name?]
+MAKE "name INPUT
+PRINT SENTENCE "Hello :name</pre>
+        <p><code class="inline">WAITKEY</code> waits for a single keypress instead, outputting the key's name:</p>
+        <pre class="code"><span class="kw">TO</span> drive
+  MAKE "key WAITKEY
+  IF :key = "Up [FORWARD 20]
+  IF :key = "Left [LEFT 15]
+  IF :key = "Right [RIGHT 15]
+  drive
+<span class="kw">END</span>
+
+drive</pre>
+        <p>That recurses forever (Chapter 6), each time blocking on the next keypress &mdash; a tiny turtle-driving game in six lines.</p>
+        <p><code class="inline">WAITKEY</code>/<code class="inline">INPUT</code> both <em>block</em>. For a background handler that fires without pausing anything else, register one with <code class="inline">ONKEY</code>/<code class="inline">ONCLICK</code>/<code class="inline">ONMOUSEMOVE</code> instead:</p>
+        <pre class="code"><span class="kw">TO</span> keyhandler :key
+  IF :key = "space [PRINT "jump]
+<span class="kw">END</span>
+ONKEY "keyhandler</pre>
+        <div class="note">
+          Event handlers need the real windowed app to see in action &mdash; try this one with <code class="inline">bin/logo</code>, not by reading alone.
+        </div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Extend <code class="inline">drive</code> to print <code class="inline">"bye</code> and stop when the spacebar is pressed.</li>
+            <li>Register an <code class="inline">ONCLICK</code> handler that moves the turtle to wherever you click.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch10">
+        <div class="chapter-head"><span class="chapter-num">10</span><h2>Capstone: a flower garden</h2></div>
+        <p>Everything above, combined: procedures, recursion, loops, color, and randomness, to plant a little garden of flowers at random positions.</p>
+        <pre class="code"><span class="kw">TO</span> petal :size
+  REPEAT 2 [ARC 60 :size RIGHT 60]
+<span class="kw">END</span>
+
+<span class="kw">TO</span> flower :size :petals
+  REPEAT :petals [
+    SETPENCOLOR (RANDOM 200) + 55 (RANDOM 200) + 55 (RANDOM 200) + 55
+    petal :size
+    RIGHT 360 / :petals
+  ]
+<span class="kw">END</span>
+
+<span class="kw">TO</span> garden :count
+  IF :count = 0 [STOP]
+  PENUP
+  SETXY (RANDOM 300) - 150 (RANDOM 300) - 150
+  PENDOWN
+  flower 40 8
+  garden :count - 1
+<span class="kw">END</span>
+
+garden 6
+PRINT "done-planting</pre>
+        <div class="diagram-frame"><canvas id="dg-garden" width="320" height="260"></canvas></div>
+        <p>Read it bottom-up if it helps: <code class="inline">garden</code> is the entry point, recursive, counting down and planting one flower per call. Each <code class="inline">flower</code> is a <code class="inline">REPEAT</code> around a <code class="inline">petal</code>, choosing a new random color each time. Each <code class="inline">petal</code> is two arcs, forming one curved leaf. <code class="inline">PENUP</code>/<code class="inline">SETXY</code>/<code class="inline">PENDOWN</code> jump to a random spot between flowers.</p>
+        <div class="tryit">
+          <p class="label">Try it, roughly increasing difficulty</p>
+          <ul>
+            <li>Change <code class="inline">garden</code> to plant more flowers, or bigger ones.</li>
+            <li>Give <code class="inline">flower</code> a <code class="inline">:hue_shift</code> input to bias the random colors.</li>
+            <li>Use <code class="inline">FOR</code> instead of recursive <code class="inline">garden</code> to plant the flowers.</li>
+            <li>Register an <code class="inline">ONCLICK</code> handler that plants one new flower wherever you click.</li>
+          </ul>
+        </div>
+      </section>
+
+      <p>From here, the <a href="reference.html">reference</a> has the complete list of every command this interpreter supports &mdash; sprites, sound, file I/O, arrays, property lists, and more &mdash; organized as a lookup table rather than a story.</p>
+
+    </main>
+  </div>
+</div>
+
+
+<footer class="site-footer">
+  <div class="wrap narrow">
+    Part of this project's <a href="index.html">learning materials</a> — see the repository for the interpreter's source and full documentation.
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // A tiny turtle-graphics interpreter, just enough for FORWARD/RIGHT/ARC,
+  // used to render the diagram canvases the same way the real turtle would.
+  function makeTurtle(ctx, cx, cy, strokeStyle) {
+    var x = cx, y = cy, heading = 0; // 0 = up, clockwise like the real turtle
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    return {
+      forward: function (d) {
+        var rad = (heading - 90) * Math.PI / 180;
+        var nx = x + Math.cos(rad) * d;
+        var ny = y + Math.sin(rad) * d;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+        x = nx; y = ny;
+      },
+      right: function (deg) { heading += deg; },
+      arc: function (angle, radius) {
+        // Approximate ARC by stepping small FORWARD/RIGHT segments, same
+        // shape the real turtle traces (angle degrees of a circle of
+        // this radius), without needing real trig-heavy arc geometry.
+        var steps = Math.max(6, Math.floor(Math.abs(angle) / 6));
+        var step = angle / steps;
+        var chord = 2 * radius * Math.sin((Math.abs(step) * Math.PI / 180) / 2);
+        for (var i = 0; i < steps; i++) {
+          this.right(step / 2);
+          this.forward(chord);
+          this.right(step / 2);
+        }
+      }
+    };
+  }
+
+  function setupCanvas(id) {
+    var canvas = document.getElementById(id);
+    if (!canvas) return null;
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.width, h = canvas.height;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  function drawSquareDiagram() {
+    var c = setupCanvas("dg-square");
+    if (!c) return;
+    var t = makeTurtle(c.ctx, c.w / 2 - 45, c.h / 2 + 45, "#f2a389");
+    for (var i = 0; i < 4; i++) { t.forward(90); t.right(90); }
+  }
+
+  function drawSpiralDiagram() {
+    var c = setupCanvas("dg-spiral");
+    if (!c) return;
+    var t = makeTurtle(c.ctx, c.w / 2, c.h / 2 + 20, "#f2a389");
+    for (var i = 1; i <= 20; i++) { t.forward(i * 4.2); t.right(90); }
+  }
+
+  // Mirrors the real TO petal/TO flower procedures from Chapter 10
+  // exactly (REPEAT 2 [ARC 60 :size RIGHT 60], then REPEAT :petals
+  // [petal :size RIGHT 360 / :petals]), just at diagram scale.
+  function drawPetal(t, size) {
+    for (var k = 0; k < 2; k++) { t.arc(60, size); t.right(60); }
+  }
+  function drawFlower(t, size, petals) {
+    for (var p = 0; p < petals; p++) { drawPetal(t, size); t.right(360 / petals); }
+  }
+
+  function drawGardenDiagram() {
+    var c = setupCanvas("dg-garden");
+    if (!c) return;
+    var colors = ["#e37457", "#a7d19c", "#f2c879", "#8fb3e3", "#d68fd6"];
+    var positions = [[70,70],[240,60],[150,150],[60,210],[260,200],[160,240]];
+    for (var i = 0; i < positions.length; i++) {
+      var t = makeTurtle(c.ctx, positions[i][0], positions[i][1], colors[i % colors.length]);
+      drawFlower(t, 20, 8);
+    }
+  }
+
+  drawSquareDiagram();
+  drawSpiralDiagram();
+  drawGardenDiagram();
+
+  // Hero: an animated growing spiral, redrawn from scratch every few
+  // frames -- same shape as Chapter 2's own REPCOUNT spiral example.
+  var hero = document.getElementById("hero-canvas");
+  if (hero) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = hero.width, h = hero.height;
+    hero.style.width = w + "px";
+    hero.style.height = h + "px";
+    hero.width = w * dpr;
+    hero.height = h * dpr;
+    var hctx = hero.getContext("2d");
+    hctx.scale(dpr, dpr);
+
+    var n = 6;
+    var maxN = 90;
+    var growing = true;
+
+    function renderHero() {
+      hctx.clearRect(0, 0, w, h);
+      var t = makeTurtle(hctx, w / 2, h / 2, "#f2a389");
+      var hue = 0;
+      for (var i = 1; i <= n; i++) {
+        hctx.strokeStyle = "hsl(" + (14 + i * 2.4) + "deg 70% " + (62 + (i % 6)) + "%)";
+        t.forward(i * 1.6);
+        t.right(61);
+      }
+    }
+
+    renderHero();
+
+    if (!reduceMotion) {
+      setInterval(function () {
+        n += growing ? 1 : -1;
+        if (n >= maxN) growing = false;
+        if (n <= 6) growing = true;
+        renderHero();
+      }, 90);
+    }
+  }
+})();
+</script>
+
+</body>
+</html>
