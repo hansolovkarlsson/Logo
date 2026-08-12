@@ -193,6 +193,7 @@ PAGE_HEAD = """<!doctype html>
       <a href="index.html">Home</a>
       <a href="tutorial.html">Tutorial</a>
       <a href="tutorial-2.html">Tutorial II</a>
+      <a href="tutorial-3.html">Tutorial III</a>
       <a href="reference.html" class="current">Reference</a>
     </nav>
     <a class="site-github" href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">GitHub &#8599;</a>

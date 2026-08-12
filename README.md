@@ -77,6 +77,8 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
   learning Logo with no prior programming experience
 - [`docs/TUTORIAL_II.md`](docs/TUTORIAL_II.md) — the sequel: objects,
   concurrent agents, sprites, file I/O, and event-driven programs
+- [`docs/TUTORIAL_III.md`](docs/TUTORIAL_III.md) — precise navigation,
+  trig-driven drawing, bitwise operators, and saving compiled programs
 - [`docs/COMMAND_REFERENCE.md`](docs/COMMAND_REFERENCE.md) — every
   command `bin/logomotive` actually supports, as a lookup table
 - [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — full language reference for the

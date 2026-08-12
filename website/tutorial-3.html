@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial III — Learning LogoMotive</title>
+<link rel="icon" type="image/svg+xml" href="assets/turtle-mark.svg">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-logo" href="index.html">
+      <svg class="logo-mark" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path class="trail" d="M -22,24 A 22,22 0 0 1 -3,-20" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path class="turtle" d="M 0,-30 L 21,30 L -21,30 Z" transform="rotate(-14)"/>
+      </svg>
+      LogoMotive
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tutorial.html">Tutorial</a>
+      <a href="tutorial-2.html">Tutorial II</a>
+      <a href="tutorial-3.html" class="current">Tutorial III</a>
+      <a href="reference.html">Reference</a>
+    </nav>
+    <a class="site-github" href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">GitHub &#8599;</a>
+  </div>
+</header>
+
+<div class="wrap narrow">
+
+  <div class="tutorial-hero">
+    <div>
+      <p class="eyebrow">The toolbox pass</p>
+      <h1 class="title">Learning LogoMotive III</h1>
+      <p class="lede">
+        For readers past Tutorials I and II: precise coordinate
+        navigation, canvas &amp; pen polish, trig-driven pattern
+        drawing, a couple of math families, playback pacing, and
+        saving a compiled program to run standalone &mdash; the real
+        corners of the language the first two tutorials didn't reach.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#ch1">Start reading &rarr;</a>
+        <a class="btn" href="#ch7">Jump to the capstone</a>
+      </div>
+    </div>
+    <div>
+      <div class="hero-canvas-frame">
+        <canvas id="hero-canvas" width="440" height="360"></canvas>
+      </div>
+      <p class="hero-canvas-caption">SETX :radius * COS :angle  SETY :radius * SIN :angle</p>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="chapter-toc">
+      <p class="toc-label">Contents</p>
+      <ol>
+        <li><a href="#ch1"><span class="num">1</span>Precise navigation</a></li>
+        <li><a href="#ch2"><span class="num">2</span>Canvas &amp; pen polish</a></li>
+        <li><a href="#ch3"><span class="num">3</span>Trigonometry</a></li>
+        <li><a href="#ch4"><span class="num">4</span>Logs &amp; bitwise</a></li>
+        <li><a href="#ch5"><span class="num">5</span>Pacing &amp; pausing</a></li>
+        <li><a href="#ch6"><span class="num">6</span>Save/load bytecode</a></li>
+        <li><a href="#ch7"><span class="num">7</span>Capstone</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <div class="howto">
+        <h2>Before you start</h2>
+        <p>This is the third pass, shaped differently than the first two: instead of one coherent system per chapter, it's a toolbox of independent techniques &mdash; shorter than <a href="tutorial.html">Tutorial I</a> and <a href="tutorial-2.html">Tutorial II</a> for an honest reason: this really is what's left. Same rule as always: every example here has been run against the real interpreter before being written down.</p>
+      </div>
+
+      <section class="chapter" id="ch1">
+        <div class="chapter-head"><span class="chapter-num">1</span><h2>Precise navigation</h2></div>
+        <p>Every turtle movement so far has been relative &mdash; turn, then move forward, always from wherever the turtle already was facing. This chapter is the other way of thinking about it: absolute coordinates.</p>
+        <pre class="code">SETXY 100 50
+PRINT POS
+PRINT GETX
+PRINT GETY
+SETHEADING 90
+PRINT HEADING</pre>
+        <div class="output">100 50
+100
+50
+90</div>
+        <p><code class="inline">SETXY x y</code> jumps straight to a position, heading unchanged (drawing a connecting line along the way if the pen is down, exactly like <code class="inline">FORWARD</code>). <code class="inline">POS</code> reads the current position back as <code class="inline">[x y]</code>; <code class="inline">GETX</code>/<code class="inline">GETY</code> read just one axis. <code class="inline">SETHEADING</code>/<code class="inline">HEADING</code> do the same thing for facing direction &mdash; <code class="inline">SETHEADING</code> sets it directly (no turning motion, just a new absolute angle), <code class="inline">HEADING</code> reads it back.</p>
+        <p>Two operators exist specifically to compute <em>how</em> to get somewhere: <code class="inline">DISTANCE</code>, the straight-line distance between two points, and <code class="inline">TOWARDS</code>, the heading that would face a given point. Combined, they're a genuine "walk exactly there" recipe:</p>
+        <pre class="code">SETXY 0 0
+SETHEADING TOWARDS [120 90]
+FORWARD DISTANCE POS [120 90]
+PRINT POS</pre>
+        <div class="output">120 90</div>
+        <p><code class="inline">SETHEADING TOWARDS [120 90]</code> turns to face the target directly (no guesswork, no trial-and-error turning); <code class="inline">FORWARD DISTANCE POS [120 90]</code> then walks exactly far enough &mdash; <code class="inline">DISTANCE</code> between the current <code class="inline">POS</code> and the target &mdash; to land precisely on it, confirmed by the final <code class="inline">PRINT POS</code>.</p>
+        <p><code class="inline">ARC</code> rounds this chapter out &mdash; draw part or all of a circle centered on the turtle's current position, without the turtle itself moving:</p>
+        <pre class="code">SETXY 0 0
+ARC 360 80</pre>
+        <p><code class="inline">ARC 360 80</code> draws a full circle, radius 80. A smaller first argument draws just that many degrees of arc instead of the whole circle &mdash; the turtle's own heading determines where around the circle that arc starts.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Write <code class="inline">goto :x :y</code>, a two-line procedure wrapping the <code class="inline">SETHEADING TOWARDS</code>/<code class="inline">FORWARD DISTANCE</code> pattern above into a single reusable call.</li>
+            <li>Draw a five-pointed star by computing each point's absolute position with <code class="inline">SETXY</code> instead of the relative <code class="inline">REPEAT</code>/turn version from Tutorial I.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch2">
+        <div class="chapter-head"><span class="chapter-num">2</span><h2>Canvas edges &amp; pen polish</h2></div>
+        <p>What happens when the turtle walks off the edge of the canvas is configurable:</p>
+        <pre class="code">WRAP
+SETXY 600 250
+PRINT POS</pre>
+        <div class="output">100 250</div>
+        <p><code class="inline">WRAP</code> (the default) makes crossing an edge reappear on the opposite side &mdash; on the default 500-wide canvas, <code class="inline">x = 600</code> wraps around to <code class="inline">x = 100</code>, confirmed by the <code class="inline">PRINT POS</code> above. <code class="inline">FENCE</code> is the other extreme: crossing an edge stops the turtle right at the boundary, with a reported error, rather than continuing anywhere. <code class="inline">WINDOW</code> removes the boundary entirely &mdash; the turtle can wander arbitrarily far off the visible canvas with no wrap and no error.</p>
+        <p>A few more drawing tools, beyond plain lines:</p>
+        <pre class="code">SETPENCOLOR 200 0 0
+LABEL "hello
+REPEAT 4 [FD 100 RT 90]
+PENUP SETXY 30 30 PENDOWN
+SETPENCOLOR 255 200 0
+FILL</pre>
+        <p><code class="inline">LABEL "word</code> draws text at the turtle's current position, in the current pen color &mdash; a caption, not a shape. <code class="inline">FILL</code> flood-fills the region containing the turtle with the current pen color, stopping at whatever lines already bound it (draw the square first, <em>then</em> move inside it and <code class="inline">FILL</code>, as above &mdash; order matters, since <code class="inline">FILL</code> only sees lines that already exist at the moment it's called). <code class="inline">ERASERECT width height</code> erases a rectangle centered on the turtle back to the background color, the undo tool for both of the above. <code class="inline">HIDETURTLE</code>/<code class="inline">SHOWTURTLE</code> toggle whether the turtle marker itself is drawn &mdash; the trail it leaves is unaffected either way.</p>
+        <p>Last one: the canvas size itself is just another value you can read and change.</p>
+        <pre class="code">PRINT CANVASSIZE
+SETCANVASSIZE 800 600
+PRINT CANVASSIZE</pre>
+        <div class="output">500 500
+800 600</div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Draw a shape, <code class="inline">FENCE</code> it, then try walking the turtle off the edge on purpose and see the reported error.</li>
+            <li>Draw two overlapping circles (<code class="inline">ARC 360 radius</code>, Chapter 1) and <code class="inline">FILL</code> each with a different color from a point inside just that one.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch3">
+        <div class="chapter-head"><span class="chapter-num">3</span><h2>Trigonometry for pattern-drawing</h2></div>
+        <p><code class="inline">SIN</code>/<code class="inline">COS</code>/<code class="inline">TAN</code> work in degrees here, not radians &mdash; no conversion needed to match the rest of the language's angles:</p>
+        <pre class="code">PRINT SIN 90
+PRINT COS 0
+PRINT TAN 45
+PRINT ARCTAN2 1 1</pre>
+        <div class="output">1
+1
+1
+45</div>
+        <p><code class="inline">ARCTAN2 y x</code> is the two-argument form &mdash; given a <em>direction</em> (<code class="inline">y</code>/<code class="inline">x</code> components) rather than a ratio, it returns the correct full-circle heading, the same computation <code class="inline">TOWARDS</code> (Chapter 1) does internally.</p>
+        <p>The real payoff is patterns that would be awkward to build any other way. A point on a circle, computed directly instead of walked around one turn at a time:</p>
+        <pre class="code"><span class="kw">TO</span> circle_point :radius :angle
+  OUTPUT LIST (:radius * COS :angle) (:radius * SIN :angle)
+<span class="kw">END</span>
+
+PRINT circle_point 50 0
+PRINT circle_point 50 90</pre>
+        <div class="output">50 0
+3.06162e-15 50</div>
+        <p>That <code class="inline">3.06162e-15</code> instead of a clean <code class="inline">0</code> is worth pausing on, not skipping past &mdash; <code class="inline">COS 90</code> is mathematically zero, but floating-point arithmetic doesn't always land on <em>exactly</em> zero, so a value close enough to be visually identical still isn't identical if you compare it directly. Treat trig results as "close to," not "exactly," when a program's own logic depends on the answer.</p>
+        <p>A sine wave, drawn by walking <code class="inline">x</code> forward steadily while <code class="inline">y</code> follows <code class="inline">SIN</code>:</p>
+        <pre class="code"><span class="kw">TO</span> sine_wave :amplitude :cycles
+  MAKE "x 0
+  WHILE :x < 360 * :cycles [
+    PENUP
+    SETX :x
+    SETY (SIN :x) * :amplitude
+    PENDOWN
+    MAKE "x :x + 5
+  ]
+<span class="kw">END</span>
+
+sine_wave 40 2</pre>
+        <div class="diagram-frame"><canvas id="dg-sine" width="280" height="140"></canvas></div>
+        <p>Every <code class="inline">SIN :x</code> traces one point of the wave; stepping <code class="inline">x</code> forward by <code class="inline">5</code> each pass and <code class="inline">SETX</code>/<code class="inline">SETY</code>-ing there directly (Chapter 1) is what turns a formula into an actual drawn curve.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Draw a full circle using <code class="inline">circle_point</code> and <code class="inline">REPEAT</code>/<code class="inline">REPCOUNT</code> instead of <code class="inline">ARC</code> &mdash; one <code class="inline">SETXY</code> per degree (or every few degrees) around the loop.</li>
+            <li>Change <code class="inline">sine_wave</code> into a spiral by also growing <code class="inline">:amplitude</code> a little on every pass.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch4">
+        <div class="chapter-head"><span class="chapter-num">4</span><h2>Logarithms &amp; bitwise operators</h2></div>
+        <p>Two families that don't come up daily, but are worth knowing exist &mdash; this chapter is more reference than story.</p>
+        <pre class="code">PRINT LOG 100
+PRINT LN 2.718281828
+PRINT EXP 1
+PRINT POWER 2 10</pre>
+        <div class="output">2
+1
+2.71828
+1024</div>
+        <p><code class="inline">LOG</code> is base-10, <code class="inline">LN</code> is natural log, <code class="inline">EXP</code> is <code class="inline">LN</code>'s inverse (<code class="inline">e</code> to a power) &mdash; the same three-way relationship most languages offer. <code class="inline">POWER</code> (from Tutorial I) rounds it out for plain exponentiation.</p>
+        <p>Bitwise operators treat a number as raw bits rather than a quantity:</p>
+        <pre class="code">PRINT BITAND 12 10
+PRINT BITOR 12 10
+PRINT BITXOR 12 10
+PRINT LSHIFT 1 4
+PRINT RSHIFT 16 4</pre>
+        <div class="output">8
+14
+6
+16
+1</div>
+        <p>The practical use is compact flag storage &mdash; several independent yes/no settings packed into one number, each living at its own bit:</p>
+        <pre class="code"><span class="kw">TO</span> has_flag :flags :flag
+  IF BITAND :flags :flag = :flag [OUTPUT "TRUE]
+  OUTPUT "FALSE
+<span class="kw">END</span>
+
+MAKE "FLAG_RED 1
+MAKE "FLAG_BOLD 2
+MAKE "FLAG_ITALIC 4
+MAKE "style BITOR :FLAG_RED :FLAG_BOLD
+
+PRINT has_flag :style :FLAG_RED
+PRINT has_flag :style :FLAG_ITALIC</pre>
+        <div class="output">TRUE
+FALSE</div>
+        <p><code class="inline">:style</code> packs "red" and "bold" together into one number via <code class="inline">BITOR</code>; <code class="inline">has_flag</code> checks whether one specific bit is set in it via <code class="inline">BITAND</code>.</p>
+        <div class="note"><strong>A real gotcha, worth knowing before it costs you a debugging session</strong>: comparisons (<code class="inline">=</code>/<code class="inline">&lt;</code>/<code class="inline">&gt;</code>/etc.) and <code class="inline">AND</code>/<code class="inline">OR</code>/<code class="inline">NOT</code> only work directly inside an <code class="inline">IF</code>/<code class="inline">IFELSE</code>/<code class="inline">WHILE</code> condition &mdash; not as a general expression anywhere else. <code class="inline">PRINT 3 = 3</code> and <code class="inline">OUTPUT :a = :b</code> both fail to parse; only the shape <code class="inline">IF &lt;expr&gt; &lt;relop&gt; &lt;expr&gt; [...]</code> is valid. <code class="inline">has_flag</code> above is written the way it has to be &mdash; a comparison inside <code class="inline">IF</code>, then a plain <code class="inline">OUTPUT "FALSE</code> on the next line &mdash; specifically <em>because</em> a boolean can't be built up and returned as a value the more obvious-looking way. Also worth knowing: <code class="inline">(BITAND :flags :flag)</code> (with parens) doesn't parse either, same "parens are arithmetic-only" rule from Tutorial I &mdash; just leave them off, as above.</div>
+        <p>Two small operators worth knowing exist, out of scope for their own chapter: <code class="inline">TIME</code>/<code class="inline">DATE</code>/<code class="inline">MILLISECONDS</code> read the real-world clock (<code class="inline">PRINT TIME</code> &rarr; <code class="inline">14:32:07</code>), and <code class="inline">DOT</code>/<code class="inline">CROSS</code> are vector operators for same-length numeric lists (<code class="inline">DOT [1 2 3] [4 5 6]</code> &rarr; <code class="inline">32</code>, a dot product; <code class="inline">CROSS</code> needs exactly 3-element lists, a 3D cross product).</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Extend the flags example with a <code class="inline">set_flag</code>/<code class="inline">clear_flag</code> pair (<code class="inline">BITOR</code> to set a bit, <code class="inline">BITAND</code>/<code class="inline">BITNOT</code> to clear one).</li>
+            <li>Write <code class="inline">is_power_of_two :n</code> using only bitwise operators (hint: <code class="inline">BITAND :n (:n - 1)</code> is <code class="inline">0</code> exactly when <code class="inline">:n</code> is a power of two &mdash; the parens are fine here since <code class="inline">:n - 1</code> is arithmetic, but the <code class="inline">= 0</code> check on the result still needs to live inside an <code class="inline">IF</code>, the same restructuring <code class="inline">has_flag</code> above needed).</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch5">
+        <div class="chapter-head"><span class="chapter-num">5</span><h2>Pacing &amp; pausing</h2></div>
+        <p><code class="inline">SETSPEED</code> (from Tutorial I, briefly) throttles every motion command after it by a fixed delay &mdash; useful for watching a drawing unfold instead of appearing all at once:</p>
+        <pre class="code">SETSPEED 0.1
+PRINT SPEED
+REPEAT 4 [FD 50 RT 90]
+SETSPEED 0
+PRINT SPEED</pre>
+        <div class="output">0.1
+0</div>
+        <p><code class="inline">WAIT seconds</code> is a one-off pause instead of an ongoing throttle &mdash; useful between unrelated steps of a demo, where slowing down <em>every</em> motion command isn't what you want:</p>
+        <pre class="code">PRINT "before
+WAIT 1
+PRINT "after</pre>
+        <div class="output">before
+after</div>
+        <p><code class="inline">PAUSE</code> is different again: it halts the script entirely and waits for <code class="inline">CONTINUE</code>, from anywhere &mdash; a real breakpoint, not a timed delay:</p>
+        <pre class="code">PRINT "before
+PAUSE
+PRINT "after</pre>
+        <div class="output">before
+Paused (level 1). Type CONTINUE to resume.
+after</div>
+        <p>Nested <code class="inline">PAUSE</code>s stack, and each <code class="inline">CONTINUE</code> (alias <code class="inline">CO</code>) resumes only the innermost one &mdash; useful for a program that pauses itself at more than one depth (a paused sub-procedure, itself called from a paused outer one) without a single <code class="inline">CONTINUE</code> accidentally resuming both at once.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Write a short "slideshow" &mdash; a few drawings in a row, each one finishing with <code class="inline">PAUSE</code> so the next only appears once you type <code class="inline">CONTINUE</code>.</li>
+            <li>Compare <code class="inline">SETSPEED 0.1</code> against a plain <code class="inline">WAIT 0.1</code> sprinkled between every motion command by hand &mdash; same visible effect, very different amount of typing.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch6">
+        <div class="chapter-head"><span class="chapter-num">6</span><h2>Saving &amp; loading compiled programs</h2></div>
+        <p>Every builtin so far has existed in classic Logo too, one way or another. This one doesn't &mdash; <code class="inline">SAVEBYTECODE</code>/<code class="inline">LOADBYTECODE</code> are specific to LogoMotive's own compiler+VM design, and there's nothing quite like them in the original language.</p>
+        <p><code class="inline">SAVEBYTECODE "path</code> writes the <em>currently-running program's own compiled bytecode</em> to disk &mdash; not the source text, the actual compiled form:</p>
+        <pre class="code"><span class="kw">TO</span> SQUARE :SIDE
+  REPEAT 4 [FD :SIDE RT 90]
+<span class="kw">END</span>
+
+PRINT "drawing-a-square
+SQUARE 50
+SAVEBYTECODE "square.lgb</pre>
+        <div class="output">drawing-a-square
+Saved square.lgb</div>
+        <p>Later &mdash; a genuinely separate run, no relation to the script above beyond the file it left behind &mdash; <code class="inline">LOADBYTECODE</code> reads that file back and runs it directly:</p>
+        <pre class="code">LOADBYTECODE "square.lgb</pre>
+        <div class="output">drawing-a-square
+Saved square.lgb</div>
+        <p>Notice the second run's output is identical to the first, including <code class="inline">Saved square.lgb</code> printing <em>again</em> &mdash; because the saved program is the <em>whole</em> thing, top to bottom, and <code class="inline">SAVEBYTECODE</code> was that program's own last statement. <code class="inline">LOADBYTECODE</code> doesn't selectively re-run "just the useful part"; it runs everything that was compiled in, which happens to include a second save of the same file to itself. This is exactly why <code class="inline">SAVEBYTECODE</code> has to be a program's own <em>last</em> statement &mdash; a later statement would get baked into the saved copy too, right down to a <code class="inline">LOADBYTECODE</code> of itself recursing forever, if you were unlucky enough to write one.</p>
+        <p>The practical value: a <code class="inline">.lgb</code> file made this way needs nothing else to run &mdash; not the original <code class="inline">.logo</code> source, not even a copy of it sitting somewhere. <code class="inline">LOADBYTECODE</code> doesn't parse or compile anything; it just runs an already-compiled program directly. That makes it the right tool for handing someone (or some future run of your own) a finished program without also handing them the source, or for a program whose own last act is to leave behind a ready-to-run copy of itself.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Save two different procedures' worth of drawing to two separate <code class="inline">.lgb</code> files, then write a third script that <code class="inline">LOADBYTECODE</code>s both in sequence.</li>
+            <li>Predict, then confirm, what happens if you <code class="inline">LOADBYTECODE</code> a file whose own last statement was itself a <code class="inline">LOADBYTECODE</code> of a <em>different</em> file &mdash; does the chain stop, or keep going?</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch7">
+        <div class="chapter-head"><span class="chapter-num">7</span><h2>Capstone: a small orrery</h2></div>
+        <p>Coordinates and trig for the orbits, multiple turtles for the planets, speed for the pacing, and a save at the end so the finished piece can run again without this source file.</p>
+        <pre class="code"><span class="kw">TO</span> orbit :radius :angle :steps
+  IF :steps = 0 [STOP]
+  PENUP
+  SETX :radius * COS :angle
+  SETY :radius * SIN :angle
+  PENDOWN
+  DOTMARK
+  orbit :radius (:angle + 6) (:steps - 1)
+<span class="kw">END</span>
+
+<span class="kw">TO</span> DOTMARK
+  FD 1 BK 1
+<span class="kw">END</span>
+
+<span class="kw">TO</span> planet :n :radius :r :g :b
+  TELL :n
+  SETPENCOLOR :r :g :b
+  SETSPEED 0
+  orbit :radius 0 60
+<span class="kw">END</span>
+
+TELL 0
+SETPENCOLOR 220 190 60
+PENUP HOME PENDOWN
+LABEL "sun
+
+planet 1 60 90 160 220
+planet 2 110 220 90 90
+
+TELL 0
+PRINT "orrery-complete
+SAVEBYTECODE "orrery.lgb</pre>
+        <div class="output">orrery-complete
+Saved orrery.lgb</div>
+        <p>Read it in the order it runs: turtle <code class="inline">0</code> sits at the center and labels itself <code class="inline">"sun</code> (Chapter 2). <code class="inline">planet</code> (<code class="inline">TELL</code>, from Tutorial I) switches to a <em>different</em> turtle per call and walks it through 60 steps of <code class="inline">orbit</code> &mdash; each step computing a new absolute position with <code class="inline">:radius * COS :angle</code>/<code class="inline">:radius * SIN :angle</code> (Chapter 3) and jumping there directly, tracing a circle one small <code class="inline">DOTMARK</code> at a time. Two calls to <code class="inline">planet</code>, two different radii and colors, two independent orbits. The final <code class="inline">SAVEBYTECODE</code> (Chapter 6) means this whole finished piece &mdash; sun, both orbits, everything &mdash; can be handed off and re-run with <code class="inline">LOADBYTECODE "orrery.lgb</code> alone, no source required.</p>
+        <div class="note">One naming trap worth knowing about directly, since it's easy to hit by accident: the helper procedure above is called <code class="inline">DOTMARK</code>, not <code class="inline">DOT</code> &mdash; <code class="inline">DOT</code> is already a builtin (the vector dot product, Chapter 4), and redefining it as a procedure produces a parse error rather than quietly shadowing it.</div>
+        <div class="tryit">
+          <p class="label">Try it, roughly increasing difficulty</p>
+          <ul>
+            <li>Add a third planet at yet another radius and speed.</li>
+            <li>Give each planet a real <code class="inline">SETSPEED</code> (not <code class="inline">0</code>) so the orbits actually animate in real time instead of snapping straight to their finished shape.</li>
+            <li>Combine this with Tutorial II's concurrent agents: <code class="inline">LAUNCH</code> each planet's own <code class="inline">orbit</code> walk instead of calling them one after another, so all the orbits actually grow in lockstep.</li>
+          </ul>
+        </div>
+      </section>
+
+      <p>From here, the <a href="reference.html">reference</a> still has a handful of smaller things this series never turned into full lessons &mdash; array/word type predicates, procedure introspection (<code class="inline">NAMES</code>/<code class="inline">PROCEDURES</code>/<code class="inline">TEXT</code>/<code class="inline">ERASE</code>), the exact <code class="inline">WRAP</code>/<code class="inline">FENCE</code> boundary rules in full &mdash; worth a skim if something in your own program doesn't quite work the way you expected.</p>
+
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap narrow">
+    Part of this project's <a href="index.html">learning materials</a> — see the repository for the interpreter's source and full documentation.
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function setupCanvas(id) {
+    var canvas = document.getElementById(id);
+    if (!canvas) return null;
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.width, h = canvas.height;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  // Mirrors TO sine_wave :amplitude :cycles exactly (Chapter 3): plot
+  // SETX x / SETY (SIN x) * amplitude every 5 degrees. Cartesian-up is
+  // negative canvas-y, matching this file's own turtle convention.
+  function drawSineDiagram() {
+    var c = setupCanvas("dg-sine");
+    if (!c) return;
+    var amplitude = 40, cycles = 2;
+    var midY = c.h / 2;
+    var scaleX = (c.w - 20) / (360 * cycles);
+    c.ctx.strokeStyle = "#f2a389";
+    c.ctx.lineWidth = 2;
+    c.ctx.lineCap = "round";
+    c.ctx.beginPath();
+    for (var x = 0; x <= 360 * cycles; x += 5) {
+      var px = 10 + x * scaleX;
+      var py = midY - Math.sin(x * Math.PI / 180) * amplitude;
+      if (x === 0) c.ctx.moveTo(px, py); else c.ctx.lineTo(px, py);
+    }
+    c.ctx.stroke();
+  }
+  drawSineDiagram();
+
+  // Hero: a small animated orrery, mirroring Chapter 7's own capstone
+  // (two planets orbiting a sun at different radii/speeds), computed
+  // directly via SIN/COS the same way :radius * COS :angle /
+  // :radius * SIN :angle does in the real script.
+  var hero = document.getElementById("hero-canvas");
+  if (hero) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = hero.width, h = hero.height;
+    hero.style.width = w + "px";
+    hero.style.height = h + "px";
+    hero.width = w * dpr;
+    hero.height = h * dpr;
+    var hctx = hero.getContext("2d");
+    hctx.scale(dpr, dpr);
+
+    var cx = w / 2, cy = h / 2;
+    var planets = [
+      { radius: 60, angle: 0, speed: 2.2, color: "#7fb0e3" },
+      { radius: 110, angle: 90, speed: 1.3, color: "#e3907f" }
+    ];
+
+    function renderHero() {
+      hctx.clearRect(0, 0, w, h);
+      hctx.strokeStyle = "rgba(255,255,255,0.12)";
+      hctx.lineWidth = 1;
+      planets.forEach(function (p) {
+        hctx.beginPath();
+        hctx.arc(cx, cy, p.radius, 0, Math.PI * 2);
+        hctx.stroke();
+      });
+      hctx.fillStyle = "#f2c879";
+      hctx.beginPath();
+      hctx.arc(cx, cy, 9, 0, Math.PI * 2);
+      hctx.fill();
+      planets.forEach(function (p) {
+        var rad = p.angle * Math.PI / 180;
+        var px = cx + p.radius * Math.cos(rad);
+        var py = cy - p.radius * Math.sin(rad);
+        hctx.fillStyle = p.color;
+        hctx.beginPath();
+        hctx.arc(px, py, 6, 0, Math.PI * 2);
+        hctx.fill();
+      });
+    }
+
+    renderHero();
+
+    if (!reduceMotion) {
+      setInterval(function () {
+        planets.forEach(function (p) { p.angle += p.speed; });
+        renderHero();
+      }, 40);
+    }
+  }
+})();
+</script>
+
+</body>
+</html>
