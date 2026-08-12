@@ -167,6 +167,19 @@ code, .mono {
 .site-nav a:hover { background: var(--surface-soft); color: var(--ink); }
 .site-nav a.current { color: var(--accent-ink); background: var(--accent); }
 
+.site-github {
+  margin-left: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: 7px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.site-github:hover { border-color: var(--accent); color: var(--ink); }
+
 .wrap {
   max-width: 1200px;
   margin: 0 auto;
