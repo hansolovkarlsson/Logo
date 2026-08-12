@@ -13,7 +13,7 @@
 void logo_activate(GtkApplication *app, gpointer user_data);
 
 // Same, but for a launch with a script path on the command line
-// (`bin/logo script.logo`) -- called on GApplication::open, which fires
+// (`bin/logomotive script.logo`) -- called on GApplication::open, which fires
 // instead of "activate" once main.c registers G_APPLICATION_HANDLES_OPEN.
 // Builds the window, then loads and runs files[0] as Logo source.
 void logo_open(GApplication *app, GFile **files, gint n_files, const gchar *hint, gpointer user_data);

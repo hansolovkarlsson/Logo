@@ -96,7 +96,7 @@ void eval_print_value(LogoApp *app, EvalValue v);
 // tree-walking engine (interpreter.c) since Phase 1, long before the
 // bytecode VM existed, but never ported to src/parser.c's own grammar
 // (BUILTIN_SIGNATURES) -- a real, previously-undocumented gap between
-// what bin/logo can actually run and what docs/LANGUAGE.md claims,
+// what bin/logomotive can actually run and what docs/LANGUAGE.md claims,
 // caught 2026-08-12 when an example script using TYPE turned out to
 // silently fail to parse. Same eval_print_value split, so vm.c's own
 // OP_CALL_BUILTIN "TYPE" handler can share it.

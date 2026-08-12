@@ -894,7 +894,7 @@ static gboolean history_recall(LogoApp *app, GtkTextBuffer *buffer, int directio
 // --- Bytecode VM execution (see docs/BYTECODE_VM_DESIGN.md's
 // suspend/resume design) ---
 //
-// bin/logo runs scripts through the Stage 2 compiler+VM now, not
+// bin/logomotive runs scripts through the Stage 2 compiler+VM now, not
 // eval_logo directly -- eval_logo itself is untouched and still used
 // by tests/test_interpreter.c, just no longer this app's own execution
 // path. The one thing eval_logo's own busy-wait loops did that a
@@ -1392,7 +1392,7 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
     // handling (Return submitting, Up/Down navigating history, an
     // ordinary key being typed), consumed so none of that also
     // happens. (eval_logo's own busy-wait still uses key_ready/
-    // pending_key -- see interpreter.c -- but bin/logo no longer calls
+    // pending_key -- see interpreter.c -- but bin/logomotive no longer calls
     // eval_logo, so this branch only ever has a VM run to resume.)
     if (app->waiting_for_key) {
         app->waiting_for_key = FALSE;
@@ -1414,7 +1414,7 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
     // does so unconditionally, ignoring Shift and is_input_complete --
     // INPUT reads one line of data, not Logo source that might span
     // several. (eval_logo's own busy-wait still uses input_ready/
-    // pending_input -- see interpreter.c -- but bin/logo no longer
+    // pending_input -- see interpreter.c -- but bin/logomotive no longer
     // calls eval_logo, so this branch only ever has a VM run to
     // resume, same as the waiting_for_key branch above.)
     if (app->waiting_for_input) {
@@ -1985,7 +1985,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
 
     GtkWidget *window = gtk_application_window_new(app);
     logo->window = window;
-    gtk_window_set_title(GTK_WINDOW(window), "Logo Turtle Engine with Procedures");
+    gtk_window_set_title(GTK_WINDOW(window), "LogoMotive");
     gtk_window_set_default_size(GTK_WINDOW(window), 1010, (int)logo->canvas_height);
 
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
@@ -2172,7 +2172,7 @@ void logo_activate(GtkApplication *app, gpointer user_data) {
 }
 
 // GApplication's own "open" signal -- fires instead of "activate" when
-// the app is launched with a file argument (`bin/logo script.logo`),
+// the app is launched with a file argument (`bin/logomotive script.logo`),
 // since main.c registers G_APPLICATION_HANDLES_OPEN. Builds the same
 // window logo_activate would, then loads and runs the first file given
 // (extras, if any, are ignored -- this app only ever has one script

@@ -16,7 +16,7 @@ understanding.
 Save a chapter's example into a file, say `try.logo`, and run:
 
 ```sh
-bin/logo try.logo
+bin/logomotive try.logo
 ```
 
 A window opens with the turtle's canvas on one side and a history pane
@@ -557,7 +557,7 @@ for as long as the window stays open — the rest of your script keeps
 running (or finishes) independently. `ONCLICK "procname` (three
 inputs: `:x :y :button`) and `ONMOUSEMOVE "procname` (two inputs: `:x
 :y`) work the same way for the mouse. This needs the real windowed app
-to see in action — try it with `bin/logo`, not by reading alone.
+to see in action — try it with `bin/logomotive`, not by reading alone.
 
 **Try it:**
 - Extend the `drive` procedure above to also print `"bye` and stop when

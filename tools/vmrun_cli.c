@@ -5,7 +5,7 @@
 // script (logo_lex -> logo_parse -> compile_program) and runs it on
 // vm_run/vm_resume*, printing PRINT/error output. Same purpose as
 // tools/logi_cli.c, but against the VM (compiler.c/bytecode.c/vm.c)
-// instead of the tree-walker (eval.c) -- needed because bin/logo itself
+// instead of the tree-walker (eval.c) -- needed because bin/logomotive itself
 // never exits (it's a GTK event loop) and has no headless mode, so
 // there was previously no way to run a VM-only builtin (REPCOUNT,
 // EVAL, bitwise ops, etc.) from a shell and see its output, the way
@@ -15,7 +15,7 @@
 // actually runs" rule.
 //
 // No REPL (unlike logi_cli.c) -- this exists to run one script file
-// and exit, not for interactive use. Not wired into bin/logo at all.
+// and exit, not for interactive use. Not wired into bin/logomotive at all.
 //
 // Suspending opcodes are auto-resumed rather than left hanging, since
 // there's no real clock/keyboard/window here: WAIT/PAUSE/MOTION_DELAY

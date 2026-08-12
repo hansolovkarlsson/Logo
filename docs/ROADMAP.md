@@ -10,9 +10,9 @@ everything that's already landed.
 ## Robustness
 
 - [ ] Grow `tests/test_vm.c`'s (and neighbors') error-path coverage as
-  new VM-only builtins land — `bin/logo` runs entirely on the VM, so
+  new VM-only builtins land — `bin/logomotive` runs entirely on the VM, so
   that's the suite that actually protects it, not
-  `tests/test_interpreter.c` (the old, frozen tree-walker `bin/logo`
+  `tests/test_interpreter.c` (the old, frozen tree-walker `bin/logomotive`
   no longer runs; still useful for its own regression tests and
   shadow-diffing, just not a completeness target going forward). A
   2026-08-12 audit of every `append_output` message in `vm.c` found 10

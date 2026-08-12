@@ -2317,7 +2317,7 @@ TEST(test_type_exact_output_has_no_trailing_newline) {
 // test in the first place: examples/readword_readchar.logo used TYPE,
 // which parsed and ran fine against the OLD tree-walking engine (its
 // own examples/type_show.logo has used it since Phase 1) but was never
-// ported to src/parser.c's own grammar, so bin/logo silently failed to
+// ported to src/parser.c's own grammar, so bin/logomotive silently failed to
 // parse it -- caught only because a live "does the scratch file get
 // cleaned up" launch check isn't enough to distinguish "ran
 // successfully" from "failed to parse and never ran at all" (both look
@@ -2375,7 +2375,7 @@ TEST(test_type_show_example_runs_correctly) {
 
 // examples/objects.logo used the OLD tree-walking engine's SEND
 // calling convention (SEND obj "message, with trailing positional
-// args) -- bin/logo's own SEND is deliberately fixed at 3 args (obj,
+// args) -- bin/logomotive's own SEND is deliberately fixed at 3 args (obj,
 // message, arglist; see src/parser.c's own BUILTIN_SIGNATURES comment
 // on why: the compiler can't know a dynamically-resolved method's
 // arity at parse time). The mismatch didn't produce a SEND-shaped

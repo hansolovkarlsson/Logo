@@ -1,7 +1,7 @@
 # Command Reference
 
 A complete, per-command reference for every instruction the live app
-(`bin/logo`, running entirely on the bytecode compiler+VM — see
+(`bin/logomotive`, running entirely on the bytecode compiler+VM — see
 `docs/BYTECODE_VM_DESIGN.md`) actually recognizes, as of this build.
 Every command below was cross-checked directly against `src/parser.c`'s
 own `BUILTIN_SIGNATURES` table (the VM's grammar) — not copied from
@@ -49,7 +49,7 @@ check whether the change also touches `docs/BYTECODE_REFERENCE.md`
 - [Concurrent agents](#concurrent-agents)
 - [Clock](#clock)
 - [Event triggers](#event-triggers)
-- [Appendix: documented elsewhere, not available in `bin/logo`](#appendix-documented-elsewhere-not-available-in-binlogo)
+- [Appendix: documented elsewhere, not available in `bin/logomotive`](#appendix-documented-elsewhere-not-available-in-binlogomotive)
 
 ---
 
@@ -142,7 +142,7 @@ one turtle. Turtle indices run `0`-`9` (`MAX_TURTLES` = 10, shared with
 
 \* `CLEARTEXT`/`CT` are documented here to match `LANGUAGE.md`'s own
 listing, but see the Appendix — **not currently reachable from
-`bin/logo`** (old-engine-only).
+`bin/logomotive`** (old-engine-only).
 
 ```
 SETPENCOLOR 255 0 0
@@ -183,7 +183,7 @@ SETSPEED 0                ; back to instant
 
 Applies to every turtle-*motion* command (`FD`/`BK`/`RT`/`LT`/`SETXY`/
 `SETX`/`SETY`/`SETHEADING`/`HOME`/`ARC`) — not `PENUP`/`SETPENCOLOR`/
-`TELL`/etc. Also settable from the command line: `bin/logo --speed 0.2
+`TELL`/etc. Also settable from the command line: `bin/logomotive --speed 0.2
 script.logo`. See `docs/LANGUAGE.md`'s "Turtle commands" section for
 its interaction with templates/`RUN`/`LOAD`/concurrent agents.
 
@@ -720,12 +720,12 @@ program, top to bottom, as its own self-contained unit — the useful
 pattern is a program that does its own real work at the top level
 (as `SQUARE` above is called from, not left for the caller to invoke).
 VM-only: there's no bytecode chunk for the tree-walking engines
-(`eval_logo`/`ast_eval`, unreachable from `bin/logo` and used only for
+(`eval_logo`/`ast_eval`, unreachable from `bin/logomotive` and used only for
 this project's own internal shadow-diff testing) to save at all.
 
 See `examples/bytecode_save.logo` and `examples/bytecode_load.logo`
 for a full working demo (run the first, then the second, as two
-separate `bin/logo` invocations — `SAVEBYTECODE` must be a program's
+separate `bin/logomotive` invocations — `SAVEBYTECODE` must be a program's
 own last statement, for the same reason described above) plus
 `examples/hand_assembled.lgb`, a bytecode file written by hand instead
 of produced by `SAVEBYTECODE`, loaded by `bytecode_load.logo`'s own
@@ -929,7 +929,7 @@ script that doesn't also `LAUNCH`, if both are needed).
 
 ---
 
-## Appendix: documented elsewhere, not available in `bin/logo`
+## Appendix: documented elsewhere, not available in `bin/logomotive`
 
 `docs/LANGUAGE.md` documents these commands in prose, but a systematic
 audit against `src/parser.c`'s own grammar table (confirmed directly —
@@ -937,14 +937,14 @@ each one produces `unknown word: X` when parsed, not guessed from
 reading) found none of them are actually reachable from the live app.
 All are implemented only in the old, pre-Stage-2 text-based
 `eval_logo` engine (`src/interpreter.c`), which only
-`tests/test_interpreter.c` still exercises — `bin/logo` has run
+`tests/test_interpreter.c` still exercises — `bin/logomotive` has run
 entirely on the bytecode VM since Stage 2 finished, and none of these
 were ever ported to the VM's own grammar (`src/parser.c`'s
 `BUILTIN_SIGNATURES`).
 
 `TYPE` and `PR` shipped 2026-08-12 (see `docs/CHANGELOG.md`) — caught
 when an example script using `TYPE` silently failed to parse against
-`bin/logo`; the rest of this table is still accurate.
+`bin/logomotive`; the rest of this table is still accurate.
 
 | Command | Would-be category |
 |---|---|
@@ -960,6 +960,6 @@ when an example script using `TYPE` silently failed to parse against
 This is a real, previously-undocumented gap between what
 `docs/LANGUAGE.md` claims ("the Logo dialect actually implemented in
 `src/main.c`") and what the live app can actually run — worth its own
-scoping pass if any of these are wanted in `bin/logo`, likely following
+scoping pass if any of these are wanted in `bin/logomotive`, likely following
 the same `eval_X_value`-core-extraction pattern the 35-name VM
 instruction-coverage audit already used for every other builtin.

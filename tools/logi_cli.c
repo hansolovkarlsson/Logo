@@ -6,10 +6,10 @@
 // `bin/logi` with no argument instead starts an interactive REPL --
 // "logi" for Logo Interactive (see run_repl below). Deliberately lives
 // outside src/ (whose Makefile target wildcards every src/*.c file
-// wholesale into bin/logo): this file has its own main(), and living
+// wholesale into bin/logomotive): this file has its own main(), and living
 // in src/ would collide with main.c's.
 //
-// Not wired into the real GTK app at all -- bin/logo still runs
+// Not wired into the real GTK app at all -- bin/logomotive still runs
 // exclusively on eval_logo (see docs/BYTECODE_VM_DESIGN.md's own note
 // on this); this is purely a way to try the new engine directly,
 // against the same examples/*.logo scripts that already exercise

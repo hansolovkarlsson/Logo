@@ -36,7 +36,7 @@ classic 80s Logo experience, running natively on macOS.
 make run
 ```
 
-`make` alone builds `bin/logo` without launching it; `make clean` removes
+`make` alone builds `bin/logomotive` without launching it; `make clean` removes
 build artifacts; `make test` runs the headless interpreter test suite
 (no GTK window needed).
 
@@ -44,7 +44,7 @@ Pass a `.logo` file on the command line to load and run it immediately
 on startup, instead of starting with a blank window:
 
 ```sh
-bin/logo examples/concurrent_agents.logo
+bin/logomotive examples/concurrent_agents.logo
 ```
 
 Pass `--speed <seconds>` to start every turtle-motion command already
@@ -53,7 +53,7 @@ script's first line) -- useful for watching a drawing unfold step by
 step:
 
 ```sh
-bin/logo --speed 0.2 examples/multiple_turtles.logo
+bin/logomotive --speed 0.2 examples/multiple_turtles.logo
 ```
 
 ## Example
@@ -69,7 +69,7 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 - [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — a from-scratch tutorial, for
   learning Logo with no prior programming experience
 - [`docs/COMMAND_REFERENCE.md`](docs/COMMAND_REFERENCE.md) — every
-  command `bin/logo` actually supports, as a lookup table
+  command `bin/logomotive` actually supports, as a lookup table
 - [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — full language reference for the
   Logo dialect as implemented
 - [`docs/BYTECODE_REFERENCE.md`](docs/BYTECODE_REFERENCE.md) — the VM's

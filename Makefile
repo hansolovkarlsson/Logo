@@ -1,7 +1,7 @@
 # Makefile for the GTK4 Logo interpreter
 
 CC = gcc
-TARGET = bin/logo
+TARGET = bin/logomotive
 SRC = $(wildcard src/*.c)
 OBJ = $(patsubst src/%.c,build/%.o,$(SRC))
 
@@ -209,7 +209,7 @@ $(LOGI_TARGET): $(LOGI_SRC) $(HEADERS)
 
 # tools/vmrun_cli.c -- logi's own counterpart for the VM
 # (compiler.c/bytecode.c/vm.c) instead of the tree-walker, needed
-# because bin/logo itself is a GTK event loop with no headless mode
+# because bin/logomotive itself is a GTK event loop with no headless mode
 # (see vmrun_cli.c's own file comment). Same shape as LOGI_TARGET
 # above, plus compiler.c/bytecode.c linked in.
 VMRUN_TARGET = bin/vmrun

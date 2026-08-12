@@ -142,7 +142,7 @@ static void exec_continue(LogoApp *app) {
 // interpreter.c's own do_loadsprite/do_loadspritesheet/do_setsprite/
 // do_setspriteframe/do_stampsprite, deliberately vm.c-only (not also
 // added to eval.c/ast_eval, the same scope the user chose for
-// WAIT/WAITKEY/INPUT/PAUSE): bin/logo no longer runs on ast_eval at
+// WAIT/WAITKEY/INPUT/PAUSE): bin/logomotive no longer runs on ast_eval at
 // all, so porting there too would only buy extra shadow-diff test
 // infrastructure for a subsystem that only ever executes through the
 // live VM. All five reuse already-public LogoApp/Turtle fields

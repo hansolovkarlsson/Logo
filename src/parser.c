@@ -386,7 +386,7 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "YIELD", 0, { 0 } },
 
     // Sprites (eval.c: none of these -- vm.c-only, matching the same
-    // scope decision as WAIT/WAITKEY/INPUT/PAUSE above; bin/logo no
+    // scope decision as WAIT/WAITKEY/INPUT/PAUSE above; bin/logomotive no
     // longer runs on ast_eval, so this pipeline doesn't need parity
     // there). LOADSPRITE/LOADSPRITESHEET/SETSPRITE are ARG_QUOTED_WORD,
     // matching ERASE/DELETEFILE/LOAD's own raw-name convention;
