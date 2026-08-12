@@ -260,6 +260,19 @@ EvalValue eval_filter_value(LogoApp *app, EvalValue template_val, EvalValue list
 EvalValue eval_reduce_value(LogoApp *app, EvalValue template_val, EvalValue list_arg);
 void eval_foreach_value(LogoApp *app, EvalValue template_val, EvalValue list_arg);
 
+// EVAL list -- runs each element independently (a LIST element as Logo
+// CODE, same "list = deferred code" convention RUN itself uses; a
+// plain value passes through unchanged) and collects the results into
+// a new list, one output per input element (Terrapin's own "runs list
+// and collects outputs"). Shares MAP/FILTER/REDUCE's own runtime-
+// template machinery's shape above (scratch ParseResult, expression-
+// only re-parse), just without any "?" substitution -- there's no
+// template here, only code. Declared here (not vm.c-local, unlike
+// every other builtin added this session) because it needs eval.c's
+// own private eval_expr to evaluate the re-parsed code, the same
+// reason eval_map_value/etc. above live here rather than in vm.c.
+EvalValue eval_eval_value(LogoApp *app, EvalValue list_arg);
+
 // ERASE -- a special form (like MAKE/LOCAL), not an ordinary builtin:
 // its argument is a raw procedure name (ARG_QUOTED_WORD), never an
 // evaluated expression, and it directly mutates `pool` (see eval.c's

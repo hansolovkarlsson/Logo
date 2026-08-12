@@ -2355,6 +2355,62 @@ TEST(test_repcount_survives_100_levels_of_recursive_nesting) {
     end_vm_session(s);
 }
 
+// EVAL: runs each element of a list independently and collects the
+// results into a new list (Terrapin's own "runs list and collects
+// outputs"). Follow-up to the 2026-08-11 Terrapin comparison's easy
+// tier -- the last item left there, flagged as needing real design
+// work rather than a plain wrapper.
+
+TEST(test_eval_runs_each_sublist_as_code_and_collects_the_results) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT EVAL [[3 * 4] [SQRT 16] [1 + 2]]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("12 4 3\n");
+    end_vm_session(s);
+}
+
+TEST(test_eval_passes_a_plain_value_element_through_unchanged) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT EVAL [5 hello [3 * 4]]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("5 hello 12\n");
+    end_vm_session(s);
+}
+
+TEST(test_eval_of_an_empty_list_is_an_empty_list) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT EVAL []", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("\n");
+    end_vm_session(s);
+}
+
+TEST(test_eval_of_a_non_list_passes_it_through_unchanged) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT EVAL 5", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("5\n");
+    end_vm_session(s);
+}
+
+TEST(test_eval_output_length_always_matches_input_length) {
+    // A code element that runs but doesn't itself OUTPUT a value (a
+    // command, not an operator) reports the same "didn't output a
+    // value" error any other expression-position misuse already does
+    // elsewhere in this language -- not an EVAL-specific error path --
+    // and still contributes one (empty) slot to the result, keeping
+    // the output list the same length as the input.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT COUNT EVAL [[PRINT 5] [3 * 4] [PRINT 6]]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "5\n") == NULL || strstr(captured_output, "6\n") == NULL ||
+        strstr(captured_output, "3\n") == NULL) {
+        failures++;
+        printf("FAIL %s: unexpected output \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
 TEST(test_range_counts_up_or_down_by_one) {
     VmRunResult status;
     VmTestSession s = start_vm_session("PRINT RANGE 1 5\nPRINT RANGE 5 1", &status);
@@ -2652,6 +2708,11 @@ int main(void) {
     RUN(test_repcount_propagates_into_a_procedure_called_from_inside_repeat);
     RUN(test_repcount_pop_still_balances_after_an_uncaught_throw_exits_the_loop_early);
     RUN(test_repcount_survives_100_levels_of_recursive_nesting);
+    RUN(test_eval_runs_each_sublist_as_code_and_collects_the_results);
+    RUN(test_eval_passes_a_plain_value_element_through_unchanged);
+    RUN(test_eval_of_an_empty_list_is_an_empty_list);
+    RUN(test_eval_of_a_non_list_passes_it_through_unchanged);
+    RUN(test_eval_output_length_always_matches_input_length);
     RUN(test_range_counts_up_or_down_by_one);
     RUN(test_spacedrange_generates_equally_spaced_numbers);
     RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);

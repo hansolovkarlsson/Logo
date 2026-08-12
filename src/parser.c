@@ -263,6 +263,7 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "SPACEDRANGE", 3, { ARG_EXPR, ARG_EXPR, ARG_EXPR } },
     { "TURTLES", 0, { 0 } },
     { "REPCOUNT", 0, { 0 } },
+    { "EVAL", 1, { ARG_EXPR } },
 
     // List/word operators (eval.c: list values are now real, built in
     // app->list_pool, the same pool interpreter.c's own list operators

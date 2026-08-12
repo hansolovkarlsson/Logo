@@ -600,6 +600,7 @@ resumes with the next top-level command — not a crash.
 |---|---|---|
 | `RUN` | `thing` | Execute a stored word/list as Logo source |
 | `APPLY` | `"name arglist` | Call procedure `name` with arguments taken from `arglist` |
+| `EVAL` | `list` (operator) | Run each element of `list` independently, collecting the results into a new list |
 
 ```
 RUN [FD 100 RT 90]
@@ -610,10 +611,30 @@ TO add2 :a :b
   PRINT :a + :b
 END
 APPLY "add2 [3 4]        -> 7
+
+PRINT EVAL [[3 * 4] [SQRT 16] [1 + 2]]   -> 12 4 3
 ```
 
-Both are commands, not operators — no `PRINT RUN [...]`. A
+`RUN`/`APPLY` are commands, not operators — no `PRINT RUN [...]`. A
 self-referential `RUN` is capped and reported rather than crashing.
+
+`EVAL`, unlike `RUN`, *is* an operator: each element of its own list
+argument is either a `LIST` (treated as one standalone piece of Logo
+code — the same "list = deferred code" convention `RUN` itself uses)
+or a plain value (passed straight through unchanged, since there's no
+code to run), and the collected results always come back the same
+length as the input, one per element. A code element must itself
+produce a value — `EVAL [[PRINT 5]]` reports the same "didn't output a
+value" error any command misused in expression position already does
+elsewhere in this language, not an `EVAL`-specific one, and that
+element's own slot in the result comes back empty. Useful for running a
+list of computations built up at runtime, when you don't know in
+advance how many there'll be or what they are:
+
+```
+MAKE "jobs [[2 * 3] [4 * 5] [6 * 7]]
+PRINT EVAL :jobs          -> 6 20 42
+```
 
 ## Files
 

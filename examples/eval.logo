@@ -1,0 +1,20 @@
+; EVAL: runs each element of a list independently and collects the
+; results into a new list (Terrapin's own "runs list and collects
+; outputs"). A LIST element is treated as a piece of Logo code (same
+; "list = deferred code" convention RUN itself uses); a plain value
+; element (a number or word) passes through unchanged, since there's
+; no code to run. The last item from the 2026-08-11 Terrapin
+; comparison's easy tier -- flagged there as needing real design work,
+; unlike that batch's own plain wrappers.
+
+PRINT EVAL [[3 * 4] [SQRT 16] [1 + 2]]   ; -> 12 4 3
+
+; Plain values pass straight through, so a list can freely mix code
+; and already-computed values:
+PRINT EVAL [5 hello [3 * 4]]              ; -> 5 hello 12
+
+; A genuinely useful pattern: build up a list of small computations at
+; runtime (not knowing in advance how many, or what they'll be), then
+; run them all at once.
+MAKE "jobs [[2 * 3] [4 * 5] [6 * 7]]
+PRINT EVAL :jobs                          ; -> 6 20 42

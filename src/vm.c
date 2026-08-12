@@ -807,6 +807,7 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     if (strcasecmp(name, "SPACEDRANGE") == 0) return eval_spacedrange_value(app, args[0], args[1], args[2]);
     if (strcasecmp(name, "TURTLES") == 0) return eval_turtles_value(app);
     if (strcasecmp(name, "REPCOUNT") == 0) return eval_repcount_value(vm);
+    if (strcasecmp(name, "EVAL") == 0) return eval_eval_value(app, args[0]);
     if (strcasecmp(name, "OPENREAD") == 0) return eval_openread_value(app, args[0]);
     if (strcasecmp(name, "OPENWRITE") == 0) return eval_openwrite_value(app, args[0]);
     if (strcasecmp(name, "OPENAPPEND") == 0) return eval_openappend_value(app, args[0]);

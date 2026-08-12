@@ -1369,6 +1369,34 @@ saved to file, loaded back, and hand-assembled.
 
 ## Language completeness
 
+Cross-checked every command on
+[Terrapin Logo's command reference](https://resources.terrapinlogo.com/logo/commands/)
+against `src/parser.c`'s `BUILTIN_SIGNATURES` table and every command
+documented in `docs/COMMAND_REFERENCE.md`. Terrapin documents ~470 names;
+~341 don't exist here — but most of that gap isn't real. Terrapin is a full
+IDE with its own text editor, robot hardware drivers, and native
+menu-editing API, none of which apply to this project:
+
+- Workspace/editor commands (`EDIT`/`EDALL`/`EDP`/..., `BURY*`/`UNBURY*`,
+  `POT`/`POPS`/`PRIMITIVES`/`COPYDEF`/`DEFINE`) — no in-app text editor to
+  bury/unbury/print from
+- Menu & window chrome (`APPENDMENU*`, `ONCOMMAND`, `SELECT.FILE`,
+  `SETWINSIZE`/`WPOS`, `FULLSCREEN`/`SPLITSCREEN`) — Terrapin's own native
+  menu-editing API, doesn't map to a fixed GTK menu
+- Hardware (`BLUEBOT.*`, `PROBOT.*`, `OPEN.PORT`) — physical robot drivers
+- Bitmap-era graphics (`SHAPE`/`LOADSHAPE`/`STAMP`/`SNAP`/`FONT`/`PLAY`
+  (sound)/`BYTEARRAY`/`GRID`) — this app already has a different
+  (sprite-based) turtle-image system
+- Byte-level serial I/O (`GETBYTE`/`PUTBYTE`/`PEEKBYTE`)
+
+Some more are naming differences, not real gaps: `XCOR`/`YCOR` = our
+`GETX`/`GETY`; `AGET`/`ASET` = our `ITEM`/`SETITEM`; `ARRAYP` = our
+`ARRAY?`; `MODULO` = our `MOD`.
+
+What's left — every genuinely-missing general-purpose primitive the
+comparison actually surfaced — shipped across four batches, 2026-08-11
+through 2026-08-12:
+
 - [x] **The easy tier of the 2026-08-11 Terrapin comparison** (shipped
   2026-08-11): 24 small general-purpose builtins, all VM-only
   (`src/parser.c`'s `BUILTIN_SIGNATURES` + a matching `vm.c` dispatch
@@ -1499,3 +1527,61 @@ saved to file, loaded back, and hand-assembled.
   launch confirming the example's own scratch file gets created and
   cleaned up correctly (proof every read succeeded without halting
   early). Only `EVAL` remains open in `docs/ROADMAP.md`.
+
+- [x] **`EVAL`** (shipped shortly after `READWORD`/`READCHAR`): the
+  last item from the 2026-08-11 Terrapin comparison, and the one
+  genuinely needing its own design, not just a wrapper — Terrapin's
+  own description is "runs list and collects outputs." Each element of
+  `EVAL`'s own list argument is either a `LIST` (treated as one
+  standalone piece of Logo code — the same "list = deferred code"
+  convention `RUN` itself uses) or a plain value (passed straight
+  through unchanged, since there's no code to run); results collect
+  into a new list, always the same length as the input.
+
+  Lives in `eval.c`, not `vm.c` (unlike every other builtin added this
+  session) — `EVAL` needs `eval_expr`, `eval.c`'s own private
+  tree-walking expression evaluator, to actually run each re-parsed
+  code element, the same reason `eval_map_value`/`eval_reduce_value`
+  (MAP/REDUCE/FILTER's own runtime-computed-template fallback path)
+  already live there and get called directly from `vm.c`'s own
+  `call_builtin`. No VM/bytecode involvement at all: each `LIST`
+  element is rendered to text via `eval_value_to_text`, re-lexed, and
+  parsed as ONE standalone expression via `logo_parse_expr` (the same
+  public entry point `logo_parse_expr`/`logo_parse_condition` MAP/
+  FILTER/REDUCE's own runtime-template fallback already uses for
+  exactly this "re-parse a snippet at runtime" need), then evaluated
+  directly via `eval_expr` — reusing `eval_apply_template_expr`'s own
+  shape (shared scratch `ParseResult`, `MAX_TEMPLATE_TOKENS` budget)
+  minus the "?" substitution step, since there's no template here,
+  only code.
+
+  A design question resolved by testing rather than guessing: what
+  happens to a code element that's a *command* (e.g. `PRINT`), not an
+  operator, and so doesn't itself produce a value? Turns out
+  `logo_parse_expr` doesn't reject it at parse time (any known callable
+  name parses), it runs (including its own side effect), and then
+  `eval_expr`'s own existing "didn't output a value" error path fires —
+  the *same* error any command misused in expression position already
+  reports elsewhere in this language, not something `EVAL` needed to
+  invent. That element's own slot in the result list just comes back
+  empty, keeping `EVAL`'s own "one output per input element" guarantee
+  intact rather than shortening the list.
+
+  This closes out the entire 2026-08-11 Terrapin comparison — every
+  genuinely-missing general-purpose primitive it surfaced has now
+  shipped. The comparison's own out-of-scope survey (workspace/editor
+  commands, menu/window chrome, hardware, bitmap-era graphics, byte-
+  level serial I/O — none of which apply to this project) and naming-
+  difference notes (`XCOR`/`YCOR` = `GETX`/`GETY`, etc.) have moved
+  here from `docs/ROADMAP.md` along with this entry, now that nothing
+  from the comparison remains open there.
+
+  5 new `test_vm.c` cases (code elements collected correctly; a plain
+  value passing through unchanged; an empty list; a non-list argument;
+  output length matching input length even when a code element is a
+  command with no value of its own); a new `examples/eval.logo`;
+  verified via `make test` (all 8 suites), standalone ASan builds of
+  both `test_vm` (clean, same raised `ulimit -s` workaround) and
+  `test_eval` (`eval.c`'s own suite, exercised since this shipped
+  there — also clean), and a live `bin/logo` process-liveness launch of
+  the new example.

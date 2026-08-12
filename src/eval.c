@@ -2027,6 +2027,45 @@ void eval_foreach_value(LogoApp *app, EvalValue template_val, EvalValue list_arg
 static void do_foreach(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_foreach_value(app, eval_expr(app, pool, arg_idx[0]), eval_expr(app, pool, arg_idx[1]));
 }
+// EVAL list -- see eval.h's own comment. Each element is either a
+// plain value (passed through unchanged -- there's no code to run) or
+// itself a LIST, treated as one standalone piece of Logo code:
+// rendered to text via eval_value_to_text (not eval_value_to_source_
+// text -- this is code to re-lex/parse, not a literal being requoted
+// for substitution into a template), then re-parsed as ONE expression
+// via logo_parse_expr and evaluated via eval_expr, exactly like
+// eval_apply_template_expr above minus the "?" substitution step
+// (there's no template here, only code). A malformed/unparseable code
+// element reads as 0, the same "quietly inert" fallback eval_apply_
+// template_expr itself uses, rather than shortening the output list --
+// EVAL's own output is always the same length as its input.
+EvalValue eval_eval_value(LogoApp *app, EvalValue list_arg) {
+    if (list_arg.type != VALUE_LIST) return list_arg;
+    ParseResult *scratch = calloc(1, sizeof(ParseResult));
+    int new_head = -1;
+    int *next_slot = &new_head;
+    for (int idx = list_arg.list_head; idx != -1; idx = app->list_pool[idx].next) {
+        EvalValue el = node_to_value(&app->list_pool[idx]);
+        EvalValue result = el;
+        if (el.type == VALUE_LIST) {
+            char code_text[512];
+            eval_value_to_text(app, el, code_text, sizeof(code_text));
+            LogoToken tokens[MAX_TEMPLATE_TOKENS];
+            int n = logo_lex(code_text, tokens, MAX_TEMPLATE_TOKENS);
+            int node = (n < 0) ? -1 : logo_parse_expr(tokens, n, scratch);
+            result = (node >= 0) ? eval_expr(app, &scratch->pool, node) : num_val(0);
+        }
+        int new_node = value_to_node(app, result);
+        if (new_node < 0) {
+            parse_result_destroy(scratch);
+            return list_pool_exhausted(app);
+        }
+        *next_slot = new_node;
+        next_slot = &app->list_pool[new_node].next;
+    }
+    parse_result_destroy(scratch);
+    return list_val(new_head);
+}
 // RUN thing -- executes a stored word/list as Logo source, exactly as
 // if it had been typed directly (RUN'd code shares the caller's scope,
 // no push_scope, matching interpreter.c). Reuses FOREACH's own
