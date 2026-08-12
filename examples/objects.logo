@@ -16,8 +16,8 @@ SETPROP "animal "sound "generic
 NEW "dog "animal        ; dog descends from animal
 SETPROP "dog "sound "Woof
 
-SEND "dog "speak       ; dog Woof     -- dog's own "sound" wins
-SEND "animal "speak    ; animal generic
+SEND "dog "speak []       ; dog Woof     -- dog's own "sound" wins
+SEND "animal "speak []    ; animal generic
 
 ; Methods inherit through the chain; data fields don't -- GETPROP
 ; never walks "prototype" on its own, only SEND's own message lookup
@@ -25,15 +25,22 @@ SEND "animal "speak    ; animal generic
 ; method (which dog itself inherited from animal), but that method's
 ; own GETPROP :self "sound" call still comes back empty for puppy.
 NEW "puppy "dog
-SEND "puppy "speak     ; puppy        -- inherited method, but no sound of its own
+SEND "puppy "speak []     ; puppy        -- inherited method, but no sound of its own
 
 ; A method can take more than just :self -- SEND prepends the object
-; automatically, then passes along whatever args followed the message.
+; automatically, then passes along whatever args followed the message,
+; via an explicit arglist ([] above for zero of them). bin/logo's SEND
+; is fixed at 3 arguments (obj, message, arglist) rather than the old
+; tree-walking engine's "however many the resolved method takes" --
+; the bytecode compiler builds the whole AST before any value exists
+; to look a method's arity up with, so it can't know at parse time how
+; many trailing tokens a SEND call owns; an explicit arglist sidesteps
+; that the same way Smalltalk's perform:withArguments: does.
 TO animal_greet :self :name
   PRINT SENTENCE :self SENTENCE "hi :name
 END
 SETPROP "animal "greet "animal_greet
-SEND "dog "greet "alice   ; dog hi alice
+SEND "dog "greet [alice]   ; dog hi alice
 
 ; SEND is also an operator, not just a command -- a method that OUTPUTs
 ; can have its value captured, the same way a plain procedure can when
@@ -42,9 +49,9 @@ TO animal_getname :self
   OUTPUT :self
 END
 SETPROP "animal "getname "animal_getname
-PRINT SEND "dog "getname   ; dog
-MAKE "n SEND "dog "getname
-PRINT :n                   ; dog
+PRINT SEND "dog "getname []   ; dog
+MAKE "n SEND "dog "getname []
+PRINT :n                      ; dog
 
-; SEND "dog "fly would report "SEND: dog does not understand fly" --
+; SEND "dog "fly [] would report "SEND: dog does not understand fly" --
 ; there's no such message anywhere in dog's prototype chain.

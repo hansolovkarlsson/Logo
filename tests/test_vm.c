@@ -2208,6 +2208,42 @@ TEST(test_type_show_example_runs_correctly) {
     end_vm_session(s);
 }
 
+// examples/objects.logo used the OLD tree-walking engine's SEND
+// calling convention (SEND obj "message, with trailing positional
+// args) -- bin/logo's own SEND is deliberately fixed at 3 args (obj,
+// message, arglist; see src/parser.c's own BUILTIN_SIGNATURES comment
+// on why: the compiler can't know a dynamically-resolved method's
+// arity at parse time). The mismatch didn't produce a SEND-shaped
+// error at all: the parser treats SEND's missing 3rd argument slot as
+// "parse one more expression," which greedily swallows every
+// following statement (SEND is expression-capable, so each subsequent
+// SEND/NEW call looks like a valid nested expression) until it hits a
+// token that can't start an expression -- which turned out to be a
+// `TO` two blocks later, an already-confusing, misleading error found
+// via [[logo_project_workflow]]'s "audit every examples/*.logo file"
+// step, fixed 2026-08-12 by rewriting the file to the current 3-arg
+// SEND syntax rather than reverting the VM's own deliberate design.
+TEST(test_objects_example_runs_correctly) {
+    char *source = NULL;
+    if (!g_file_get_contents("examples/objects.logo", &source, NULL, NULL)) {
+        failures++;
+        printf("FAIL %s: could not read examples/objects.logo\n", current_test);
+        return;
+    }
+    VmRunResult status;
+    VmTestSession s = start_vm_session(source, &status);
+    g_free(source);
+    if (s.result->error_count > 0) {
+        failures++;
+        printf("FAIL %s: example failed to parse (%d error(s)): %s\n", current_test, s.result->error_count, s.result->errors[0].message);
+        end_vm_session(s);
+        return;
+    }
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("dog Woof\nanimal generic\npuppy\ndog hi alice\ndog\ndog\n");
+    end_vm_session(s);
+}
+
 // 2026-08-11 Terrapin Logo comparison (docs/ROADMAP.md's "Language
 // completeness"): the 24-builtin easy-tier batch, one test per builtin
 // (or small logical group), same VM-only headless style as the event
@@ -2781,6 +2817,7 @@ int main(void) {
     RUN(test_type_exact_output_has_no_trailing_newline);
     RUN(test_readword_readchar_example_runs_correctly);
     RUN(test_type_show_example_runs_correctly);
+    RUN(test_objects_example_runs_correctly);
     RUN(test_pi_reports_the_constant);
     RUN(test_rerandom_makes_random_reproducible);
     RUN(test_ascii_and_char_round_trip);

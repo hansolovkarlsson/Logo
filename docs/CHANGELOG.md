@@ -1634,3 +1634,36 @@ through 2026-08-12:
   `test_vm` with the same raised `ulimit -s` workaround as prior
   rounds), and live `bin/logo` process-liveness launches of both
   now-fixed example files.
+
+## examples/objects.logo — fixed a stale SEND call convention, not a VM bug
+
+- [x] **`examples/objects.logo` "unknown word: TO"** (shipped 2026-08-12):
+  flagged as an open finding during the TYPE/PR fix above (a proactive
+  audit of every `examples/*.logo` file for silent parse failures) and
+  investigated separately. Root cause: the file used the OLD
+  tree-walking engine's `SEND` calling convention (`SEND obj "message`,
+  trailing positional args) — `bin/logo`'s own `SEND` is deliberately
+  fixed at 3 arguments (`obj`, `message`, `arglist`; see
+  `src/parser.c`'s own `BUILTIN_SIGNATURES` comment on `SEND`) since the
+  bytecode compiler builds the whole AST before any value exists to
+  look a dynamically-resolved method's arity up with, so it can't know
+  at parse time how many trailing tokens a `SEND` call owns — same
+  wall Smalltalk's `perform:withArguments:` hits, solved the same way.
+
+  The mismatch didn't surface as a `SEND`-shaped error at all: since
+  `SEND` is expression-capable (used as an operator, e.g.
+  `PRINT SEND "dog "getname`), the parser treated `SEND`'s missing 3rd
+  argument as "parse one more expression," which greedily swallowed
+  every following statement as a nested expression until it hit a
+  token that couldn't start one — a `TO` two blocks later, a genuinely
+  misleading error far from the real cause.
+
+  Fixed by rewriting the file to the current 3-argument syntax (`[]`
+  for a zero-argument message, e.g. `SEND "dog "speak []`; `[alice]`
+  for `animal_greet`'s one extra arg) rather than reverting `SEND`'s
+  own deliberate design — confirmed correct against the file's own
+  inline comments describing expected output. New permanent regression
+  test `test_objects_example_runs_correctly` in `tests/test_vm.c`
+  (same real-file-loading pattern as the TYPE/PR fix above). Verified
+  via `make test` (all 8 suites), a standalone ASan build of `test_vm`
+  (clean), and a live `bin/logo` process-liveness launch.
