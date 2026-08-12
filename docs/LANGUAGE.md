@@ -1735,7 +1735,11 @@ unparseable expression just evaluates to `0`, same as always) — see
   turtle) to an image file at the canvas's actual pixel size; and **Quit**
   (⌘Q), which closes the app.
 - The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
-  Text Size, applied to both the history pane and the entry box.
+  Text Size, applied to both the history pane and the entry box, and a
+  **Show Input Window** checkbox (⌘⇧I) that hides the whole history
+  pane/entry box, leaving the canvas alone — useful for a
+  presentation/demo mode. The canvas expands to fill the freed space;
+  toggling it back on restores the original split.
 - **Ctrl+C**, typed in the terminal this app was launched from, interrupts
   whatever script is currently running — prints `Interrupted.` and stops,
   however deeply nested in loops or procedure calls, rather than the

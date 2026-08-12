@@ -36,9 +36,3 @@ Real ideas, not currently prioritized — pick up only on explicit request.
   instant-by-default, since headless implies automation/batch use, not
   watching a drawing unfold.
 
-- [ ] View-menu toggle to show/hide the input window (entry/history
-  pane) while the app is running, leaving the canvas alone — e.g. for
-  a presentation/demo mode. Fits into the existing View menu (today
-  only text-size controls); a checkbox item calling
-  `gtk_widget_set_visible()` on the entry/history pane should be
-  enough. Smaller and more contained than the `--headless` flag above.

@@ -559,6 +559,10 @@ typedef struct LogoApp {
     GtkWidget *paned;
     GtkWidget *text_view;
     GtkWidget *entry;
+    // The paned's end child (history pane + entry box, everything but
+    // the canvas) -- View > Show Input Window toggles this widget's
+    // visibility directly, leaving drawing_area/paned untouched.
+    GtkWidget *repl_box;
 
     GtkCssProvider *css_provider;
     int font_size;

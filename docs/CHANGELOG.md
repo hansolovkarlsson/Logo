@@ -1812,3 +1812,67 @@ last open item from `docs/ROADMAP.md`'s "Robustness" section, which
 had no more entries after this and was removed. Verified via `make
 test` (all 8 suites, run from the repo root so the `examples/*.png`
 relative paths resolve) and a clean full rebuild of `bin/logomotive`.
+
+## View > Show Input Window — a presentation/demo mode toggle
+
+2026-08-12. Ships the last "Future / unplanned" `docs/ROADMAP.md` item
+scoped alongside the `--headless` CLI flag idea: a checkbox menu item
+that hides the history pane/entry box, leaving just the canvas
+visible, for presentation or demo use.
+
+`src/logo_types.h` gained one new `GtkWidget *repl_box` field on
+`LogoApp` — a pointer to the paned's own end child (the vertical box
+holding the history pane, the keyboard-hint label, and the entry box;
+everything except the canvas), stored by `build_main_window` the same
+way `paned`/`text_view`/`entry` already are. The toggle itself,
+`action_toggle_input_window` in `src/ui.c`, is a `GSimpleAction` with
+boolean state (declared via `GActionEntry`'s own `.state = "true"`
+field, which is what makes `GMenu` render it with a checkmark
+automatically, no separate menu-building work needed) — activating it
+flips the state and calls `gtk_widget_set_visible(app->repl_box, ...)`
+directly. Nothing else changes: `drawing_area` and `paned` are left
+alone, since GTK4's own `GtkPaned` already accounts for an invisible
+child while laying out (an invisible end child stops claiming space,
+and the canvas — the paned's non-resizable start child — simply gets
+the freed width), so no manual resize/position bookkeeping was needed
+the way `resize_canvas_widget` needs for `SETCANVASSIZE`.
+
+Bound to ⌘⇧I (`<Meta><Shift>i`, alongside the other View-menu/File-menu
+accelerators, all already `<Meta>`-based rather than `<Primary>` since
+this app is macOS-only). `docs/LANGUAGE.md`'s own View-menu bullet
+(under "Interface" — the same one documenting Increase/Decrease/
+Reset Text Size) now mentions it too. No `tests/test_vm.c` coverage —
+this is GTK widget-visibility wiring with no VM-observable behavior,
+the same reason the View menu's existing text-size actions have never
+had test coverage either (the new `LogoApp.repl_box` field itself is
+visible to every test binary, since `logo_types.h` is pulled in
+transitively through `interpreter.h`, but stays an untouched `NULL` in
+headless tests — the actual wiring lives in `ui.c`, which isn't linked
+into any test binary). Verified via a clean full rebuild of
+`bin/logomotive` and `make test` (all 8 suites, unaffected).
+
+While testing the toggle above, the user hit a real, pre-existing bug
+unrelated to it: quitting (Cmd-Q or the window's own close button)
+sometimes printed `Gdk-CRITICAL **: gdk_surface_request_layout:
+assertion 'frame_clock' failed` to the terminal. Root cause: `WAIT`,
+`SETSPEED`'s own motion-delay throttle, and `ANIMATESPRITE` all
+suspend via a real `g_timeout_add` timer (`on_wait_timeout`/
+`on_animatesprite_timeout`, `ui.c`) that nothing ever cancelled — quit
+while one was still pending, and it fired anyway sometime during (or
+just after) window teardown, and `handle_vm_result`'s unconditional
+`gtk_widget_queue_draw(app->drawing_area)` hit a canvas surface whose
+frame clock was already gone. Fixed by tracking the pending timer's id
+in a new file-scope `g_suspend_timeout_id` (set at each of the three
+`g_timeout_add` call sites, cleared at the top of each callback) and
+cancelling it — plus freeing its `SuspendedRun` — from a new
+`on_window_destroy` handler connected to the window's own `"destroy"`
+signal (chosen over `"close-request"` since it fires for every
+teardown path, not just the close button, and runs before
+`drawing_area`'s own resources go away). `WAITKEY`/`INPUT` (resumed by
+a real GTK key event, not a timer) and `PAUSE` (resumed only by an
+explicit `RESUME` command) were never at risk the same way, so neither
+needed this. No new test coverage — same reasoning as the toggle
+itself, this is GTK teardown-ordering behavior with no VM-observable
+effect, and reproducing the exact timing race outside a real windowed
+run isn't something the headless test harness can do. Verified with a
+clean full rebuild and `make test` (all 8 suites).

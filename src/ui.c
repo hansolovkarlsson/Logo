@@ -940,6 +940,21 @@ typedef struct {
 
 static SuspendedRun *g_suspended_run = NULL;
 
+// The g_timeout_add id backing g_suspended_run whenever it's WAIT/
+// SETSPEED's motion-delay throttle/ANIMATESPRITE (the three suspend
+// cases with a real background timer -- WAITKEY/INPUT resume from a
+// GTK event instead, and PAUSE resumes from an explicit RESUME
+// command, so neither has a timer that could outlive the window). 0
+// means no timer currently pending. Tracked so the window's own
+// "destroy" handler (see on_window_destroy below) can cancel it
+// instead of letting it fire after the canvas surface is gone --
+// without this, quitting mid-WAIT/mid-throttle/mid-animation let the
+// timer fire anyway and call gtk_widget_queue_draw on a
+// half-destroyed drawing_area, which is the real cause of a real bug
+// users can hit: "Gdk-CRITICAL: gdk_surface_request_layout: assertion
+// 'frame_clock' failed" on quit.
+static guint g_suspend_timeout_id = 0;
+
 // ONKEY/ONCLICK/ONMOUSEMOVE/ONKEYUP/ONRELEASE's own retained
 // chunk+result, kept alive independently of g_suspended_run's normal
 // free-on-finish lifecycle for as long as a handler still needs them
@@ -1095,7 +1110,7 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
         }
         case VM_RUN_SUSPENDED_WAIT:
             g_suspended_run = run;
-            g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
+            g_suspend_timeout_id = g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
             break;
         case VM_RUN_SUSPENDED_WAITKEY:
             g_suspended_run = run;
@@ -1123,7 +1138,7 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             // other commands interleaving mid-animation any more than
             // WAIT does.
             g_suspended_run = run;
-            g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_animatesprite_timeout, app);
+            g_suspend_timeout_id = g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_animatesprite_timeout, app);
             break;
         case VM_RUN_SUSPENDED_MOTION_DELAY:
             // SETSPEED's own throttle -- identical to VM_RUN_SUSPENDED_
@@ -1134,7 +1149,7 @@ static void handle_vm_result(LogoApp *app, SuspendedRun *run, VmRunResult result
             // throttle fired," both just need the window to stay
             // responsive for suspend_seconds before continuing.
             g_suspended_run = run;
-            g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
+            g_suspend_timeout_id = g_timeout_add((guint)(run->vm->suspend_seconds * 1000), on_wait_timeout, app);
             break;
         case VM_RUN_SUSPENDED_LAUNCH: {
             // Phase 6's own first slice (see docs/CONCURRENT_AGENTS_
@@ -1211,6 +1226,7 @@ static gboolean on_wait_timeout(gpointer user_data) {
     LogoApp *app = (LogoApp *)user_data;
     SuspendedRun *run = g_suspended_run;
     g_suspended_run = NULL;
+    g_suspend_timeout_id = 0; // this timer's own id -- it's about to fire and be auto-removed anyway
     VmRunResult result = vm_resume(run->vm, app, &run->result->pool, run->chunk);
     handle_vm_result(app, run, result);
     return G_SOURCE_REMOVE; // one-shot; a further WAIT gets its own new timer via handle_vm_result
@@ -1227,6 +1243,7 @@ static gboolean on_animatesprite_timeout(gpointer user_data) {
     LogoApp *app = (LogoApp *)user_data;
     SuspendedRun *run = g_suspended_run;
     g_suspended_run = NULL;
+    g_suspend_timeout_id = 0;
     VmRunResult result = vm_resume_animatesprite(run->vm, app, &run->result->pool, run->chunk);
     handle_vm_result(app, run, result);
     return G_SOURCE_REMOVE;
@@ -1937,6 +1954,50 @@ static void action_quit(GSimpleAction *action, GVariant *parameter, gpointer use
     g_application_quit(G_APPLICATION(user_data));
 }
 
+// Fixes a real, reproducible bug: quitting (Cmd-Q or the window's own
+// close button) while a script is mid-WAIT, mid-SETSPEED-throttle, or
+// mid-ANIMATESPRITE leaves g_suspend_timeout_id's timer armed in
+// GLib's main loop. If it fires after the window starts tearing down,
+// on_wait_timeout/on_animatesprite_timeout's own handle_vm_result call
+// gtk_widget_queue_draw(app->drawing_area) on a surface whose frame
+// clock is already gone, which is exactly what
+// "Gdk-CRITICAL: gdk_surface_request_layout: assertion 'frame_clock'
+// failed" is. The window's own "destroy" signal (unlike
+// "close-request", this fires for every teardown path, not just the
+// close button) is the one place that's guaranteed to run before any
+// of drawing_area's own resources go away, so cancelling the pending
+// timer and freeing its SuspendedRun here removes the race entirely.
+static void on_window_destroy(GtkWidget *widget, gpointer user_data) {
+    (void)widget;
+    (void)user_data;
+    if (g_suspend_timeout_id != 0) {
+        g_source_remove(g_suspend_timeout_id);
+        g_suspend_timeout_id = 0;
+    }
+    if (g_suspended_run != NULL) {
+        free_suspended_run(g_suspended_run);
+        g_suspended_run = NULL;
+    }
+}
+
+// View > Show Input Window — a checkbox item (GMenu renders a checkmark
+// automatically for a boolean-stateful action like this one), for a
+// presentation/demo mode that shows the canvas alone. Only hides
+// repl_box itself (history pane + hint label + entry box); drawing_area
+// and paned are untouched, and GTK4's GtkPaned already accounts for an
+// invisible child's own visibility when laying out, so the canvas
+// simply expands into the freed space with no separate resize logic
+// needed here.
+static void action_toggle_input_window(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)parameter;
+    LogoApp *app = (LogoApp *)user_data;
+    GVariant *old_state = g_action_get_state(G_ACTION(action));
+    gboolean new_visible = !g_variant_get_boolean(old_state);
+    g_variant_unref(old_state);
+    g_simple_action_set_state(action, g_variant_new_boolean(new_visible));
+    gtk_widget_set_visible(app->repl_box, new_visible);
+}
+
 // main.c's own --speed/--speed=N parsing stashes its result here (via
 // set_startup_turtle_speed) before g_application_run ever fires
 // "activate"/"open" -- a single file-scope value is enough for the same
@@ -1993,6 +2054,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     logo->window = window;
     gtk_window_set_title(GTK_WINDOW(window), "LogoMotive");
     gtk_window_set_default_size(GTK_WINDOW(window), 1010, (int)logo->canvas_height);
+    g_signal_connect(window, "destroy", G_CALLBACK(on_window_destroy), logo);
 
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     logo->paned = paned;
@@ -2019,6 +2081,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     gtk_widget_add_controller(logo->drawing_area, GTK_EVENT_CONTROLLER(click_gesture));
 
     GtkWidget *repl_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    logo->repl_box = repl_box;
     gtk_widget_set_hexpand(repl_box, TRUE);
     gtk_widget_set_size_request(repl_box, 500, -1);
 
@@ -2119,6 +2182,12 @@ static LogoApp *build_main_window(GtkApplication *app) {
     g_action_map_add_action_entries(G_ACTION_MAP(app), text_size_actions,
                                      G_N_ELEMENTS(text_size_actions), logo);
 
+    static GActionEntry view_toggle_actions[] = {
+        {.name = "toggle-input-window", .activate = action_toggle_input_window, .state = "true"},
+    };
+    g_action_map_add_action_entries(G_ACTION_MAP(app), view_toggle_actions,
+                                     G_N_ELEMENTS(view_toggle_actions), logo);
+
     // <Primary> doesn't resolve to Cmd on this GTK build (shows as Ctrl in
     // the menu), so use <Meta> directly — this app is macOS-only anyway.
     const char *open_accels[] = {"<Meta>o", NULL};
@@ -2129,6 +2198,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     const char *increase_accels[] = {"<Meta>plus", "<Meta>equal", NULL};
     const char *decrease_accels[] = {"<Meta>minus", NULL};
     const char *reset_accels[] = {"<Meta>0", NULL};
+    const char *toggle_input_window_accels[] = {"<Meta><Shift>i", NULL};
     const char *quit_accels[] = {"<Meta>q", NULL};
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.save-file", save_accels);
@@ -2138,6 +2208,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     gtk_application_set_accels_for_action(app, "app.increase-text-size", increase_accels);
     gtk_application_set_accels_for_action(app, "app.decrease-text-size", decrease_accels);
     gtk_application_set_accels_for_action(app, "app.reset-text-size", reset_accels);
+    gtk_application_set_accels_for_action(app, "app.toggle-input-window", toggle_input_window_accels);
     gtk_application_set_accels_for_action(app, "app.quit", quit_accels);
 
     GMenu *menu_bar = g_menu_new();
@@ -2156,6 +2227,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     g_menu_append(view_menu, "Increase Text Size", "app.increase-text-size");
     g_menu_append(view_menu, "Decrease Text Size", "app.decrease-text-size");
     g_menu_append(view_menu, "Reset Text Size", "app.reset-text-size");
+    g_menu_append(view_menu, "Show Input Window", "app.toggle-input-window");
     g_menu_append_submenu(menu_bar, "View", G_MENU_MODEL(view_menu));
     g_object_unref(view_menu);
 
