@@ -6,6 +6,8 @@ GTK4.
 Type commands into the entry box and watch the turtle draw on the canvas — the
 classic 80s Logo experience, running natively on macOS.
 
+**[Tutorial & command reference →](https://hansolovkarlsson.github.io/LogoMotive/)**
+
 ## Features
 
 - Turtle graphics canvas (Cairo-drawn) alongside a REPL/history pane
@@ -66,6 +68,8 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 
 ## Documentation
 
+- **[Learning materials site](https://hansolovkarlsson.github.io/LogoMotive/)**
+  — the tutorial and command reference below, as a browsable website
 - [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — a from-scratch tutorial, for
   learning Logo with no prior programming experience
 - [`docs/COMMAND_REFERENCE.md`](docs/COMMAND_REFERENCE.md) — every
