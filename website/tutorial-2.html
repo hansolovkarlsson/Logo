@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial II — Learning LogoMotive</title>
+<link rel="icon" type="image/svg+xml" href="assets/turtle-mark.svg">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-logo" href="index.html">
+      <svg class="logo-mark" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path class="trail" d="M -22,24 A 22,22 0 0 1 -3,-20" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path class="turtle" d="M 0,-30 L 21,30 L -21,30 Z" transform="rotate(-14)"/>
+      </svg>
+      LogoMotive
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tutorial.html">Tutorial</a>
+      <a href="tutorial-2.html" class="current">Tutorial II</a>
+      <a href="reference.html">Reference</a>
+    </nav>
+    <a class="site-github" href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">GitHub &#8599;</a>
+  </div>
+</header>
+
+<div class="wrap narrow">
+
+  <div class="tutorial-hero">
+    <div>
+      <p class="eyebrow">The sequel</p>
+      <h1 class="title">Learning LogoMotive II</h1>
+      <p class="lede">
+        For someone who's worked through Tutorial I and wants the rest
+        of the language: prototype-style objects, concurrent
+        multi-turtle agents, real file I/O, sprites, and background
+        event handlers &mdash; deeper cuts of what Tutorial I only
+        introduced, plus LogoMotive's own additions to classic Logo.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#ch1">Start reading &rarr;</a>
+        <a class="btn" href="#ch10">Jump to the capstone</a>
+      </div>
+    </div>
+    <div>
+      <div class="hero-canvas-frame">
+        <canvas id="hero-canvas" width="440" height="360"></canvas>
+      </div>
+      <p class="hero-canvas-caption">TO tree :size :depth ... tree :size * 0.7 :depth - 1 ... END</p>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="chapter-toc">
+      <p class="toc-label">Contents</p>
+      <ol>
+        <li><a href="#ch1"><span class="num">1</span>Deeper recursion</a></li>
+        <li><a href="#ch2"><span class="num">2</span>Property lists</a></li>
+        <li><a href="#ch3"><span class="num">3</span>Prototype objects</a></li>
+        <li><a href="#ch4"><span class="num">4</span>Arrays</a></li>
+        <li><a href="#ch5"><span class="num">5</span>Sprites &amp; animation</a></li>
+        <li><a href="#ch6"><span class="num">6</span>File I/O</a></li>
+        <li><a href="#ch7"><span class="num">7</span>Concurrent agents</a></li>
+        <li><a href="#ch8"><span class="num">8</span>Event-driven programs</a></li>
+        <li><a href="#ch9"><span class="num">9</span>Errors &amp; deferred exec</a></li>
+        <li><a href="#ch10"><span class="num">10</span>Capstone</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <div class="howto">
+        <h2>Before you start</h2>
+        <p>This picks up right where <a href="tutorial.html">Tutorial I</a> left off &mdash; procedures, variables, recursion, and lists are assumed. Same rule as last time: every example here has been run against the real interpreter before being written down.</p>
+      </div>
+
+      <section class="chapter" id="ch1">
+        <div class="chapter-head"><span class="chapter-num">1</span><h2>Deeper recursion</h2></div>
+        <p>Tutorial I's recursion was all "count down to a base case." Three patterns worth adding to that.</p>
+        <p><strong>Accumulators.</strong> <code class="inline">factorial</code> from Tutorial I does its multiplying on the way <em>back up</em> the call stack, after the recursive call returns. An accumulator does the work on the way <em>down</em> instead, carrying the running total as an extra parameter:</p>
+        <pre class="code"><span class="kw">TO</span> sum_acc :n :acc
+  IF :n = 0 [OUTPUT :acc]
+  OUTPUT sum_acc :n - 1 :acc + :n
+<span class="kw">END</span>
+
+PRINT sum_acc 100 0</pre>
+        <div class="output">5050</div>
+        <p><code class="inline">sum_acc 100 0</code> doesn't wait for anything &mdash; each call either finishes immediately (<code class="inline">:n = 0</code>) or hands the <em>whole</em> answer straight to the next call, no multiplication left pending. This shape matters for very long chains: <code class="inline">factorial</code>'s own style leaves one pending multiplication per call waiting to happen on the way back up; an accumulator leaves nothing waiting, so the chain never gets "deeper" in any way that costs more per link.</p>
+        <p><strong>Mutual recursion.</strong> Two procedures can call <em>each other</em> &mdash; neither one is "the" recursive one:</p>
+        <pre class="code"><span class="kw">TO</span> is_even :n
+  IF :n = 0 [OUTPUT "TRUE]
+  OUTPUT is_odd :n - 1
+<span class="kw">END</span>
+
+<span class="kw">TO</span> is_odd :n
+  IF :n = 0 [OUTPUT "FALSE]
+  OUTPUT is_even :n - 1
+<span class="kw">END</span>
+
+PRINT is_even 10
+PRINT is_odd 10</pre>
+        <div class="output">TRUE
+FALSE</div>
+        <p>Every call to <code class="inline">is_even</code> hands off to <code class="inline">is_odd</code> and vice versa, each one peeling off 1 and asking the <em>other</em> procedure to finish the job &mdash; the recursion is spread across two names instead of living in just one.</p>
+        <p><strong>Tree recursion.</strong> So far every recursive call has been the <em>last</em> thing a procedure does. Nothing stops a procedure from recursing <em>twice</em> in the same call, branching instead of chaining &mdash; which is exactly how you draw a tree:</p>
+        <pre class="code"><span class="kw">TO</span> tree :size :depth
+  IF :depth = 0 [STOP]
+  FORWARD :size
+  RIGHT 25
+  tree (:size * 0.7) (:depth - 1)
+  LEFT 50
+  tree (:size * 0.7) (:depth - 1)
+  RIGHT 25
+  BACK :size
+<span class="kw">END</span>
+
+tree 60 4</pre>
+        <div class="diagram-frame"><canvas id="dg-tree" width="260" height="220"></canvas></div>
+        <p>Read it as: draw one branch's trunk, then recurse <em>twice</em> from its tip &mdash; once angled right, once angled left &mdash; each recursive call a smaller tree of its own (<code class="inline">:size * 0.7</code>, one less <code class="inline">:depth</code>). The <code class="inline">BACK :size</code> at the end walks back down the trunk afterward, so the turtle ends up exactly where it started, ready for whatever comes next. <code class="inline">:depth</code> is what keeps this finite &mdash; each branch's two children get <code class="inline">:depth - 1</code>, until <code class="inline">:depth</code> hits <code class="inline">0</code> and that branch just stops.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Change <code class="inline">tree</code>'s branch angle (the <code class="inline">25</code>s) and count how differently the same <code class="inline">:depth</code> looks.</li>
+            <li>Write <code class="inline">fib_acc</code>, a fast accumulator-style Fibonacci (the plain recursive <code class="inline">fib :n = fib (:n-1) + fib (:n-2)</code> version redoes huge amounts of work &mdash; <code class="inline">fib_acc</code> should carry the last two values forward instead of recomputing them).</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch2">
+        <div class="chapter-head"><span class="chapter-num">2</span><h2>Property lists</h2></div>
+        <p>A property list is a named record: a bag of <code class="inline">name</code>/<code class="inline">value</code> pairs, set and read by that name.</p>
+        <pre class="code">SETPROP "turtle1 "color "red
+SETPROP "turtle1 "speed 5
+PRINT GETPROP "turtle1 "color
+PRINT PROPLIST "turtle1</pre>
+        <div class="output">red
+color red speed 5</div>
+        <p><code class="inline">SETPROP</code> takes the plist's own name, a property name, and a value. <code class="inline">GETPROP</code> reads one property back (an empty list if it was never set &mdash; not an error). <code class="inline">PROPLIST</code> dumps the whole record as one flat list, alternating names and values. <code class="inline">REMOVEPROP</code> deletes a single entry.</p>
+        <p>Property lists live in their own namespace, entirely separate from <code class="inline">MAKE</code>/<code class="inline">:name</code> variables &mdash; <code class="inline">SETPROP "turtle1 ...</code> has nothing to do with a variable named <code class="inline">turtle1</code>, and there's no <code class="inline">LOCAL</code>-style scoping for them: every property list is visible everywhere, for as long as the program runs.</p>
+        <p>That "just a bag of named values, visible everywhere" shape is unglamorous on its own, but it's the entire foundation the next chapter is built on.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Give three or four made-up "creatures" (just words &mdash; <code class="inline">"dragon</code>, <code class="inline">"unicorn</code>) each a <code class="inline">"legs</code> and <code class="inline">"color</code> property, then <code class="inline">FOREACH</code> over a list of their names printing each one's <code class="inline">PROPLIST</code>.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch3">
+        <div class="chapter-head"><span class="chapter-num">3</span><h2>Prototype-style objects</h2></div>
+        <p>An "object" in LogoMotive is nothing new &mdash; it's a property list with one special property: <code class="inline">"prototype</code>, a link to another property list to fall back on. <code class="inline">SEND</code> calls a "method" (really just a procedure name stored as a property) by walking that link until it finds one:</p>
+        <pre class="code"><span class="kw">TO</span> animal_speak :self
+  PRINT SENTENCE :self GETPROP :self "sound
+<span class="kw">END</span>
+
+NEW "animal "nothing
+SETPROP "animal "speak "animal_speak
+SETPROP "animal "sound "generic
+
+NEW "dog "animal
+SETPROP "dog "sound "Woof
+
+SEND "dog "speak []</pre>
+        <div class="output">dog Woof</div>
+        <p>Walk through what just happened: <code class="inline">NEW "dog "animal</code> sets <code class="inline">dog</code>'s own <code class="inline">"prototype</code> property to <code class="inline">animal</code> &mdash; that's <em>all</em> <code class="inline">NEW</code> does. <code class="inline">dog</code> itself never got a <code class="inline">"speak</code> property, so when <code class="inline">SEND "dog "speak []</code> looks for one, it doesn't find it on <code class="inline">dog</code> and walks the prototype link to <code class="inline">animal</code>, finds <code class="inline">"speak</code> there (bound to the procedure name <code class="inline">animal_speak</code>), and calls it with <code class="inline">dog</code> bound to <code class="inline">:self</code>. Inside that call, <code class="inline">GETPROP :self "sound</code> reads <code class="inline">dog</code>'s <em>own</em> <code class="inline">"sound</code> &mdash; <code class="inline">"Woof</code>, not <code class="inline">animal</code>'s generic one &mdash; because property lookups always start at the object you actually sent the message to, not wherever the method was found.</p>
+        <p>That's inheritance, in full: data can be overridden per-object (each animal gets its own <code class="inline">"sound</code>) while behavior is shared (one <code class="inline">"speak</code> implementation, found through the prototype chain). Add a second animal and the same <code class="inline">"speak</code> still works, unmodified:</p>
+        <pre class="code">NEW "cat "animal
+SETPROP "cat "sound "Meow
+SEND "cat "speak []</pre>
+        <div class="output">cat Meow</div>
+        <p><code class="inline">SEND</code>'s own arglist is always required &mdash; <code class="inline">[]</code> for a method that takes no extra inputs beyond <code class="inline">:self</code>, which is bound automatically and isn't part of the arglist you write.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Add a <code class="inline">"legs</code> property to <code class="inline">animal</code> (default <code class="inline">4</code>) and a <code class="inline">walk</code> method that prints <code class="inline">SENTENCE :self SENTENCE "walks-on GETPROP :self "legs</code> (no parens needed &mdash; chained prefix calls read fine without them). Give one animal (a bird, say) its own overriding <code class="inline">"legs 2</code>.</li>
+            <li>Build a three-level chain &mdash; <code class="inline">NEW "puppy "dog</code> &mdash; and confirm <code class="inline">SEND "puppy "speak []</code> still finds <code class="inline">animal_speak</code> two links up.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch4">
+        <div class="chapter-head"><span class="chapter-num">4</span><h2>Arrays</h2></div>
+        <p>Lists in this language are immutable &mdash; <code class="inline">MAKE "b :a</code> and any operation on <code class="inline">:b</code> afterward never changes <code class="inline">:a</code>. Arrays are the one exception:</p>
+        <pre class="code">MAKE "a ARRAY 3
+SETITEM 1 :a "red
+SETITEM 2 :a "green
+SETITEM 3 :a "blue
+PRINT :a
+PRINT ITEM 2 :a</pre>
+        <div class="output">{red green blue}
+green</div>
+        <p><code class="inline">ARRAY 3</code> creates a 3-slot array (each slot starts as <code class="inline">[]</code>); <code class="inline">SETITEM</code> overwrites one slot in place, 1-indexed like <code class="inline">ITEM</code> (which arrays share with lists and words, from Tutorial I). Arrays always print inside <code class="inline">{ }</code> rather than <code class="inline">[ ]</code>, so you can tell at a glance which kind of thing you're looking at.</p>
+        <p>Here's the part that makes them genuinely different from a list:</p>
+        <pre class="code">MAKE "b :a
+SETITEM 1 :b "PURPLE
+PRINT :a</pre>
+        <div class="output">{PURPLE green blue}</div>
+        <p><code class="inline">MAKE "b :a</code> didn't copy the array &mdash; <code class="inline">:a</code> and <code class="inline">:b</code> are two names for the <em>same</em> underlying slots, so writing through <code class="inline">:b</code> is visible through <code class="inline">:a</code> too. Reach for an array instead of a list specifically when you want that: a shared, mutable structure that more than one part of a program can update in place, like a scoreboard or a grid several procedures all poke at.</p>
+        <p><code class="inline">FILLARRAY</code> overwrites every slot at once, useful for resetting one back to a known state:</p>
+        <pre class="code">FILLARRAY :a 0
+PRINT :a</pre>
+        <div class="output">{0 0 0}</div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Build a 5-slot array, fill it with <code class="inline">RANDOM 100</code> in each slot via <code class="inline">REPEAT</code>/<code class="inline">REPCOUNT</code>, then use <code class="inline">REDUCE</code> (Tutorial I, Chapter 7) to find the largest value.</li>
+            <li>Write <code class="inline">swap :arr :i :j</code>, swapping two slots of an array in place.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch5">
+        <div class="chapter-head"><span class="chapter-num">5</span><h2>Sprites &amp; animation</h2></div>
+        <p>Everything so far draws with the plain triangular turtle. <code class="inline">LOADSPRITE</code> swaps that for a real image:</p>
+        <pre class="code">LOADSPRITE "ant "ant.png
+
+SETSPRITE "ant
+
+REPEAT 12 [
+  STAMPSPRITE
+  FD 40
+  RT 30
+]
+
+SETSPRITE "NONE</pre>
+        <p><code class="inline">LOADSPRITE "name "path</code> loads an image file (any format <code class="inline">gdk-pixbuf</code> understands &mdash; PNG, JPEG, ...) and registers it under <code class="inline">name</code>, scaled to a fixed size. <code class="inline">SETSPRITE "name</code> makes the <em>current</em> turtle look like that image from then on, both live on the canvas and in <code class="inline">STAMPSPRITE</code>, which bakes a permanent copy at the turtle's current position/heading (the turtle itself keeps moving afterward &mdash; <code class="inline">STAMPSPRITE</code> is a snapshot, not a follower). <code class="inline">SETSPRITE "NONE</code> goes back to the default triangle.</p>
+        <p>For a sprite <em>sheet</em> &mdash; several frames in one image, laid out in a grid &mdash; <code class="inline">LOADSPRITESHEET</code> takes the grid dimensions, and <code class="inline">ANIMATESPRITE</code> plays through frames over real time:</p>
+        <pre class="code">LOADSPRITESHEET "walker "walker.png 4 2
+
+SETSPRITE "walker
+
+ANIMATESPRITE 0.15 24
+
+SETSPRITE "NONE</pre>
+        <p><code class="inline">LOADSPRITESHEET "walker "walker.png 4 2</code> loads an 8-frame grid (4 columns, 2 rows). <code class="inline">ANIMATESPRITE 0.15 24</code> advances one frame every 0.15 seconds, 24 times over &mdash; three full loops through all 8 frames, in place (the turtle doesn't move), each frame paced and redrawn rather than snapping straight to the last one. <code class="inline">SETSPRITEFRAME n</code> jumps to a specific frame directly, if you want a single pose instead of the automatic cycle.</p>
+        <div class="note">Sprites need the real app to see &mdash; <code class="inline">bin/logomotive</code>'s window does the actual image decoding, so these examples won't show anything useful run any other way.</div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Load <code class="inline">turtle.png</code> and stamp a ring of them around the canvas center (same <code class="inline">REPEAT</code>/<code class="inline">STAMPSPRITE</code> shape as the ant above).</li>
+            <li>Combine <code class="inline">TELL</code> (Tutorial I, Chapter 8) with sprites: give two different turtles two different loaded shapes at once.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch6">
+        <div class="chapter-head"><span class="chapter-num">6</span><h2>File I/O</h2></div>
+        <p>Reading and writing real files on disk &mdash; channels, opened and closed explicitly, same shape as most languages' file handles.</p>
+        <pre class="code">MAKE "ch OPENWRITE "scratch.txt
+FILEPRINT :ch "first-line
+FILEPRINT :ch "second-line
+CLOSE :ch
+
+MAKE "rd OPENREAD "scratch.txt
+WHILE NOT EOF? :rd [PRINT READLINE :rd]
+CLOSE :rd
+
+DELETEFILE "scratch.txt</pre>
+        <div class="output">first-line
+second-line</div>
+        <p><code class="inline">OPENWRITE</code>/<code class="inline">OPENREAD</code> open a channel (a plain number, output as an operator) and don't touch the <em>content</em> of what you write until <code class="inline">CLOSE</code> flushes it &mdash; losing power or crashing before <code class="inline">CLOSE</code> loses whatever wasn't flushed yet. <code class="inline">FILEPRINT :channel :thing</code> writes <code class="inline">:thing</code>, rendered the same way <code class="inline">PRINT</code> would, plus a trailing newline. <code class="inline">EOF?</code> checks whether a read channel has run out of lines, meant to be checked <em>before</em> each <code class="inline">READLINE</code> (as above), not after. <code class="inline">OPENAPPEND</code> is <code class="inline">OPENWRITE</code>, just preloaded with the file's existing content instead of starting empty. <code class="inline">DELETEFILE</code>/<code class="inline">DIRECTORY</code> round it out &mdash; remove a file, or list what's in the current directory.</p>
+        <p><code class="inline">READWORD</code>/<code class="inline">READCHAR</code> are finer-grained than <code class="inline">READLINE</code> &mdash; same channel, same EOF convention, but word- or single-character-at-a-time instead of a whole line:</p>
+        <pre class="code">MAKE "ch OPENWRITE "scratch2.txt
+FILEPRINT :ch "hello there
+CLOSE :ch
+
+MAKE "rd OPENREAD "scratch2.txt
+PRINT READWORD :rd
+PRINT READWORD :rd
+CLOSE :rd
+DELETEFILE "scratch2.txt</pre>
+        <div class="output">hello
+there</div>
+        <p><code class="inline">READWORD</code> skips leading whitespace, then reads to the next whitespace or EOF. <code class="inline">READCHAR</code> is more primitive still: the single next raw byte, whitespace included, no skipping at all.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Write a procedure that saves a list of high scores (one per line) to a file, then a second procedure that reads them back and <code class="inline">PRINT</code>s the highest one.</li>
+            <li>Use <code class="inline">DIRECTORY</code> and <code class="inline">MEMBER?</code> (Tutorial I, Chapter 5) together to check whether a file exists before trying to <code class="inline">OPENREAD</code> it.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch7">
+        <div class="chapter-head"><span class="chapter-num">7</span><h2>Concurrent agents</h2></div>
+        <p>Every turtle so far has belonged to one sequential script &mdash; even with multiple turtles (<code class="inline">TELL</code>, Tutorial I Chapter 8), only one command runs at a time. <code class="inline">LAUNCH</code> is different: it spawns a genuinely independent, separately-scheduled turtle "agent," running alongside whatever else is going:</p>
+        <pre class="code"><span class="kw">TO</span> polygon :sides :length :start_x :start_y :r :g :b
+  SETPENCOLOR :r :g :b
+  PENUP
+  SETXY :start_x :start_y
+  PENDOWN
+  REPEAT :sides [
+    FD :length
+    RT (360 / :sides)
+    YIELD
+  ]
+<span class="kw">END</span>
+
+LAUNCH "polygon [3 90 120 350 220 40 40]
+LAUNCH "polygon [4 70 250 380 40 140 220]
+LAUNCH "polygon [6 50 380 350 40 180 90]
+AWAIT
+
+PRINT "all-agents-done</pre>
+        <p><code class="inline">LAUNCH "procname arglist</code> spawns a fresh turtle running <code class="inline">procname</code>, with <code class="inline">arglist</code>'s elements bound to its parameters exactly like an ordinary call. <code class="inline">AWAIT</code> blocks until every currently-launched agent has finished. In between, <code class="inline">YIELD</code> is what actually makes this concurrent rather than sequential: without it, each <code class="inline">LAUNCH</code>ed agent would just run start-to-finish before the next one got a turn &mdash; indistinguishable from calling <code class="inline">polygon</code> three times in a row. With a <code class="inline">YIELD</code> inside the loop, each agent does one step, then hands control to the <em>other</em> agents, and all three polygons grow in lockstep instead of one at a time. (The scheduler itself is synchronous and headless &mdash; nothing here depends on real OS threads &mdash; so what actually proves the interleaving happened is that all three shapes come out whole and correctly closed despite each only taking one step at a time.)</p>
+        <p>A few real constraints worth knowing before reaching for this: <code class="inline">WAIT</code>/<code class="inline">WAITKEY</code>/<code class="inline">INPUT</code>/<code class="inline">PAUSE</code>/<code class="inline">ANIMATESPRITE</code> used <em>inside</em> an agent are deliberately refused (a reported error, not a silent hang) &mdash; they're not supported there yet. <code class="inline">SETSPEED</code> has no visible slow-motion effect on agents either. Neither is a bug so much as a documented edge of what <code class="inline">LAUNCH</code> covers today.</p>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Launch five agents instead of three, each drawing a differently-sized polygon, and <code class="inline">AWAIT</code> them all.</li>
+            <li>Remove the <code class="inline">YIELD</code> from <code class="inline">polygon</code> and watch what changes about the order the shapes appear in (they'll still all get drawn &mdash; just not interleaved anymore).</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch8">
+        <div class="chapter-head"><span class="chapter-num">8</span><h2>Event-driven programs</h2></div>
+        <p>Tutorial I's Chapter 9 registered one <code class="inline">ONKEY</code> handler as a single line. Here's a fuller program &mdash; arrow keys drive the turtle, a click teleports it there instead, and both work <em>at the same time</em>, without either one blocking the other:</p>
+        <pre class="code"><span class="kw">TO</span> keyhandler :key
+  PRINT SENTENCE "you-pressed: :key
+  IF :key = "Up [FD 20]
+  IF :key = "Down [BK 20]
+  IF :key = "Left [LT 15]
+  IF :key = "Right [RT 15]
+<span class="kw">END</span>
+
+<span class="kw">TO</span> clickhandler :x :y :button
+  PENUP
+  SETXY :x :y
+  PENDOWN
+  PRINT SENTENCE (SENTENCE "clicked: :x) :y
+<span class="kw">END</span>
+
+ONKEY "keyhandler
+ONCLICK "clickhandler
+
+PRINT [Arrow keys drive the turtle; click the canvas to jump there.]</pre>
+        <p>Notice the script <em>ends</em> right after registering both handlers &mdash; there is no loop waiting for events, because there doesn't need to be. <code class="inline">ONKEY</code>/<code class="inline">ONCLICK</code> register <code class="inline">keyhandler</code>/<code class="inline">clickhandler</code> and then get out of the way; the app itself calls them whenever a real key or click happens, for as long as the window stays open, entirely independent of whatever else the entry box is doing at that moment. That's the real difference from <code class="inline">WAITKEY</code> (Tutorial I): <code class="inline">WAITKEY</code> is <em>you</em> asking the program to pause and wait for one key; <code class="inline">ONKEY</code> is the program telling the app "call me back whenever," and moving on immediately.</p>
+        <p><code class="inline">clickhandler</code>'s inputs are worth noting: <code class="inline">ONCLICK</code>'s procedure always takes exactly three (<code class="inline">:x :y :button</code>, canvas-relative pixels plus which mouse button), <code class="inline">ONMOUSEMOVE</code>'s always takes two (<code class="inline">:x :y</code>, no button), and <code class="inline">ONKEY</code>'s always takes one (<code class="inline">:key</code>) &mdash; a mismatched parameter count is a reported error the moment you register the handler, not a mystery later when it silently never fires.</p>
+        <div class="note">Like sprites, this one needs the real windowed app to actually see &mdash; try it with <code class="inline">bin/logomotive</code>, not by reading alone.</div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Add a running total: a variable that counts clicks, printed inside <code class="inline">clickhandler</code>.</li>
+            <li>Register <code class="inline">ONMOUSEMOVE</code> too, drawing a continuous line that follows the pointer wherever it moves (hint: just <code class="inline">SETXY :x :y</code> with the pen already down).</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch9">
+        <div class="chapter-head"><span class="chapter-num">9</span><h2>Error handling &amp; deferred execution</h2></div>
+        <p><code class="inline">CATCH</code>/<code class="inline">THROW</code> unwind the call stack on purpose, for handling an error without crashing the whole program:</p>
+        <pre class="code"><span class="kw">TO</span> checked_input :x
+  IF NOT NUMBER? :x [THROW "badinput]
+  PRINT SENTENCE "got: :x
+<span class="kw">END</span>
+
+CATCH "badinput [
+  checked_input 42
+  checked_input "oops
+  PRINT "never-gets-here
+]
+PRINT "recovered</pre>
+        <div class="output">got: 42
+recovered</div>
+        <p><code class="inline">checked_input 42</code> succeeds normally and prints. <code class="inline">checked_input "oops</code> throws &mdash; <code class="inline">"oops</code> is a word, not a number, so <code class="inline">NUMBER? "oops</code> is false &mdash; and that <code class="inline">THROW "badinput</code> unwinds everything back to the nearest enclosing <code class="inline">CATCH "badinput [...]</code>, skipping both the rest of that failed call <em>and</em> the rest of the block (<code class="inline">"never-gets-here</code> never prints) and landing on whatever comes right after the <code class="inline">]</code>. A <code class="inline">THROW</code> with no matching <code class="inline">CATCH</code> anywhere prints an error and moves on to the next top-level command, rather than crashing &mdash; this is the <em>deliberate</em> version of that same recovery.</p>
+        <div class="note"><strong>A genuine gotcha, worth knowing before it surprises you</strong>: a quoted word that merely <em>looks</em> like a number, <code class="inline">"42</code>, is still a <code class="inline">WORD</code>, not a <code class="inline">NUMBER</code> &mdash; <code class="inline">NUMBER? "42</code> is <code class="inline">FALSE</code>. Only a bare, unquoted <code class="inline">42</code> (or one computed by arithmetic) is actually a number. <code class="inline">checked_input</code> above only accepts the bare form for exactly this reason.</div>
+        <p>Three more ways to run code you didn't write directly into the script:</p>
+        <pre class="code">RUN [PRINT "hello-from-run]
+
+<span class="kw">TO</span> add2 :a :b
+  PRINT :a + :b
+<span class="kw">END</span>
+APPLY "add2 [3 4]
+
+MAKE "jobs [[2 * 3] [4 * 5] [6 * 7]]
+PRINT EVAL :jobs</pre>
+        <div class="output">hello-from-run
+7
+6 20 42</div>
+        <p><code class="inline">RUN</code> executes a stored list as if it had been typed directly &mdash; useful for code built up at runtime (<code class="inline">RUN</code> a template someone else's procedure handed you). <code class="inline">APPLY "name arglist</code> calls <code class="inline">name</code> with <code class="inline">arglist</code>'s elements as its inputs, the same relationship <code class="inline">LAUNCH</code> has to its own arglist. Both <code class="inline">RUN</code> and <code class="inline">APPLY</code> are commands, not operators &mdash; there's no <code class="inline">PRINT RUN [...]</code>, only <code class="inline">RUN [PRINT ...]</code> itself producing output.</p>
+        <p><code class="inline">EVAL</code> is the odd one out: it <em>is</em> an operator. Each element of its list argument is either a nested <code class="inline">LIST</code> (run as one piece of code, same "list = deferred code" convention <code class="inline">RUN</code> uses) or a plain value (passed through unchanged, since there's no code there to run), and the result always comes back the same length as the input &mdash; one slot per element:</p>
+        <pre class="code">PRINT EVAL [[3 * 4] 99 [SQRT 16]]</pre>
+        <div class="output">12 99 4</div>
+        <p>The first and third elements are lists, so they run as code (<code class="inline">3 * 4</code>, <code class="inline">SQRT 16</code>); the middle <code class="inline">99</code> isn't a list, so it just passes straight through. That makes <code class="inline">EVAL</code> the right tool specifically for a list of computations assembled at runtime, when you don't know in advance how many there'll be or which ones are "code" versus plain data:</p>
+        <pre class="code">MAKE "jobs [[2 * 3] [4 * 5] [6 * 7]]
+PRINT EVAL :jobs</pre>
+        <div class="output">6 20 42</div>
+        <div class="tryit">
+          <p class="label">Try it</p>
+          <ul>
+            <li>Wrap <code class="inline">checked_input</code> in a loop over a list containing a mix of numbers and words, printing either the successful result or <code class="inline">"skipped</code> for each one, using <code class="inline">CATCH</code> around a single call at a time (not the whole loop) so one bad entry doesn't stop the rest.</li>
+            <li>Read a line of raw text (<code class="inline">READLINE</code>, this chapter) containing a short Logo command, <code class="inline">PARSE</code> it into a runnable list (tokenizes text by whitespace &mdash; <code class="inline">PARSE 'FD 100 RT 90'</code> becomes <code class="inline">[FD 100 RT 90]</code>), and <code class="inline">RUN</code> it.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="chapter" id="ch10">
+        <div class="chapter-head"><span class="chapter-num">10</span><h2>Capstone: a little zoo</h2></div>
+        <p>Objects for identity, property lists for per-animal data, concurrent agents so every animal wanders independently, all at once.</p>
+        <pre class="code"><span class="kw">TO</span> animal_speak :self
+  PRINT SENTENCE :self GETPROP :self "sound
+<span class="kw">END</span>
+
+NEW "animal "nothing
+SETPROP "animal "speak "animal_speak
+
+<span class="kw">TO</span> make_critter :name :sound :r :g :b
+  NEW :name "animal
+  SETPROP :name "sound :sound
+  SETPROP :name "r :r
+  SETPROP :name "g :g
+  SETPROP :name "b :b
+<span class="kw">END</span>
+
+<span class="kw">TO</span> wander :name :steps
+  SETPENCOLOR GETPROP :name "r GETPROP :name "g GETPROP :name "b
+  REPEAT :steps [
+    FD 15
+    RT (RANDOM 60) - 30
+    YIELD
+  ]
+  SEND :name "speak []
+<span class="kw">END</span>
+
+make_critter "dog "Woof 200 80 60
+make_critter "cat "Meow 90 160 90
+make_critter "bird "Tweet 220 190 60
+
+LAUNCH "wander [dog 12]
+LAUNCH "wander [cat 12]
+LAUNCH "wander [bird 12]
+AWAIT
+
+PRINT "zoo-quiet-now</pre>
+        <p>Read it in the order it actually runs: <code class="inline">make_critter</code> builds three prototype-based objects (Chapter 3), each with its own <code class="inline">"sound</code> and color stored as properties (Chapter 2) on top of the shared <code class="inline">"speak</code> behavior every <code class="inline">animal</code> gets for free. <code class="inline">LAUNCH</code>ing <code class="inline">wander</code> once per critter (Chapter 7) sets all three loose <em>at the same time</em> &mdash; each one takes a step, turns a small random amount, <code class="inline">YIELD</code>s to let the others have a turn, and only calls <code class="inline">SEND :name "speak []</code> once its own walk is finished. <code class="inline">AWAIT</code> waits for all three to actually finish before the zoo goes quiet.</p>
+        <div class="tryit">
+          <p class="label">Try it, roughly increasing difficulty</p>
+          <ul>
+            <li>Add a fourth critter with its own sound and color.</li>
+            <li>Give <code class="inline">wander</code> a <code class="inline">PENUP</code>/random-teleport start instead of all three animals beginning at the same spot.</li>
+            <li>Combine this with Chapter 5: <code class="inline">LOADSPRITE</code> each animal a real image and <code class="inline">SETSPRITE</code> it before wandering, instead of the plain triangle.</li>
+            <li>Combine this with Chapter 8: register an <code class="inline">ONCLICK</code> handler that <code class="inline">LAUNCH</code>es one <em>new</em> critter, at the clicked position, every time you click the canvas.</li>
+          </ul>
+        </div>
+      </section>
+
+      <p>From here, the <a href="reference.html">reference</a> has every command in one place, and the repository's own design docs go deep on how <code class="inline">LAUNCH</code> and the VM itself actually work, if that's the kind of thing you enjoy reading.</p>
+
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap narrow">
+    Part of this project's <a href="index.html">learning materials</a> — see the repository for the interpreter's source and full documentation.
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function makeTurtle(ctx, cx, cy, strokeStyle) {
+    var x = cx, y = cy, heading = 0;
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    return {
+      forward: function (d) {
+        var rad = (heading - 90) * Math.PI / 180;
+        var nx = x + Math.cos(rad) * d;
+        var ny = y + Math.sin(rad) * d;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+        x = nx; y = ny;
+      },
+      right: function (deg) { heading += deg; },
+      left: function (deg) { heading -= deg; },
+      getX: function () { return x; },
+      getY: function () { return y; },
+      getHeading: function () { return heading; },
+      setState: function (nx, ny, nh) { x = nx; y = ny; heading = nh; }
+    };
+  }
+
+  // Mirrors the real TO tree :size :depth procedure exactly (Chapter 1):
+  // forward, right 25, recurse, left 50, recurse, right 25, back.
+  function drawTree(t, size, depth) {
+    if (depth === 0) return;
+    t.forward(size);
+    t.right(25);
+    drawTree(t, size * 0.7, depth - 1);
+    t.left(50);
+    drawTree(t, size * 0.7, depth - 1);
+    t.right(25);
+    t.forward(-size);
+  }
+
+  function setupCanvas(id) {
+    var canvas = document.getElementById(id);
+    if (!canvas) return null;
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.width, h = canvas.height;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  function drawTreeDiagram() {
+    var c = setupCanvas("dg-tree");
+    if (!c) return;
+    var t = makeTurtle(c.ctx, c.w / 2, c.h - 10, "#f2a389");
+    drawTree(t, 46, 4);
+  }
+  drawTreeDiagram();
+
+  var hero = document.getElementById("hero-canvas");
+  if (hero) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = hero.width, h = hero.height;
+    hero.style.width = w + "px";
+    hero.style.height = h + "px";
+    hero.width = w * dpr;
+    hero.height = h * dpr;
+    var hctx = hero.getContext("2d");
+    hctx.scale(dpr, dpr);
+
+    var depth = 1;
+    var maxDepth = 6;
+    var growing = true;
+    var lastTick = 0;
+
+    function renderHero() {
+      hctx.clearRect(0, 0, w, h);
+      var t = makeTurtle(hctx, w / 2, h - 20, "hsl(14deg 70% 66%)");
+      var origForward = t.forward;
+      var callIndex = 0;
+      t.forward = function (d) {
+        callIndex++;
+        hctx.strokeStyle = "hsl(" + (14 + (callIndex % 12) * 6) + "deg 70% 64%)";
+        origForward(d);
+      };
+      drawTree(t, 52, depth);
+    }
+
+    renderHero();
+
+    if (!reduceMotion) {
+      setInterval(function () {
+        depth += growing ? 1 : -1;
+        if (depth >= maxDepth) growing = false;
+        if (depth <= 1) growing = true;
+        renderHero();
+      }, 700);
+    }
+  }
+})();
+</script>
+
+</body>
+</html>

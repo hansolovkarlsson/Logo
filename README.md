@@ -75,6 +75,8 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
   — the tutorial and command reference below, as a browsable website
 - [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — a from-scratch tutorial, for
   learning Logo with no prior programming experience
+- [`docs/TUTORIAL_II.md`](docs/TUTORIAL_II.md) — the sequel: objects,
+  concurrent agents, sprites, file I/O, and event-driven programs
 - [`docs/COMMAND_REFERENCE.md`](docs/COMMAND_REFERENCE.md) — every
   command `bin/logomotive` actually supports, as a lookup table
 - [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — full language reference for the
