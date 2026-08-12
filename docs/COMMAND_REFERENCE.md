@@ -51,6 +51,7 @@ check whether the change also touches `docs/BYTECODE_REFERENCE.md`
 - [Mouse state](#mouse-state)
 - [Concurrent agents](#concurrent-agents)
 - [Clock](#clock)
+- [Sound](#sound)
 - [Event triggers](#event-triggers)
 - [Appendix: documented elsewhere, not available in `bin/logomotive`](#appendix-documented-elsewhere-not-available-in-binlogomotive)
 
@@ -960,6 +961,31 @@ PRINT DATE    -> 2026-08-11
 PRINT MILLISECONDS -> 1.78649e+12
 ```
 
+## Sound
+
+| Command | Args | Description |
+|---|---|---|
+| `TONE` | `frequency seconds` | Synthesize and play a sine wave at `frequency` Hz for `seconds` seconds |
+| `PLAYSOUND` | `"path` | Load and play a WAV file from disk (a quoted word, not a general string expression — same convention as `LOADPIC`/`LOADSPRITE`) |
+| `STOPSOUND` | — | Silence whatever `TONE`/`PLAYSOUND` is still playing |
+
+```
+TONE 440 0.3       ; play a 440Hz tone for 0.3 seconds
+PLAYSOUND "click.wav
+STOPSOUND
+```
+
+Both `TONE` and `PLAYSOUND` are **fire-and-forget**: they queue the
+sound and return immediately rather than blocking the script until it
+finishes — a sound effect can play in the background while a
+`WHILE`-driven animation keeps moving the turtle. Only one sound plays
+at a time: a `TONE`/`PLAYSOUND` while another is still queued/playing
+replaces it outright, same as `STOPSOUND`'s own effect. `PLAYSOUND`
+reports `PLAYSOUND: could not load "path` if the file doesn't exist or
+isn't a WAV file SDL2 can decode; `TONE`/`STOPSOUND` never report an
+error (a bad frequency/duration, or no audio device at all, is a
+silent no-op).
+
 ## Event triggers
 
 Unlike `WAITKEY` above (which blocks the running script until the next
@@ -1043,22 +1069,17 @@ were ever ported to the VM's own grammar (`src/parser.c`'s
 `TYPE` and `PR` shipped 2026-08-12 (see `docs/CHANGELOG.md`) — caught
 when an example script using `TYPE` silently failed to parse against
 `bin/logomotive`. The debugger (`BACKTRACE`/`BT`/`EXECTIME`), history-pane
-(`CLEARTEXT`/`CT`), background-image (`LOADPIC`/`SAVEPIC`), and mouse-state
-(`MOUSEPOS`/`MOUSEX`/`MOUSEY`/`BUTTON?`) entries also shipped 2026-08-12
-(see this doc's own "Debugger"/"Pen, color & canvas"/"Background
-image & canvas export"/"Mouse state" sections) — the rest of this
-table is still accurate.
+(`CLEARTEXT`/`CT`), background-image (`LOADPIC`/`SAVEPIC`), mouse-state
+(`MOUSEPOS`/`MOUSEX`/`MOUSEY`/`BUTTON?`), and sound (`TONE`/
+`PLAYSOUND`/`STOPSOUND`) entries also shipped (see this doc's own
+"Debugger"/"Pen, color & canvas"/"Background image & canvas
+export"/"Mouse state"/"Sound" sections) — the rest of this table is
+still accurate.
 
 | Command | Would-be category |
 |---|---|
 | `JOYSTICK?` / `JOYSTICKAXIS` / `JOYSTICKBUTTON?` | Joystick/game-controller input |
-| `TONE` / `PLAYSOUND` / `STOPSOUND` | Sound |
 
-Joystick input was dropped entirely, not deferred (see `docs/ROADMAP.md`
-— needs a real new dependency, GTK4 has no built-in gamepad support on
-macOS, not worth it for a low-priority feature). Sound (`TONE`/
-`PLAYSOUND`/`STOPSOUND`) is the one
-remaining category with no VM porting effort scoped yet — worth its
-own pass if wanted, likely following the same
-`eval_X_value`-core-extraction pattern the 35-name VM
-instruction-coverage audit already used for every other builtin.
+Dropped entirely, not deferred (see `docs/ROADMAP.md` — needs a real
+new dependency, GTK4 has no built-in gamepad support on macOS, not
+worth it for a low-priority feature).

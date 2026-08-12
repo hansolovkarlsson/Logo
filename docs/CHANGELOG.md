@@ -2029,3 +2029,52 @@ exempted from the 2026-08-12 `bin/logo` → `bin/logomotive` rename pass
 as a dated historical record, and this is the same kind of entry.
 Verified with a clean full rebuild and `make test` (all 8 suites,
 unaffected — this batch never touched `src/`).
+
+## TONE/PLAYSOUND/STOPSOUND ported to the VM — the appendix is down to just joystick
+
+2026-08-12. Closes the last real gap the documentation audit above
+turned up: `docs/COMMAND_REFERENCE.md`'s appendix (and several
+user-facing docs, fixed in that same audit) called Sound "the one
+remaining category with no VM porting effort scoped yet" — this ships
+it, following the exact same shape as the earlier "Nine more
+old-engine builtins" batch (`LOADPIC`/`SAVEPIC` in particular): the
+GTK/SDL2 side was already fully built and working
+(`app->play_tone`/`play_sound_file`/`stop_sound`, `ui.c`'s
+`logo_play_tone`/`logo_play_sound_file`/`logo_stop_sound`, already
+wired up for the old engine's own use of them) — only `src/parser.c`'s
+grammar and `src/vm.c`'s dispatch were missing.
+
+Three new `BUILTIN_SIGNATURES` rows (`TONE` — 2 numeric args;
+`PLAYSOUND` — 1 quoted-word path, same convention as `LOADPIC`/
+`LOADSPRITE`; `STOPSOUND` — 0 args) and three `vm.c` `exec_tone`/
+`exec_playsound`/`exec_stopsound` helpers, mirroring `exec_loadpic`'s
+exact shape. Deliberately preserved one existing asymmetry rather than
+"fixing" it: `TONE` reports nothing on failure (bad frequency/duration,
+or no audio device) while `PLAYSOUND` reports `PLAYSOUND: could not
+load "path` — that's `interpreter.c`'s own original behavior, not a
+gap introduced by this port. No `eval.c` changes, same reasoning as the
+earlier batch: sound never existed in the tree-walker either, so
+there's no shadow-diff target.
+
+Four new `tests/test_vm.c` cases, `start_vm_session`-based: a headless
+no-op check for all three (every sound callback is `NULL` in tests,
+same convention as `LOADPIC`/`LOADSPRITE`), plus a real success/failure
+pair for `PLAYSOUND` using a new `fake_play_sound_file` stand-in —
+SDL2 (unlike GTK/`gdk-pixbuf`) isn't linked into the test binary at all
+(kept out deliberately, see this file's own Makefile comment about
+ASan hangs), so this stand-in checks the path with a plain `access()`
+call instead of decoding it, exercising `exec_playsound`'s real
+success/failure branches without needing a real audio decode
+available. `examples/sample.wav` (already in the repo) is the real
+file for the success case. No separate `TONE` real-callback test
+needed — its own failure path is unobservable by design (see above).
+
+`docs/COMMAND_REFERENCE.md` gained a real "Sound" section (the prose
+already existed correctly in `docs/LANGUAGE.md`, just describing a
+command that didn't actually work yet); the appendix's Sound row is
+gone, leaving only `JOYSTICK?`/`JOYSTICKAXIS`/`JOYSTICKBUTTON?` —
+which, per `docs/ROADMAP.md`, isn't coming. `website/reference.html`
+regenerated to match. Verified via a clean full rebuild, `make test`
+(all 8 suites), and a headless smoke run (`TONE`/`PLAYSOUND`/
+`STOPSOUND` all parse and no-op silently with no callback, exactly as
+designed).

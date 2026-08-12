@@ -290,6 +290,12 @@
         <li><a href="#date" data-cmd="DATE">DATE</a></li>
         <li><a href="#milliseconds" data-cmd="MILLISECONDS">MILLISECONDS</a></li>
       </ul>
+      <h4><a href="#sec-sound">Sound</a></h4>
+      <ul>
+        <li><a href="#tone" data-cmd="TONE">TONE</a></li>
+        <li><a href="#playsound" data-cmd="PLAYSOUND">PLAYSOUND</a></li>
+        <li><a href="#stopsound" data-cmd="STOPSOUND">STOPSOUND</a></li>
+      </ul>
       <h4><a href="#sec-event-triggers">Event triggers</a></h4>
       <ul>
         <li><a href="#onkey" data-cmd="ONKEY">ONKEY</a></li>
@@ -1494,6 +1500,27 @@ PRINT &quot;all-agents-done</pre>
 PRINT DATE    -&gt; 2026-08-11
 PRINT MILLISECONDS -&gt; 1.78649e+12</pre>
       </div>
+      <div class="ref-section" id="sec-sound">
+        <h2>Sound</h2>
+        <div class="ref-entry" id="tone">
+          <h3><code class="inline">TONE</code></h3>
+          <p class="sig">Args: <code class="inline">frequency seconds</code></p>
+          <p>Synthesize and play a sine wave at <code class="inline">frequency</code> Hz for <code class="inline">seconds</code> seconds</p>
+        </div>
+        <div class="ref-entry" id="playsound">
+          <h3><code class="inline">PLAYSOUND</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Load and play a WAV file from disk (a quoted word, not a general string expression — same convention as <code class="inline">LOADPIC</code>/<code class="inline">LOADSPRITE</code>)</p>
+        </div>
+        <div class="ref-entry" id="stopsound">
+          <h3><code class="inline">STOPSOUND</code></h3>
+          <p>Silence whatever <code class="inline">TONE</code>/<code class="inline">PLAYSOUND</code> is still playing</p>
+        </div>
+        <pre class="code">TONE 440 0.3       ; play a 440Hz tone for 0.3 seconds
+PLAYSOUND &quot;click.wav
+STOPSOUND</pre>
+        <p>Both <code class="inline">TONE</code> and <code class="inline">PLAYSOUND</code> are <strong>fire-and-forget</strong>: they queue the sound and return immediately rather than blocking the script until it finishes — a sound effect can play in the background while a <code class="inline">WHILE</code>-driven animation keeps moving the turtle. Only one sound plays at a time: a <code class="inline">TONE</code>/<code class="inline">PLAYSOUND</code> while another is still queued/playing replaces it outright, same as <code class="inline">STOPSOUND</code>'s own effect. <code class="inline">PLAYSOUND</code> reports <code class="inline">PLAYSOUND: could not load "path</code> if the file doesn't exist or isn't a WAV file SDL2 can decode; <code class="inline">TONE</code>/<code class="inline">STOPSOUND</code> never report an error (a bad frequency/duration, or no audio device at all, is a silent no-op).</p>
+      </div>
       <div class="ref-section" id="sec-event-triggers">
         <h2>Event triggers</h2>
         <p>Unlike <code class="inline">WAITKEY</code> above (which blocks the running script until the next key), <code class="inline">ONKEY</code>/<code class="inline">ONCLICK</code>/<code class="inline">ONMOUSEMOVE</code>/<code class="inline">ONKEYUP</code>/<code class="inline">ONRELEASE</code> register a procedure to run in the background whenever a key/click/pointer-motion/ key-release/button-release event happens, without pausing anything. See <code class="inline">docs/CHANGELOG.md</code>'s "Mouse/keyboard event triggers" entries for the original design writeup.</p>
@@ -1567,9 +1594,9 @@ ONKEYUP &quot;stophandler</pre>
       <div class="ref-section" id="sec-appendix-documented-elsewhere-not-available-in-bin-logomotive">
         <h2>Appendix: documented elsewhere, not available in <code class="inline">bin/logomotive</code></h2>
         <p><code class="inline">docs/LANGUAGE.md</code> documents these commands in prose, but a systematic audit against <code class="inline">src/parser.c</code>'s own grammar table (confirmed directly — each one produces <code class="inline">unknown word: X</code> when parsed, not guessed from reading) found none of them are actually reachable from the live app. All are implemented only in the old, pre-Stage-2 text-based <code class="inline">eval_logo</code> engine (<code class="inline">src/interpreter.c</code>), which only <code class="inline">tests/test_interpreter.c</code> still exercises — <code class="inline">bin/logomotive</code> has run entirely on the bytecode VM since Stage 2 finished, and none of these were ever ported to the VM's own grammar (<code class="inline">src/parser.c</code>'s <code class="inline">BUILTIN_SIGNATURES</code>).</p>
-        <p><code class="inline">TYPE</code> and <code class="inline">PR</code> shipped 2026-08-12 (see <code class="inline">docs/CHANGELOG.md</code>) — caught when an example script using <code class="inline">TYPE</code> silently failed to parse against <code class="inline">bin/logomotive</code>. The debugger (<code class="inline">BACKTRACE</code>/<code class="inline">BT</code>/<code class="inline">EXECTIME</code>), history-pane (<code class="inline">CLEARTEXT</code>/<code class="inline">CT</code>), background-image (<code class="inline">LOADPIC</code>/<code class="inline">SAVEPIC</code>), and mouse-state (<code class="inline">MOUSEPOS</code>/<code class="inline">MOUSEX</code>/<code class="inline">MOUSEY</code>/<code class="inline">BUTTON?</code>) entries also shipped 2026-08-12 (see this doc's own "Debugger"/"Pen, color &amp; canvas"/"Background image &amp; canvas export"/"Mouse state" sections) — the rest of this table is still accurate.</p>
-        <div class="note"><ul style="margin:0 0 0 18px;"><li><code class="inline"><code class="inline">JOYSTICK?</code> / <code class="inline">JOYSTICKAXIS</code> / <code class="inline">JOYSTICKBUTTON?</code></code> &mdash; Joystick/game-controller input</li><li><code class="inline"><code class="inline">TONE</code> / <code class="inline">PLAYSOUND</code> / <code class="inline">STOPSOUND</code></code> &mdash; Sound</li></ul></div>
-        <p>Joystick input was dropped entirely, not deferred (see <code class="inline">docs/ROADMAP.md</code> — needs a real new dependency, GTK4 has no built-in gamepad support on macOS, not worth it for a low-priority feature). Sound (<code class="inline">TONE</code>/ <code class="inline">PLAYSOUND</code>/<code class="inline">STOPSOUND</code>) is the one remaining category with no VM porting effort scoped yet — worth its own pass if wanted, likely following the same <code class="inline">eval_X_value</code>-core-extraction pattern the 35-name VM instruction-coverage audit already used for every other builtin.</p>
+        <p><code class="inline">TYPE</code> and <code class="inline">PR</code> shipped 2026-08-12 (see <code class="inline">docs/CHANGELOG.md</code>) — caught when an example script using <code class="inline">TYPE</code> silently failed to parse against <code class="inline">bin/logomotive</code>. The debugger (<code class="inline">BACKTRACE</code>/<code class="inline">BT</code>/<code class="inline">EXECTIME</code>), history-pane (<code class="inline">CLEARTEXT</code>/<code class="inline">CT</code>), background-image (<code class="inline">LOADPIC</code>/<code class="inline">SAVEPIC</code>), mouse-state (<code class="inline">MOUSEPOS</code>/<code class="inline">MOUSEX</code>/<code class="inline">MOUSEY</code>/<code class="inline">BUTTON?</code>), and sound (<code class="inline">TONE</code>/ <code class="inline">PLAYSOUND</code>/<code class="inline">STOPSOUND</code>) entries also shipped (see this doc's own "Debugger"/"Pen, color &amp; canvas"/"Background image &amp; canvas export"/"Mouse state"/"Sound" sections) — the rest of this table is still accurate.</p>
+        <div class="note"><ul style="margin:0 0 0 18px;"><li><code class="inline"><code class="inline">JOYSTICK?</code> / <code class="inline">JOYSTICKAXIS</code> / <code class="inline">JOYSTICKBUTTON?</code></code> &mdash; Joystick/game-controller input</li></ul></div>
+        <p>Dropped entirely, not deferred (see <code class="inline">docs/ROADMAP.md</code> — needs a real new dependency, GTK4 has no built-in gamepad support on macOS, not worth it for a low-priority feature).</p>
       </div>
     </main>
   </div>

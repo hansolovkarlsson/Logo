@@ -435,6 +435,17 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "LOADPIC", 1, { ARG_QUOTED_WORD } },
     { "SAVEPIC", 1, { ARG_QUOTED_WORD } },
 
+    // TONE/PLAYSOUND/STOPSOUND -- ported from interpreter.c 2026-08-12,
+    // closing out COMMAND_REFERENCE.md's appendix down to joystick
+    // alone. app->play_tone/play_sound_file/stop_sound were already
+    // wired up in ui.c for the old engine's own use of them -- same
+    // "just grammar + dispatch, no new GTK/SDL2 work" shape as
+    // LOADPIC/SAVEPIC above. PLAYSOUND is ARG_QUOTED_WORD like
+    // LOADPIC/LOADSPRITE, not a general string expression.
+    { "TONE", 2, { ARG_EXPR, ARG_EXPR } },
+    { "PLAYSOUND", 1, { ARG_QUOTED_WORD } },
+    { "STOPSOUND", 0, { 0 } },
+
     // Sprites (eval.c: none of these -- vm.c-only, matching the same
     // scope decision as WAIT/WAITKEY/INPUT/PAUSE above; bin/logomotive no
     // longer runs on ast_eval, so this pipeline doesn't need parity

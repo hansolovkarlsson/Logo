@@ -202,6 +202,28 @@ static void exec_savepic(LogoApp *app, EvalValue path_val) {
     }
 }
 
+// TONE frequency seconds -- fire-and-forget, matching interpreter.c's
+// own exact behavior: no error reported if play_tone fails (bad
+// frequency/seconds, or no audio device), unlike PLAYSOUND below. Not
+// this port's place to change that asymmetry.
+static void exec_tone(LogoApp *app, EvalValue freq_val, EvalValue seconds_val) {
+    double frequency = eval_to_number(freq_val);
+    double seconds = eval_to_number(seconds_val);
+    if (app->play_tone != NULL) {
+        app->play_tone(app, frequency, seconds);
+    }
+}
+
+static void exec_playsound(LogoApp *app, EvalValue path_val) {
+    char path_buf[512];
+    eval_value_to_text(app, path_val, path_buf, sizeof(path_buf));
+    if (app->play_sound_file != NULL && !app->play_sound_file(app, path_buf)) {
+        append_output(app, "PLAYSOUND: could not load \"");
+        append_output(app, path_buf);
+        append_output(app, "\n");
+    }
+}
+
 static void exec_loadsprite(LogoApp *app, EvalValue name_val, EvalValue path_val) {
     char name_buf[64], path_buf[512];
     eval_value_to_text(app, name_val, name_buf, sizeof(name_buf));
@@ -738,6 +760,21 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     }
     if (strcasecmp(name, "SAVEPIC") == 0) {
         exec_savepic(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "TONE") == 0) {
+        exec_tone(app, args[0], args[1]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "PLAYSOUND") == 0) {
+        exec_playsound(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "STOPSOUND") == 0) {
+        if (app->stop_sound != NULL) app->stop_sound(app);
         *produced = 0;
         return num_val(0);
     }

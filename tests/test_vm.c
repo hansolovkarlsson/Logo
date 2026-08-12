@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h> // access(), used by fake_play_sound_file below
 
 #include "../src/compiler.h"
 #include "../src/eval.h"
@@ -990,6 +991,84 @@ TEST(test_loadpic_and_savepic_are_silent_noops_headless) {
     expect_status(status, VM_RUN_HALTED, "run");
     expect_output("after\n");
     end_vm_session(s);
+}
+
+TEST(test_tone_playsound_stopsound_are_silent_noops_headless) {
+    // app->play_tone/play_sound_file/stop_sound are all NULL headless
+    // -- same convention as LOADPIC/SAVEPIC/LOADSPRITE above. TONE
+    // reports nothing on failure even with a real callback (see
+    // exec_tone's own comment in vm.c), so there's no separate
+    // real-callback TONE test the way PLAYSOUND gets below.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TONE 440 0.1\nPLAYSOUND \"nope.wav\nSTOPSOUND\nPRINT \"after", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("after\n");
+    end_vm_session(s);
+}
+
+// A real (not mocked) play_sound_file stand-in for the two tests below
+// that exercise PLAYSOUND's own load-failure path -- ui.c's real
+// callback (logo_play_sound_file) decodes through SDL2, which isn't
+// linked into this test binary at all (kept out deliberately, see this
+// file's own Makefile comment: linking it in made ASan runs of
+// test_interpreter hang). access() is a real filesystem check, not a
+// guess by filename, so this still exercises exec_playsound's own
+// success/failure branches faithfully at the VM level -- same spirit
+// as fake_load_sprite_image below, just without a real decode step
+// available to call.
+static gboolean fake_play_sound_file(LogoApp *app, const char *path) {
+    (void)app;
+    return access(path, F_OK) == 0;
+}
+
+TEST(test_playsound_of_a_real_file_is_silent) {
+    // examples/sample.wav -- a real file, run through
+    // fake_play_sound_file (see its own comment above) instead of the
+    // NULL callback every other test in this file uses.
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->play_sound_file = fake_play_sound_file;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("PLAYSOUND \"examples/sample.wav\nPRINT \"ok", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ok\n");
+
+    free(vm);
+    free(chunk);
+    parse_result_destroy(result);
+    free(app);
+}
+
+TEST(test_playsound_of_a_missing_file_reports_could_not_load) {
+    captured_output[0] = '\0';
+    LogoApp *app = new_app();
+    app->play_sound_file = fake_play_sound_file;
+
+    LogoToken tokens[MAX_VM_TEST_TOKENS];
+    int n = logo_lex("PLAYSOUND \"examples/no_such_file.wav", tokens, MAX_VM_TEST_TOKENS);
+    ParseResult *result = calloc(1, sizeof(ParseResult));
+    logo_parse(tokens, n, result);
+    BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
+    int start_pc = compile_program(&result->pool, result->program, chunk);
+    Vm *vm = calloc(1, sizeof(Vm));
+
+    VmRunResult status = vm_run(vm, app, &result->pool, chunk, start_pc);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("PLAYSOUND: could not load \"examples/no_such_file.wav\n");
+
+    free(vm);
+    free(chunk);
+    parse_result_destroy(result);
+    free(app);
 }
 
 TEST(test_mousepos_mousex_mousey_button_report_headless_defaults) {
@@ -3122,6 +3201,9 @@ int main(void) {
     RUN(test_setcanvassize_out_of_range_reports_error);
     RUN(test_cleartext_is_a_silent_noop_headless);
     RUN(test_loadpic_and_savepic_are_silent_noops_headless);
+    RUN(test_tone_playsound_stopsound_are_silent_noops_headless);
+    RUN(test_playsound_of_a_real_file_is_silent);
+    RUN(test_playsound_of_a_missing_file_reports_could_not_load);
     RUN(test_mousepos_mousex_mousey_button_report_headless_defaults);
     RUN(test_backtrace_lists_the_call_stack_innermost_first);
     RUN(test_backtrace_at_the_top_level_shows_only_top_level);
