@@ -174,14 +174,14 @@ PAGE_HEAD = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reference — Learning Logo</title>
+<title>Reference — LogoMotive</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
 <header class="site-header">
   <div class="site-header-inner">
-    <a class="site-logo" href="index.html"><span class="dot">&#9679;</span> Logo</a>
+    <a class="site-logo" href="index.html"><span class="dot">&#9679;</span> LogoMotive</a>
     <nav class="site-nav">
       <a href="index.html">Home</a>
       <a href="tutorial.html">Tutorial</a>
@@ -194,7 +194,7 @@ PAGE_HEAD = """<!doctype html>
   <div class="page-hero" style="padding-bottom: 20px;">
     <p class="eyebrow">Complete lookup table</p>
     <h1 class="title" style="font-size: clamp(1.8rem, 3.5vw, 2.6rem);">Command reference</h1>
-    <p class="lede">Every command this interpreter actually recognizes, cross-checked directly against the parser's own grammar table — not copied from documentation without verification. Case-insensitive throughout.</p>
+    <p class="lede">Every command LogoMotive actually recognizes, cross-checked directly against the parser's own grammar table — not copied from documentation without verification. Case-insensitive throughout.</p>
   </div>
 
   <div class="layout">

@@ -1,10 +1,10 @@
-# Learning Logo
+# Learning LogoMotive
 
-A from-scratch tutorial for this project's own Logo dialect — for
-someone who has never programmed before. If you already know how to
-program and just want the syntax, read `docs/COMMAND_REFERENCE.md`
-instead; this document teaches ideas in order, that one is a lookup
-table.
+A from-scratch tutorial for LogoMotive, this project's own Logo
+dialect — for someone who has never programmed before. If you already
+know how to program and just want the syntax, read
+`docs/COMMAND_REFERENCE.md` instead; this document teaches ideas in
+order, that one is a lookup table.
 
 Every example on this page has been run against the real interpreter
 before being written down — if you type one in and it doesn't do what's
