@@ -41,11 +41,14 @@ check whether the change also touches `docs/BYTECODE_REFERENCE.md`
 - [Property lists](#property-lists)
 - [Prototype-style objects](#prototype-style-objects)
 - [Error handling](#error-handling)
+- [Debugger](#debugger)
 - [Deferred execution](#deferred-execution)
 - [Files](#files)
 - [Turtle sprites](#turtle-sprites)
+- [Background image & canvas export](#background-image--canvas-export)
 - [Resizable canvas](#resizable-canvas)
 - [Suspend/resume](#suspendresume)
+- [Mouse state](#mouse-state)
 - [Concurrent agents](#concurrent-agents)
 - [Clock](#clock)
 - [Event triggers](#event-triggers)
@@ -130,7 +133,7 @@ one turtle. Turtle indices run `0`-`9` (`MAX_TURTLES` = 10, shared with
 | `SETBACKGROUND` | `SETBG` | `r g b` (0-255 each) | Canvas background color (single, canvas-wide) |
 | `CLEAR` | `CS` | — | Erase canvas, reset every turtle's position/angle |
 | `CLEAN` | — | — | Erase canvas only — turtle position/angle untouched |
-| `CLEARTEXT`\* | `CT`\* | — | Clear the history pane |
+| `CLEARTEXT` | `CT` | — | Clear the history pane |
 | `HIDETURTLE` | `HT` | — | Stop drawing the turtle marker (trail still draws) |
 | `SHOWTURTLE` | `ST` | — | Draw the turtle marker again |
 | `WRAP` | — | — | Canvas-edge crossing wraps to the opposite side |
@@ -139,10 +142,6 @@ one turtle. Turtle indices run `0`-`9` (`MAX_TURTLES` = 10, shared with
 | `LABEL` | — | `word`/`list` | Draw text at the turtle's position, in its pen color |
 | `FILL` | — | — | Flood-fill the region containing the turtle with pen color |
 | `ERASERECT` | — | `width height` | Erase a rectangle centered on the turtle to background color |
-
-\* `CLEARTEXT`/`CT` are documented here to match `LANGUAGE.md`'s own
-listing, but see the Appendix — **not currently reachable from
-`bin/logomotive`** (old-engine-only).
 
 ```
 SETPENCOLOR 255 0 0
@@ -159,13 +158,18 @@ REPEAT 4 [FD 100 RT 90]
 PENUP SETXY 300 200 PENDOWN
 SETPENCOLOR 255 200 0
 FILL
+
+CLEARTEXT   ; wipes the history pane only — canvas untouched
 ```
 
 Each drawn line/label/fill/erase remembers the pen state (color,
 width) it was made with — `SETPENCOLOR` doesn't recolor what's already
 drawn. `FILL`/`ERASERECT`/`LABEL` are all frozen the instant they're
 called: a line drawn afterward doesn't retroactively interact with
-them. See `docs/LANGUAGE.md`'s "Turtle commands" section for the exact
+them. `CLEARTEXT` is the history-pane counterpart to `CLEAR`/`CLEAN`
+— those two only ever touch the canvas, never the history pane, and
+`CLEARTEXT` is the reverse: history pane only, canvas untouched. See
+`docs/LANGUAGE.md`'s "Turtle commands" section for the exact
 `WRAP`/`FENCE` boundary behavior.
 
 ## Turtle speed
@@ -600,6 +604,44 @@ PRINT "after            ; prints: before / after (THROW skips "unreachable)
 A `THROW` with no matching `CATCH` prints an error and execution
 resumes with the next top-level command — not a crash.
 
+## Debugger
+
+| Command | Aliases | Args | Description |
+|---|---|---|---|
+| `BACKTRACE` | `BT` | — | Print the current call stack, innermost first |
+| `EXECTIME` | — | `thing` (operator) | Run a word/list as Logo source (like `RUN`); output how long it took, in microseconds |
+
+```
+TO inner
+  BACKTRACE
+END
+TO outer
+  inner
+END
+outer
+```
+
+```
+BACKTRACE:
+  inner
+  outer
+  (top level)
+```
+
+`BACKTRACE` prints one line per currently-active procedure call,
+innermost first, ending with `(top level)` — called at the top level
+with nothing active, it prints just that one line.
+
+```
+PRINT EXECTIME [REPEAT 1000 [FD 1 BK 1]]
+```
+
+`EXECTIME` is `RUN`'s own timed cousin: it runs `thing` exactly like
+`RUN` would, but — unlike `RUN`, which never produces a value — hands
+back how long that took, so `EXECTIME [...]` works fine in expression
+position. See `docs/LANGUAGE.md`'s "Deferred execution" section for
+`RUN`'s own self-referential-nesting cap, which `EXECTIME` shares.
+
 ## Deferred execution
 
 | Command | Args | Description |
@@ -774,6 +816,26 @@ ANIMATESPRITE 0.15 24
 SETSPRITE "NONE
 ```
 
+## Background image & canvas export
+
+| Command | Args | Description |
+|---|---|---|
+| `LOADPIC` | `"path` | Load an image file as the canvas background |
+| `SAVEPIC` | `"path` | Export the canvas (background, drawing, turtles) as a PNG |
+
+```
+LOADPIC "backyard.png
+REPEAT 4 [FD 100 RT 90]
+SAVEPIC "my_drawing.png
+```
+
+Same GTK-side image decode/encode as `LOADSPRITE`/`STAMPSPRITE` — any
+format `gdk-pixbuf` understands for `LOADPIC` (PNG/JPEG/GIF/BMP/...),
+always PNG for `SAVEPIC`. `SAVEPIC` captures everything currently
+visible: the background image (if any), every drawn line/label/fill,
+and the turtles themselves. Both report an error (`could not load`/
+`could not save "path`) rather than crashing on a bad path.
+
 ## Resizable canvas
 
 | Command | Args | Description |
@@ -816,6 +878,35 @@ PRINT SENTENCE "Hello :name
 Only actually wait in the real app — a silent no-op in the headless
 test driver. Nested `PAUSE`s stack; each `CONTINUE` resumes only the
 innermost one.
+
+## Mouse state
+
+Unlike `WAITKEY`/`INPUT` above (which pause the script until an event
+arrives), these read live, continuously-updated state without pausing
+anything — the passive-query counterpart to `WAITKEY`'s own blocking
+kind, both driven by the same canvas mouse events `ONCLICK`/
+`ONMOUSEMOVE` use.
+
+| Command | Args | Description |
+|---|---|---|
+| `MOUSEPOS` | — (operator) | Current pointer position over the canvas, as `[x y]` |
+| `MOUSEX` | — (operator) | Just the x coordinate |
+| `MOUSEY` | — (operator) | Just the y coordinate |
+| `BUTTON?` | — (operator) | Is a mouse button currently held down? |
+
+```
+TO followmouse
+  WHILE TRUE [SETXY MOUSEX MOUSEY]
+END
+```
+
+Same canvas-relative pixel coordinate space `SETXY`/`POS` already use.
+Always `0 0`/`FALSE` in headless tests (no real canvas to report a
+position from) or before the mouse has ever moved over the canvas at
+all — "no mouse activity yet" is a normal starting state, not an
+error. A tight loop built around nothing but these still visibly
+tracks the mouse as it moves, not just once the loop ends — each call
+queues a redraw and drains pending events first.
 
 ## Concurrent agents
 
@@ -944,22 +1035,22 @@ were ever ported to the VM's own grammar (`src/parser.c`'s
 
 `TYPE` and `PR` shipped 2026-08-12 (see `docs/CHANGELOG.md`) — caught
 when an example script using `TYPE` silently failed to parse against
-`bin/logomotive`; the rest of this table is still accurate.
+`bin/logomotive`. The debugger (`BACKTRACE`/`BT`/`EXECTIME`), history-pane
+(`CLEARTEXT`/`CT`), background-image (`LOADPIC`/`SAVEPIC`), and mouse-state
+(`MOUSEPOS`/`MOUSEX`/`MOUSEY`/`BUTTON?`) entries also shipped 2026-08-12
+(see this doc's own "Debugger"/"Pen, color & canvas"/"Background
+image & canvas export"/"Mouse state" sections) — the rest of this
+table is still accurate.
 
 | Command | Would-be category |
 |---|---|
-| `CLEARTEXT` / `CT` | Clear the history pane |
-| `BACKTRACE` / `BT` | Debugger: print the current call stack |
-| `EXECTIME` | Debugger: time how long a `RUN`-like call takes |
-| `LOADPIC` | Background image |
-| `SAVEPIC` | Export canvas as PNG |
-| `MOUSEPOS` / `MOUSEX` / `MOUSEY` / `BUTTON?` | Mouse state |
 | `JOYSTICK?` / `JOYSTICKAXIS` / `JOYSTICKBUTTON?` | Joystick/game-controller input |
 | `TONE` / `PLAYSOUND` / `STOPSOUND` | Sound |
 
-This is a real, previously-undocumented gap between what
-`docs/LANGUAGE.md` claims ("the Logo dialect actually implemented in
-`src/main.c`") and what the live app can actually run — worth its own
-scoping pass if any of these are wanted in `bin/logomotive`, likely following
-the same `eval_X_value`-core-extraction pattern the 35-name VM
+Joystick input is deprioritized (`docs/ROADMAP.md`'s "Future /
+unplanned" — needs a real new dependency, GTK4 has no built-in gamepad
+support on macOS). Sound (`TONE`/`PLAYSOUND`/`STOPSOUND`) is the one
+remaining category with no VM porting effort scoped yet — worth its
+own pass if wanted, likely following the same
+`eval_X_value`-core-extraction pattern the 35-name VM
 instruction-coverage audit already used for every other builtin.

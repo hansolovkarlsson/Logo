@@ -110,6 +110,16 @@ typedef enum {
     OP_RUN,
     OP_LOAD,
 
+    // EXECTIME -- same recursive-vm_run mechanism as OP_RUN just
+    // above, timed with g_get_monotonic_time (see vm.c's own
+    // exec_exectime) -- but unlike OP_RUN, this genuinely produces a
+    // value (the elapsed microseconds), so it's never followed by
+    // OP_VOID_RESULT the way OP_RUN/OP_LOAD are; exec_exectime's own
+    // return value is pushed directly. Ported from interpreter.c
+    // 2026-08-12 (docs/ROADMAP.md's "Remaining old-engine builtins"
+    // entry). Pops its own already-evaluated argument, same as OP_RUN.
+    OP_EXECTIME,
+
     // THROW/CATCH's own cooperative unwind (see vm.c's own file comment
     // and compiler.c's own compile_block for the full mechanism): THROW
     // itself is an ordinary OP_CALL_BUILTIN (just sets

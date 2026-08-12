@@ -62,6 +62,17 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "HEADING", 0, { 0 } },
     { "POS", 0, { 0 } },
     { "CANVASSIZE", 0, { 0 } },
+
+    // MOUSEPOS/MOUSEX/MOUSEY/BUTTON? -- live mouse state, ported from
+    // interpreter.c 2026-08-12 (docs/ROADMAP.md's "Remaining
+    // old-engine builtins" entry). app->mouse_x/mouse_y/
+    // mouse_button_down are already tracked by ui.c's own motion/click
+    // controllers for ONMOUSEMOVE/ONCLICK's benefit.
+    { "MOUSEPOS", 0, { 0 } },
+    { "MOUSEX", 0, { 0 } },
+    { "MOUSEY", 0, { 0 } },
+    { "BUTTON?", 0, { 0 } },
+
     { "DISTANCE", 2, { ARG_EXPR, ARG_EXPR } },
     { "TOWARDS", 1, { ARG_EXPR } },
     { "PENUP", 0, { 0 } },
@@ -119,6 +130,14 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     // interpreter.c's own RUN/APPLY -- so both are statement-only,
     // same as REPEAT/WHILE/FOREVER above.
     { "RUN", 1, { ARG_EXPR } },
+
+    // EXECTIME -- times how long a RUN-like call takes (microseconds),
+    // instead of running it purely for side effect. Ported from
+    // interpreter.c 2026-08-12 (docs/ROADMAP.md's "Remaining
+    // old-engine builtins" entry). ARG_EXPR like RUN itself, but an
+    // operator (unlike RUN) -- see vm.c's exec_exectime for why timing
+    // specifically is safe to return.
+    { "EXECTIME", 1, { ARG_EXPR } },
     { "APPLY", 2, { ARG_EXPR, ARG_EXPR } },
 
     // General file I/O (eval.c: shares app->file_channels[] directly
@@ -373,6 +392,21 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "CONTINUE", 0, { 0 } },
     { "CO", 0, { 0 } },
 
+    // CLEARTEXT/CT -- clears the history pane specifically, separate
+    // from CLEAR/CS's canvas-only effect. Ported from interpreter.c
+    // 2026-08-12 (docs/ROADMAP.md's "Remaining old-engine builtins"
+    // entry) -- app->clear_history was already wired up in ui.c for
+    // the old engine's own use of it, so this is pure VM-side wiring.
+    { "CLEARTEXT", 0, { 0 } },
+    { "CT", 0, { 0 } },
+
+    // BACKTRACE/BT -- prints the current call stack. Same 2026-08-12
+    // porting batch (docs/ROADMAP.md's "Remaining old-engine
+    // builtins" entry); VM-specific in its exact implementation
+    // (reads vm->scopes, not app->scopes), see vm.c's own dispatch.
+    { "BACKTRACE", 0, { 0 } },
+    { "BT", 0, { 0 } },
+
     // Concurrent agents, Phase 6's own first slice (see
     // docs/CONCURRENT_AGENTS_DESIGN.md) -- eval.c: none of these, same
     // vm.c-only scope decision as every suspend/resume-era batch above.
@@ -384,6 +418,15 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "LAUNCH", 2, { ARG_EXPR, ARG_EXPR } },
     { "AWAIT", 0, { 0 } },
     { "YIELD", 0, { 0 } },
+
+    // LOADPIC/SAVEPIC -- canvas background image load/export, ported
+    // from interpreter.c 2026-08-12 (docs/ROADMAP.md's "Remaining
+    // old-engine builtins" entry). ARG_QUOTED_WORD like LOADSPRITE
+    // below, same raw-name convention. app->load_background_image/
+    // save_canvas_image were already wired up in ui.c for the old
+    // engine's own use of them.
+    { "LOADPIC", 1, { ARG_QUOTED_WORD } },
+    { "SAVEPIC", 1, { ARG_QUOTED_WORD } },
 
     // Sprites (eval.c: none of these -- vm.c-only, matching the same
     // scope decision as WAIT/WAITKEY/INPUT/PAUSE above; bin/logomotive no

@@ -214,6 +214,11 @@
         <li><a href="#catch" data-cmd="CATCH">CATCH</a></li>
         <li><a href="#throw" data-cmd="THROW">THROW</a></li>
       </ul>
+      <h4><a href="#sec-debugger">Debugger</a></h4>
+      <ul>
+        <li><a href="#backtrace" data-cmd="BACKTRACE">BACKTRACE</a></li>
+        <li><a href="#exectime" data-cmd="EXECTIME">EXECTIME</a></li>
+      </ul>
       <h4><a href="#sec-deferred-execution">Deferred execution</a></h4>
       <ul>
         <li><a href="#run" data-cmd="RUN">RUN</a></li>
@@ -247,6 +252,11 @@
         <li><a href="#stampsprite" data-cmd="STAMPSPRITE">STAMPSPRITE</a></li>
         <li><a href="#animatesprite" data-cmd="ANIMATESPRITE">ANIMATESPRITE</a></li>
       </ul>
+      <h4><a href="#sec-background-image-canvas-export">Background image &amp; canvas export</a></h4>
+      <ul>
+        <li><a href="#loadpic" data-cmd="LOADPIC">LOADPIC</a></li>
+        <li><a href="#savepic" data-cmd="SAVEPIC">SAVEPIC</a></li>
+      </ul>
       <h4><a href="#sec-resizable-canvas">Resizable canvas</a></h4>
       <ul>
         <li><a href="#setcanvassize" data-cmd="SETCANVASSIZE">SETCANVASSIZE</a></li>
@@ -259,6 +269,13 @@
         <li><a href="#input" data-cmd="INPUT">INPUT</a></li>
         <li><a href="#pause" data-cmd="PAUSE">PAUSE</a></li>
         <li><a href="#continue" data-cmd="CONTINUE">CONTINUE</a></li>
+      </ul>
+      <h4><a href="#sec-mouse-state">Mouse state</a></h4>
+      <ul>
+        <li><a href="#mousepos" data-cmd="MOUSEPOS">MOUSEPOS</a></li>
+        <li><a href="#mousex" data-cmd="MOUSEX">MOUSEX</a></li>
+        <li><a href="#mousey" data-cmd="MOUSEY">MOUSEY</a></li>
+        <li><a href="#button" data-cmd="BUTTON?">BUTTON?</a></li>
       </ul>
       <h4><a href="#sec-concurrent-agents">Concurrent agents</a></h4>
       <ul>
@@ -444,8 +461,8 @@ PRINT TURTLES -&gt; 2</pre>
           <p>Erase canvas only — turtle position/angle untouched</p>
         </div>
         <div class="ref-entry" id="cleartext">
-          <h3><code class="inline">CLEARTEXT</code>\*</h3>
-          <p class="sig">Aliases: <code class="inline">CT</code>\*</p>
+          <h3><code class="inline">CLEARTEXT</code></h3>
+          <p class="sig">Aliases: <code class="inline">CT</code></p>
           <p>Clear the history pane</p>
         </div>
         <div class="ref-entry" id="hideturtle">
@@ -484,7 +501,6 @@ PRINT TURTLES -&gt; 2</pre>
           <p class="sig">Args: <code class="inline">width height</code></p>
           <p>Erase a rectangle centered on the turtle to background color</p>
         </div>
-        <p>\* <code class="inline">CLEARTEXT</code>/<code class="inline">CT</code> are documented here to match <code class="inline">LANGUAGE.md</code>'s own listing, but see the Appendix — <strong>not currently reachable from <code class="inline">bin/logomotive</code></strong> (old-engine-only).</p>
         <pre class="code">SETPENCOLOR 255 0 0
 FD 80 RT 90
 SETPC 0 100 255
@@ -498,8 +514,10 @@ LABEL &quot;hello
 REPEAT 4 [FD 100 RT 90]
 PENUP SETXY 300 200 PENDOWN
 SETPENCOLOR 255 200 0
-FILL</pre>
-        <p>Each drawn line/label/fill/erase remembers the pen state (color, width) it was made with — <code class="inline">SETPENCOLOR</code> doesn't recolor what's already drawn. <code class="inline">FILL</code>/<code class="inline">ERASERECT</code>/<code class="inline">LABEL</code> are all frozen the instant they're called: a line drawn afterward doesn't retroactively interact with them. See <code class="inline">docs/LANGUAGE.md</code>'s "Turtle commands" section for the exact <code class="inline">WRAP</code>/<code class="inline">FENCE</code> boundary behavior.</p>
+FILL
+
+CLEARTEXT   ; wipes the history pane only — canvas untouched</pre>
+        <p>Each drawn line/label/fill/erase remembers the pen state (color, width) it was made with — <code class="inline">SETPENCOLOR</code> doesn't recolor what's already drawn. <code class="inline">FILL</code>/<code class="inline">ERASERECT</code>/<code class="inline">LABEL</code> are all frozen the instant they're called: a line drawn afterward doesn't retroactively interact with them. <code class="inline">CLEARTEXT</code> is the history-pane counterpart to <code class="inline">CLEAR</code>/<code class="inline">CLEAN</code> — those two only ever touch the canvas, never the history pane, and <code class="inline">CLEARTEXT</code> is the reverse: history pane only, canvas untouched. See <code class="inline">docs/LANGUAGE.md</code>'s "Turtle commands" section for the exact <code class="inline">WRAP</code>/<code class="inline">FENCE</code> boundary behavior.</p>
       </div>
       <div class="ref-section" id="sec-turtle-speed">
         <h2>Turtle speed</h2>
@@ -1112,6 +1130,33 @@ SEND &quot;dog &quot;speak []    -&gt; dog Woof</pre>
 PRINT &quot;after            ; prints: before / after (THROW skips &quot;unreachable)</pre>
         <p>A <code class="inline">THROW</code> with no matching <code class="inline">CATCH</code> prints an error and execution resumes with the next top-level command — not a crash.</p>
       </div>
+      <div class="ref-section" id="sec-debugger">
+        <h2>Debugger</h2>
+        <div class="ref-entry" id="backtrace">
+          <h3><code class="inline">BACKTRACE</code></h3>
+          <p class="sig">Aliases: <code class="inline">BT</code></p>
+          <p>Print the current call stack, innermost first</p>
+        </div>
+        <div class="ref-entry" id="exectime">
+          <h3><code class="inline">EXECTIME</code></h3>
+          <p class="sig">Args: <code class="inline">thing</code> (operator)</p>
+          <p>Run a word/list as Logo source (like <code class="inline">RUN</code>); output how long it took, in microseconds</p>
+        </div>
+        <pre class="code">TO inner
+  BACKTRACE
+END
+TO outer
+  inner
+END
+outer</pre>
+        <pre class="code">BACKTRACE:
+  inner
+  outer
+  (top level)</pre>
+        <p><code class="inline">BACKTRACE</code> prints one line per currently-active procedure call, innermost first, ending with <code class="inline">(top level)</code> — called at the top level with nothing active, it prints just that one line.</p>
+        <pre class="code">PRINT EXECTIME [REPEAT 1000 [FD 1 BK 1]]</pre>
+        <p><code class="inline">EXECTIME</code> is <code class="inline">RUN</code>'s own timed cousin: it runs <code class="inline">thing</code> exactly like <code class="inline">RUN</code> would, but — unlike <code class="inline">RUN</code>, which never produces a value — hands back how long that took, so <code class="inline">EXECTIME [...]</code> works fine in expression position. See <code class="inline">docs/LANGUAGE.md</code>'s "Deferred execution" section for <code class="inline">RUN</code>'s own self-referential-nesting cap, which <code class="inline">EXECTIME</code> shares.</p>
+      </div>
       <div class="ref-section" id="sec-deferred-execution">
         <h2>Deferred execution</h2>
         <div class="ref-entry" id="run">
@@ -1291,6 +1336,23 @@ SETSPRITE &quot;walker
 ANIMATESPRITE 0.15 24
 SETSPRITE &quot;NONE</pre>
       </div>
+      <div class="ref-section" id="sec-background-image-canvas-export">
+        <h2>Background image &amp; canvas export</h2>
+        <div class="ref-entry" id="loadpic">
+          <h3><code class="inline">LOADPIC</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Load an image file as the canvas background</p>
+        </div>
+        <div class="ref-entry" id="savepic">
+          <h3><code class="inline">SAVEPIC</code></h3>
+          <p class="sig">Args: <code class="inline">"path</code></p>
+          <p>Export the canvas (background, drawing, turtles) as a PNG</p>
+        </div>
+        <pre class="code">LOADPIC &quot;backyard.png
+REPEAT 4 [FD 100 RT 90]
+SAVEPIC &quot;my_drawing.png</pre>
+        <p>Same GTK-side image decode/encode as <code class="inline">LOADSPRITE</code>/<code class="inline">STAMPSPRITE</code> — any format <code class="inline">gdk-pixbuf</code> understands for <code class="inline">LOADPIC</code> (PNG/JPEG/GIF/BMP/...), always PNG for <code class="inline">SAVEPIC</code>. <code class="inline">SAVEPIC</code> captures everything currently visible: the background image (if any), every drawn line/label/fill, and the turtles themselves. Both report an error (<code class="inline">could not load</code>/ <code class="inline">could not save "path</code>) rather than crashing on a bad path.</p>
+      </div>
       <div class="ref-section" id="sec-resizable-canvas">
         <h2>Resizable canvas</h2>
         <div class="ref-entry" id="setcanvassize">
@@ -1345,6 +1407,34 @@ PRINT &#x27;What is your name?&#x27;
 MAKE &quot;name INPUT
 PRINT SENTENCE &quot;Hello :name</pre>
         <p>Only actually wait in the real app — a silent no-op in the headless test driver. Nested <code class="inline">PAUSE</code>s stack; each <code class="inline">CONTINUE</code> resumes only the innermost one.</p>
+      </div>
+      <div class="ref-section" id="sec-mouse-state">
+        <h2>Mouse state</h2>
+        <p>Unlike <code class="inline">WAITKEY</code>/<code class="inline">INPUT</code> above (which pause the script until an event arrives), these read live, continuously-updated state without pausing anything — the passive-query counterpart to <code class="inline">WAITKEY</code>'s own blocking kind, both driven by the same canvas mouse events <code class="inline">ONCLICK</code>/ <code class="inline">ONMOUSEMOVE</code> use.</p>
+        <div class="ref-entry" id="mousepos">
+          <h3><code class="inline">MOUSEPOS</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Current pointer position over the canvas, as <code class="inline">[x y]</code></p>
+        </div>
+        <div class="ref-entry" id="mousex">
+          <h3><code class="inline">MOUSEX</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Just the x coordinate</p>
+        </div>
+        <div class="ref-entry" id="mousey">
+          <h3><code class="inline">MOUSEY</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Just the y coordinate</p>
+        </div>
+        <div class="ref-entry" id="button">
+          <h3><code class="inline">BUTTON?</code></h3>
+          <p class="sig">Args: — (operator)</p>
+          <p>Is a mouse button currently held down?</p>
+        </div>
+        <pre class="code">TO followmouse
+  WHILE TRUE [SETXY MOUSEX MOUSEY]
+END</pre>
+        <p>Same canvas-relative pixel coordinate space <code class="inline">SETXY</code>/<code class="inline">POS</code> already use. Always <code class="inline">0 0</code>/<code class="inline">FALSE</code> in headless tests (no real canvas to report a position from) or before the mouse has ever moved over the canvas at all — "no mouse activity yet" is a normal starting state, not an error. A tight loop built around nothing but these still visibly tracks the mouse as it moves, not just once the loop ends — each call queues a redraw and drains pending events first.</p>
       </div>
       <div class="ref-section" id="sec-concurrent-agents">
         <h2>Concurrent agents</h2>
@@ -1468,9 +1558,9 @@ ONKEYUP &quot;stophandler</pre>
       <div class="ref-section" id="sec-appendix-documented-elsewhere-not-available-in-bin-logomotive">
         <h2>Appendix: documented elsewhere, not available in <code class="inline">bin/logomotive</code></h2>
         <p><code class="inline">docs/LANGUAGE.md</code> documents these commands in prose, but a systematic audit against <code class="inline">src/parser.c</code>'s own grammar table (confirmed directly — each one produces <code class="inline">unknown word: X</code> when parsed, not guessed from reading) found none of them are actually reachable from the live app. All are implemented only in the old, pre-Stage-2 text-based <code class="inline">eval_logo</code> engine (<code class="inline">src/interpreter.c</code>), which only <code class="inline">tests/test_interpreter.c</code> still exercises — <code class="inline">bin/logomotive</code> has run entirely on the bytecode VM since Stage 2 finished, and none of these were ever ported to the VM's own grammar (<code class="inline">src/parser.c</code>'s <code class="inline">BUILTIN_SIGNATURES</code>).</p>
-        <p><code class="inline">TYPE</code> and <code class="inline">PR</code> shipped 2026-08-12 (see <code class="inline">docs/CHANGELOG.md</code>) — caught when an example script using <code class="inline">TYPE</code> silently failed to parse against <code class="inline">bin/logomotive</code>; the rest of this table is still accurate.</p>
-        <div class="note"><ul style="margin:0 0 0 18px;"><li><code class="inline"><code class="inline">CLEARTEXT</code> / <code class="inline">CT</code></code> &mdash; Clear the history pane</li><li><code class="inline"><code class="inline">BACKTRACE</code> / <code class="inline">BT</code></code> &mdash; Debugger: print the current call stack</li><li><code class="inline"><code class="inline">EXECTIME</code></code> &mdash; Debugger: time how long a <code class="inline">RUN</code>-like call takes</li><li><code class="inline"><code class="inline">LOADPIC</code></code> &mdash; Background image</li><li><code class="inline"><code class="inline">SAVEPIC</code></code> &mdash; Export canvas as PNG</li><li><code class="inline"><code class="inline">MOUSEPOS</code> / <code class="inline">MOUSEX</code> / <code class="inline">MOUSEY</code> / <code class="inline">BUTTON?</code></code> &mdash; Mouse state</li><li><code class="inline"><code class="inline">JOYSTICK?</code> / <code class="inline">JOYSTICKAXIS</code> / <code class="inline">JOYSTICKBUTTON?</code></code> &mdash; Joystick/game-controller input</li><li><code class="inline"><code class="inline">TONE</code> / <code class="inline">PLAYSOUND</code> / <code class="inline">STOPSOUND</code></code> &mdash; Sound</li></ul></div>
-        <p>This is a real, previously-undocumented gap between what <code class="inline">docs/LANGUAGE.md</code> claims ("the Logo dialect actually implemented in <code class="inline">src/main.c</code>") and what the live app can actually run — worth its own scoping pass if any of these are wanted in <code class="inline">bin/logomotive</code>, likely following the same <code class="inline">eval_X_value</code>-core-extraction pattern the 35-name VM instruction-coverage audit already used for every other builtin.</p>
+        <p><code class="inline">TYPE</code> and <code class="inline">PR</code> shipped 2026-08-12 (see <code class="inline">docs/CHANGELOG.md</code>) — caught when an example script using <code class="inline">TYPE</code> silently failed to parse against <code class="inline">bin/logomotive</code>. The debugger (<code class="inline">BACKTRACE</code>/<code class="inline">BT</code>/<code class="inline">EXECTIME</code>), history-pane (<code class="inline">CLEARTEXT</code>/<code class="inline">CT</code>), background-image (<code class="inline">LOADPIC</code>/<code class="inline">SAVEPIC</code>), and mouse-state (<code class="inline">MOUSEPOS</code>/<code class="inline">MOUSEX</code>/<code class="inline">MOUSEY</code>/<code class="inline">BUTTON?</code>) entries also shipped 2026-08-12 (see this doc's own "Debugger"/"Pen, color &amp; canvas"/"Background image &amp; canvas export"/"Mouse state" sections) — the rest of this table is still accurate.</p>
+        <div class="note"><ul style="margin:0 0 0 18px;"><li><code class="inline"><code class="inline">JOYSTICK?</code> / <code class="inline">JOYSTICKAXIS</code> / <code class="inline">JOYSTICKBUTTON?</code></code> &mdash; Joystick/game-controller input</li><li><code class="inline"><code class="inline">TONE</code> / <code class="inline">PLAYSOUND</code> / <code class="inline">STOPSOUND</code></code> &mdash; Sound</li></ul></div>
+        <p>Joystick input is deprioritized (<code class="inline">docs/ROADMAP.md</code>'s "Future / unplanned" — needs a real new dependency, GTK4 has no built-in gamepad support on macOS). Sound (<code class="inline">TONE</code>/<code class="inline">PLAYSOUND</code>/<code class="inline">STOPSOUND</code>) is the one remaining category with no VM porting effort scoped yet — worth its own pass if wanted, likely following the same <code class="inline">eval_X_value</code>-core-extraction pattern the 35-name VM instruction-coverage audit already used for every other builtin.</p>
       </div>
     </main>
   </div>

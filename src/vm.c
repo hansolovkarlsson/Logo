@@ -138,6 +138,23 @@ static void exec_continue(LogoApp *app) {
     else append_output(app, "CONTINUE: nothing is paused\n");
 }
 
+// BACKTRACE/BT -- prints the current call stack, innermost first.
+// Direct port of interpreter.c's own version, ported 2026-08-12
+// (docs/ROADMAP.md's "Remaining old-engine builtins" entry), but
+// reading vm->scope_depth/vm->scopes[] (VM-owned scope storage, see
+// vm.h's own comment) rather than app->scope_depth/app->scopes[] --
+// the two are separate arrays, so this couldn't just reuse the old
+// engine's own version unchanged.
+static void exec_backtrace(Vm *vm, LogoApp *app) {
+    append_output(app, "BACKTRACE:\n");
+    for (int s = vm->scope_depth - 1; s >= 0; s--) {
+        char line[64];
+        snprintf(line, sizeof(line), "  %s\n", vm->scopes[s].proc_name);
+        append_output(app, line);
+    }
+    append_output(app, "  (top level)\n");
+}
+
 // The five ordinary (non-suspending) sprite commands -- direct ports of
 // interpreter.c's own do_loadsprite/do_loadspritesheet/do_setsprite/
 // do_setspriteframe/do_stampsprite, deliberately vm.c-only (not also
@@ -159,6 +176,32 @@ static void exec_continue(LogoApp *app) {
 // grammar-based parser (ARG_QUOTED_WORD) already guarantees a
 // syntactically valid name at parse time, the same reason ERASE/MAKE/
 // DELETEFILE never emit that class of error here either.
+// LOADPIC/SAVEPIC -- canvas background image load/export, ported from
+// interpreter.c 2026-08-12 (docs/ROADMAP.md's "Remaining old-engine
+// builtins" entry). Same shape as exec_loadsprite below:
+// app->load_background_image/save_canvas_image were already wired up
+// in ui.c for the old engine's own use of them, NULL in headless
+// tests (no real GUI to load/export an image with), same convention.
+static void exec_loadpic(LogoApp *app, EvalValue path_val) {
+    char path_buf[512];
+    eval_value_to_text(app, path_val, path_buf, sizeof(path_buf));
+    if (app->load_background_image != NULL && !app->load_background_image(app, path_buf)) {
+        append_output(app, "LOADPIC: could not load \"");
+        append_output(app, path_buf);
+        append_output(app, "\n");
+    }
+}
+
+static void exec_savepic(LogoApp *app, EvalValue path_val) {
+    char path_buf[512];
+    eval_value_to_text(app, path_val, path_buf, sizeof(path_buf));
+    if (app->save_canvas_image != NULL && !app->save_canvas_image(app, path_buf)) {
+        append_output(app, "SAVEPIC: could not save \"");
+        append_output(app, path_buf);
+        append_output(app, "\n");
+    }
+}
+
 static void exec_loadsprite(LogoApp *app, EvalValue name_val, EvalValue path_val) {
     char name_buf[64], path_buf[512];
     eval_value_to_text(app, name_val, name_buf, sizeof(name_buf));
@@ -678,6 +721,26 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
         *produced = 0;
         return num_val(0);
     }
+    if (strcasecmp(name, "CLEARTEXT") == 0 || strcasecmp(name, "CT") == 0) {
+        if (app->clear_history != NULL) app->clear_history(app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "BACKTRACE") == 0 || strcasecmp(name, "BT") == 0) {
+        exec_backtrace(vm, app);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "LOADPIC") == 0) {
+        exec_loadpic(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "SAVEPIC") == 0) {
+        exec_savepic(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
     if (strcasecmp(name, "LOADSPRITE") == 0) {
         exec_loadsprite(app, args[0], args[1]);
         *produced = 0;
@@ -918,6 +981,22 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     if (strcasecmp(name, "HEADING") == 0) return do_heading(app);
     if (strcasecmp(name, "POS") == 0) return do_pos(app);
     if (strcasecmp(name, "CANVASSIZE") == 0) return do_canvassize(app);
+    if (strcasecmp(name, "MOUSEPOS") == 0) {
+        refresh_before_read(app);
+        return eval_list_wrap_pair(app, num_val(app->mouse_x), num_val(app->mouse_y));
+    }
+    if (strcasecmp(name, "MOUSEX") == 0) {
+        refresh_before_read(app);
+        return num_val(app->mouse_x);
+    }
+    if (strcasecmp(name, "MOUSEY") == 0) {
+        refresh_before_read(app);
+        return num_val(app->mouse_y);
+    }
+    if (strcasecmp(name, "BUTTON?") == 0) {
+        refresh_before_read(app);
+        return app->mouse_button_down ? word_val("TRUE") : word_val("FALSE");
+    }
     if (strcasecmp(name, "DISTANCE") == 0) return eval_distance_value(app, args[0], args[1]);
     if (strcasecmp(name, "TOWARDS") == 0) return eval_towards_value(app, args[0]);
     if (strcasecmp(name, "PENUP") == 0 || strcasecmp(name, "PU") == 0) {
@@ -1500,6 +1579,49 @@ static void exec_run(Vm *vm, LogoApp *app, EvalValue val) {
     app->run_depth--;
 }
 
+// EXECTIME -- exec_run's own mechanism, timed with g_get_monotonic_time
+// (microseconds) instead of run for pure side effect, and value-
+// returning where RUN itself deliberately isn't (see exec_run's own
+// comment on why: RUN/APPLY are commands, not operators). Timing is
+// safe to return here specifically because it's EXECTIME's own
+// measurement, not something read out of the executed code itself.
+// Ported from interpreter.c 2026-08-12 (docs/ROADMAP.md's "Remaining
+// old-engine builtins" entry) -- same run_depth guard as exec_run, so
+// a self-referential EXECTIME can't blow the C call stack either, and
+// the elapsed time is still returned even if the code never actually
+// ran (too deeply nested, or a lex/parse failure), matching
+// interpreter.c's own "always returns something" behavior.
+static EvalValue exec_exectime(Vm *vm, LogoApp *app, EvalValue val) {
+    gint64 start = g_get_monotonic_time();
+    if (app->run_depth >= MAX_RUN_DEPTH) {
+        append_output(app, "EXECTIME: too deeply nested, ignored\n");
+        return num_val((double)(g_get_monotonic_time() - start));
+    }
+    char code_text[512];
+    eval_value_to_text(app, val, code_text, sizeof(code_text));
+
+    app->run_depth++;
+    LogoToken tokens[VM_RUN_MAX_TOKENS];
+    int n = logo_lex(code_text, tokens, VM_RUN_MAX_TOKENS);
+    if (n >= 0) {
+        ParseResult *scratch = calloc(1, sizeof(ParseResult));
+        logo_parse(tokens, n, scratch);
+        if (scratch->error_count == 0) {
+            BytecodeChunk *scratch_chunk = calloc(1, sizeof(BytecodeChunk));
+            int start_pc = compile_program(&scratch->pool, scratch->program, scratch_chunk);
+            int frame_floor = vm->frame_count;
+            vm_run(vm, app, &scratch->pool, scratch_chunk, start_pc);
+            if (vm->frame_count < frame_floor) {
+                append_output(app, "EXECTIME: OUTPUT/STOP escaping the timed snippet's own top level is not fully supported\n");
+            }
+            free(scratch_chunk);
+        }
+        parse_result_destroy(scratch);
+    }
+    app->run_depth--;
+    return num_val((double)(g_get_monotonic_time() - start));
+}
+
 // OP_LOAD -- same mechanism as exec_run above (compile a fresh scratch
 // pool/chunk, run it via a recursive vm_run call sharing this Vm's own
 // stack/frames), but reading its own source from a file instead of an
@@ -1973,6 +2095,12 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 break;
             case OP_RUN:
                 exec_run(vm, app, pop(vm));
+                pc++;
+                break;
+            case OP_EXECTIME:
+                push(vm, exec_exectime(vm, app, pop(vm)));
+                vm->last_call_produced_output = 1; // always a real value (elapsed time), unlike RUN
+                vm->last_call_resolved = 1; // same "an ordinary call is always resolved" convention OP_CALL_BUILTIN uses
                 pc++;
                 break;
             case OP_LOAD:

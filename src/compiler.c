@@ -647,6 +647,18 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         finish_call(chunk, "RUN", want_value);
         return;
     }
+    if (strcasecmp(name, "EXECTIME") == 0) {
+        // Same shape as RUN just above (plain expression argument,
+        // OP_EXECTIME pops it off the stack itself) but no
+        // OP_VOID_RESULT afterward -- see bytecode.h's own OP_EXECTIME
+        // comment for why: unlike RUN, this genuinely produces a
+        // value, which OP_EXECTIME's own VM handler pushes directly.
+        collect_children(pool, node_idx, args, AST_MAX_PARAMS);
+        compile_expr(c, pool, args[0], chunk);
+        emit(chunk, (Instr){.op = OP_EXECTIME});
+        finish_call(chunk, "EXECTIME", want_value);
+        return;
+    }
     if (strcasecmp(name, "LOAD") == 0) {
         // Same ARG_QUOTED_WORD shape as ERASE/MAKE/LOCAL's own raw-name
         // arguments -- LOAD's grammar can only ever take a literal

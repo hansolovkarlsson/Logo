@@ -62,6 +62,13 @@ Turtle *current_turtle(LogoApp *app);
 // (WRAP/FENCE/WINDOW).
 void move_turtle_to(LogoApp *app, double new_x, double new_y);
 
+// Queues a redraw, then drains pending GLib main-context events
+// non-blockingly -- call before reading any continuously-updated
+// state (mouse position/button, joystick) so a tight WHILE loop built
+// around nothing but reads of it still visibly tracks changes instead
+// of starving GTK's own event controllers. NULL-safe/no-op headless.
+void refresh_before_read(LogoApp *app);
+
 // Record a line segment in the current turtle's pen color/width, if its
 // pen is down -- without moving the turtle. Used directly by ARC,
 // which draws around the turtle rather than moving it (move_turtle_to

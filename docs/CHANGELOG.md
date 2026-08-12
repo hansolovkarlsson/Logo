@@ -1667,3 +1667,68 @@ through 2026-08-12:
   (same real-file-loading pattern as the TYPE/PR fix above). Verified
   via `make test` (all 8 suites), a standalone ASan build of `test_vm`
   (clean), and a live `bin/logo` process-liveness launch.
+
+## Nine more old-engine builtins ported to the VM
+
+- [x] **`CLEARTEXT`/`CT`, `LOADPIC`, `SAVEPIC`, `MOUSEPOS`/`MOUSEX`/
+  `MOUSEY`/`BUTTON?`, `BACKTRACE`/`BT`, `EXECTIME`** (shipped
+  2026-08-12): the rest of `docs/COMMAND_REFERENCE.md`'s own appendix
+  (commands `docs/LANGUAGE.md` documents but the VM's grammar didn't
+  recognize) — 17 in total, TYPE/PR already closed above, joystick
+  input and sound left deliberately open (see below). Same root cause
+  as TYPE/PR: real, working code in the old `eval_logo` engine
+  (`src/interpreter.c`) that was simply never carried over when the
+  bytecode VM took over as `bin/logo`'s only engine.
+
+  Mostly wiring, not new functionality — `app->clear_history`,
+  `app->load_background_image`, `app->save_canvas_image`, and
+  `app->mouse_x`/`mouse_y`/`mouse_button_down` were all already
+  populated/wired up in `ui.c` from the old engine's own use of them
+  (the mouse fields specifically already existed for `ONMOUSEMOVE`/
+  `ONCLICK`'s benefit), so most of these were a `parser.c` grammar row
+  plus a `vm.c` dispatch case reusing existing state, following the
+  exact `LOADSPRITE`/`CANVASSIZE` precedent for each shape (0-arg
+  command, 1-arg quoted-word command, 0-arg operator).
+
+  Two needed real new work. `BACKTRACE` reads `vm->scope_depth`/
+  `vm->scopes[].proc_name` (VM-owned scope storage, see
+  `docs/BYTECODE_VM_DESIGN.md`'s own entry on that) rather than
+  `app->scope_depth`/`app->scopes[]` the old engine uses — the two are
+  separate arrays, so the old implementation couldn't be reused
+  unchanged. `EXECTIME` (times a `RUN`-like call, in microseconds)
+  needed a genuinely new dedicated opcode, `OP_EXECTIME` — not because
+  `EXECTIME` is exotic, but because `RUN`/`LOAD` themselves already
+  established that "recursively `vm_run` a freshly-compiled scratch
+  chunk" needs its own opcode rather than living in the generic
+  `call_builtin` string-dispatch table (see `bytecode.h`'s own `OP_RUN`
+  comment: neither ever produces a value at the *compiler's* own
+  compile-time-known level, so each gets paired with `OP_VOID_RESULT`
+  rather than the runtime `*produced`-flag mechanism ordinary
+  `call_builtin` commands use). `EXECTIME` is the one member of that
+  family that *does* produce a value, so `OP_EXECTIME`'s own VM handler
+  pushes it directly and is never followed by `OP_VOID_RESULT` — caught
+  a real bug here mid-implementation: `OP_CHECK_OUTPUT` (the "did this
+  expression-position call actually produce a value" check `finish_call`
+  emits) reported a spurious `EXECTIME: didn't output a value` at first,
+  because `vm->last_call_resolved`/`last_call_produced_output` are only
+  set generically by `OP_CALL_BUILTIN` itself — a dedicated opcode has
+  to set them explicitly, the same way `OP_APPLY`/`OP_VOID_RESULT`
+  already do, which the first draft had missed.
+
+  9 new `tests/test_vm.c` cases (`start_vm_session`-based, not
+  `shadow_diff_vm` — confirmed none of these ever existed in `eval.c`
+  either, only in the oldest `interpreter.c`, so there's no tree-walker
+  to diff against): headless-default/no-op checks for the six pure
+  wiring cases, a two-level and a top-level `BACKTRACE` check, and
+  three `EXECTIME` cases (plausible-value-in-expression-position,
+  works-fine-as-a-command-too, and the same self-referential-capped-
+  not-a-crash check `RUN` itself already has). `docs/COMMAND_REFERENCE.md`
+  gained three new sections (`Debugger`; `Background image & canvas
+  export`; `Mouse state`) and lost `CLEARTEXT`'s own old "not currently
+  reachable" footnote; the appendix table shrank from 17 rows to 2
+  (`JOYSTICK?`-family, deliberately deprioritized separately; `TONE`/
+  `PLAYSOUND`/`STOPSOUND`, no porting effort scoped yet). Verified via
+  `make test` (all 8 suites, including `test_bytecode` — confirms the
+  new `OP_EXECTIME` opcode didn't break the disassembler/assembler's
+  own exhaustive-switch invariant) and a clean full rebuild of
+  `bin/logomotive`.

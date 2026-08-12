@@ -517,8 +517,11 @@ static void drain_pending_events(void) {
 // it happens, rather than only jumping to its final position once the
 // whole loop -- and the one eval_logo call it's running inside of --
 // finally ends. NULL-safe (no-op headless, same as everywhere else
-// request_redraw is used).
-static void refresh_before_read(LogoApp *app) {
+// request_redraw is used). Not `static` -- vm.c's own MOUSEPOS/MOUSEX/
+// MOUSEY/BUTTON? (ported 2026-08-12, docs/ROADMAP.md's "Remaining
+// old-engine builtins" entry) call this directly, declared in
+// interpreter.h, rather than duplicating it.
+void refresh_before_read(LogoApp *app) {
     if (app->request_redraw != NULL) {
         app->request_redraw(app);
     }

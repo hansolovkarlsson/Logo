@@ -94,6 +94,7 @@ const char *bytecode_opcode_name(OpCode op) {
         case OP_VOID_DISCARD: return "OP_VOID_DISCARD";
         case OP_RUN: return "OP_RUN";
         case OP_LOAD: return "OP_LOAD";
+        case OP_EXECTIME: return "OP_EXECTIME";
         case OP_CHECK_THROW: return "OP_CHECK_THROW";
         case OP_CATCH_CHECK: return "OP_CATCH_CHECK";
         case OP_CHECK_UNCAUGHT_THROW: return "OP_CHECK_UNCAUGHT_THROW";

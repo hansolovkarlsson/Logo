@@ -923,6 +923,101 @@ static void expect_output(const char *want) {
     }
 }
 
+// CLEARTEXT/LOADPIC/SAVEPIC/MOUSEPOS/MOUSEX/MOUSEY/BUTTON?/BACKTRACE/
+// EXECTIME -- ported from interpreter.c 2026-08-12 (docs/ROADMAP.md's
+// "Remaining old-engine builtins" entry). Not in eval.c (confirmed:
+// never existed there either, only in the oldest interpreter.c), so
+// no shadow_diff_vm for these -- start_vm_session-based, same as every
+// other VM-only builtin (LAUNCH/ONKEY/...).
+
+TEST(test_cleartext_is_a_silent_noop_headless) {
+    // app->clear_history is NULL in headless tests (no history pane to
+    // clear) -- confirms it doesn't error or crash, same convention as
+    // LOADSPRITE's own NULL-callback headless behavior.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("CLEARTEXT\nPRINT \"after", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("after\n");
+    end_vm_session(s);
+}
+
+TEST(test_loadpic_and_savepic_are_silent_noops_headless) {
+    // app->load_background_image/save_canvas_image are both NULL
+    // headless -- same convention as LOADSPRITE/LOADSPRITESHEET.
+    VmRunResult status;
+    VmTestSession s = start_vm_session("LOADPIC \"nope.png\nSAVEPIC \"out.png\nPRINT \"after", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("after\n");
+    end_vm_session(s);
+}
+
+TEST(test_mousepos_mousex_mousey_button_report_headless_defaults) {
+    // app->mouse_x/mouse_y/mouse_button_down are always 0/0/FALSE
+    // headless -- no real GTK motion/click controllers to update them,
+    // matching interpreter.c's own documented "always 0/FALSE
+    // headless" convention.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "PRINT MOUSEPOS\nPRINT MOUSEX\nPRINT MOUSEY\nPRINT BUTTON?", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("0 0\n0\n0\nFALSE\n");
+    end_vm_session(s);
+}
+
+TEST(test_backtrace_lists_the_call_stack_innermost_first) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO inner\n"
+        "  BACKTRACE\n"
+        "END\n"
+        "TO outer\n"
+        "  inner\n"
+        "END\n"
+        "outer", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("BACKTRACE:\n  inner\n  outer\n  (top level)\n");
+    end_vm_session(s);
+}
+
+TEST(test_backtrace_at_the_top_level_shows_only_top_level) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("BACKTRACE", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("BACKTRACE:\n  (top level)\n");
+    end_vm_session(s);
+}
+
+TEST(test_exectime_reports_a_plausible_nonnegative_number) {
+    // Can't assert an exact value (real elapsed time) -- confirms it's
+    // a real number, not an error, and that it works fine in
+    // expression position (unlike RUN/APPLY, which are commands).
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT NUMBER? EXECTIME [PRINT 1 + 1]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("2\nTRUE\n");
+    end_vm_session(s);
+}
+
+TEST(test_exectime_used_as_a_command_still_runs_its_code) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("EXECTIME [PRINT \"ran]\nPRINT \"after", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ran\nafter\n");
+    end_vm_session(s);
+}
+
+TEST(test_exectime_self_referential_is_capped_not_a_crash) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "MAKE \"x [EXECTIME :x]\nEXECTIME :x\nPRINT \"survived", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "survived\n") == NULL) {
+        failures++;
+        printf("FAIL %s: expected to survive and print \"survived\", got \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
 TEST(test_wait_suspends_with_the_right_duration_then_resumes_and_completes) {
     VmRunResult status;
     VmTestSession s = start_vm_session("PRINT 1\nWAIT 5\nPRINT 2", &status);
@@ -2834,6 +2929,14 @@ int main(void) {
     RUN(test_tell_out_of_range_reports_error);
     RUN(test_canvassize_and_setcanvassize);
     RUN(test_setcanvassize_out_of_range_reports_error);
+    RUN(test_cleartext_is_a_silent_noop_headless);
+    RUN(test_loadpic_and_savepic_are_silent_noops_headless);
+    RUN(test_mousepos_mousex_mousey_button_report_headless_defaults);
+    RUN(test_backtrace_lists_the_call_stack_innermost_first);
+    RUN(test_backtrace_at_the_top_level_shows_only_top_level);
+    RUN(test_exectime_reports_a_plausible_nonnegative_number);
+    RUN(test_exectime_used_as_a_command_still_runs_its_code);
+    RUN(test_exectime_self_referential_is_capped_not_a_crash);
     RUN(test_pen_and_canvas_appearance_smoke);
     RUN(test_drawing_primitives_smoke);
     RUN(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called);
