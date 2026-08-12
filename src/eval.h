@@ -92,6 +92,16 @@ int eval_values_equal(LogoApp *app, EvalValue a, EvalValue b);
 // can share it too, instead of a parallel reimplementation.
 void eval_print_value(LogoApp *app, EvalValue v);
 
+// TYPE -- PRINT without the trailing newline. Implemented in the old
+// tree-walking engine (interpreter.c) since Phase 1, long before the
+// bytecode VM existed, but never ported to src/parser.c's own grammar
+// (BUILTIN_SIGNATURES) -- a real, previously-undocumented gap between
+// what bin/logo can actually run and what docs/LANGUAGE.md claims,
+// caught 2026-08-12 when an example script using TYPE turned out to
+// silently fail to parse. Same eval_print_value split, so vm.c's own
+// OP_CALL_BUILTIN "TYPE" handler can share it.
+void eval_type_value(LogoApp *app, EvalValue v);
+
 // The lists/arrays/MAKE-adjacent batch's own value-taking cores (see
 // docs/BYTECODE_VM_DESIGN.md's Progress log) -- same split as
 // eval_print_value above, each corresponding do_* in eval.c now just

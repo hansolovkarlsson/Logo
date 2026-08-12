@@ -286,17 +286,23 @@ ignored" (raised from the original 200 — see
 | Command | Args | Description |
 |---|---|---|
 | `PRINT` | `expr` | Write to the history pane, with a trailing newline |
+| `TYPE` | `expr` | Same as `PRINT`, but no trailing newline |
 
 ```
 PRINT "hello
 PRINT 2 + 2
 PRINT [hello there, this prints as one line]
+
+TYPE "Hello, TYPE " TYPE "world!    -> Hello, world! (one line, three calls)
 ```
 
 A word prints as itself; a list prints as its elements space-joined
 (its own outer brackets never shown, but a nested sublist's brackets
 are, since that's the only way to tell elements apart) — see
 `docs/LANGUAGE.md`'s "Output" section for the exact nesting rule.
+`TYPE` follows the same rendering rules as `PRINT`, just without the
+newline each call would otherwise add — several `TYPE`s (or a `TYPE`
+followed by a `PRINT`) build up one line piece by piece.
 
 ## Procedures
 
@@ -936,10 +942,12 @@ entirely on the bytecode VM since Stage 2 finished, and none of these
 were ever ported to the VM's own grammar (`src/parser.c`'s
 `BUILTIN_SIGNATURES`).
 
+`TYPE` and `PR` shipped 2026-08-12 (see `docs/CHANGELOG.md`) — caught
+when an example script using `TYPE` silently failed to parse against
+`bin/logo`; the rest of this table is still accurate.
+
 | Command | Would-be category |
 |---|---|
-| `TYPE` | Output (like `PRINT`, no trailing newline) |
-| `PR` | `PRINT` alias |
 | `CLEARTEXT` / `CT` | Clear the history pane |
 | `BACKTRACE` / `BT` | Debugger: print the current call stack |
 | `EXECTIME` | Debugger: time how long a `RUN`-like call takes |

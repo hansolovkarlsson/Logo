@@ -78,6 +78,9 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
 
     // Output/variables.
     { "PRINT", 1, { ARG_EXPR } },
+    { "PR", 1, { ARG_EXPR } }, // PRINT alias -- same never-ported-to-the-VM gap as TYPE right below, found in the same pass
+    { "TYPE", 1, { ARG_EXPR } }, // PRINT without the trailing newline -- implemented since Phase 1 (interpreter.c) but never ported here until 2026-08-12, a real gap caught when an example using it silently failed to parse
+
     { "MAKE", 2, { ARG_QUOTED_WORD, ARG_EXPR } },
     { "THING", 1, { ARG_EXPR } },
     { "LOCAL", 1, { ARG_QUOTED_WORD } },

@@ -125,6 +125,24 @@ TEST(test_literals_and_print) {
     shadow_diff_vm("PRINT 42\nPRINT \"hello");
 }
 
+// TYPE: implemented since Phase 1 (interpreter.c) but never ported to
+// src/parser.c's own grammar until 2026-08-12 -- a real,
+// previously-undocumented gap (docs/COMMAND_REFERENCE.md's own
+// appendix already listed it) caught when an example script using it
+// silently failed to parse. Wired into eval.c's own dispatch at the
+// same time, so this can shadow-diff against the tree-walker too, not
+// just run standalone against the VM.
+TEST(test_type_prints_without_a_trailing_newline) {
+    shadow_diff_vm("TYPE \"Hello,\nTYPE \" \nPRINT \"world!");
+}
+
+// PR: found missing from the VM in the same pass as TYPE (same
+// appendix table row grouping) -- a PRINT alias, same never-ported gap.
+TEST(test_pr_is_a_print_alias) {
+    shadow_diff_vm("PR 42\nPR \"hello");
+}
+
+
 TEST(test_arithmetic_with_precedence_and_grouping) {
     shadow_diff_vm("PRINT 1 + 2 * 3\nPRINT (1 + 2) * 3\nPRINT -5 + 2");
 }
@@ -2121,6 +2139,75 @@ TEST(test_offrelease_clears_a_registered_handler) {
     end_vm_session(s);
 }
 
+TEST(test_type_exact_output_has_no_trailing_newline) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("TYPE \"Hello,\nTYPE 5", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("Hello,5");
+    end_vm_session(s);
+}
+
+// Loads and runs the REAL example file, not a copy of its text embedded
+// in this test -- catches exactly the kind of bug that motivated this
+// test in the first place: examples/readword_readchar.logo used TYPE,
+// which parsed and ran fine against the OLD tree-walking engine (its
+// own examples/type_show.logo has used it since Phase 1) but was never
+// ported to src/parser.c's own grammar, so bin/logo silently failed to
+// parse it -- caught only because a live "does the scratch file get
+// cleaned up" launch check isn't enough to distinguish "ran
+// successfully" from "failed to parse and never ran at all" (both look
+// identical from outside: no crash, no leftover file). A parse-error
+// count check here would have caught it immediately.
+TEST(test_readword_readchar_example_runs_correctly) {
+    char *source = NULL;
+    if (!g_file_get_contents("examples/readword_readchar.logo", &source, NULL, NULL)) {
+        failures++;
+        printf("FAIL %s: could not read examples/readword_readchar.logo\n", current_test);
+        return;
+    }
+    VmRunResult status;
+    VmTestSession s = start_vm_session(source, &status);
+    g_free(source);
+    if (s.result->error_count > 0) {
+        failures++;
+        printf("FAIL %s: example failed to parse (%d error(s)): %s\n", current_test, s.result->error_count, s.result->errors[0].message);
+        end_vm_session(s);
+        return;
+    }
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output(
+        "one-word-at-a-time:\nhello\nworld\ngoodbye\nFALSE\n\nTRUE\n"
+        "one-character-at-a-time:\nhello\n");
+    end_vm_session(s);
+}
+
+// examples/type_show.logo is a Phase 1 relic (predates the bytecode VM
+// entirely) that was ALSO silently broken by the same TYPE gap as
+// examples/readword_readchar.logo, undetected until now since nothing
+// ever loaded and ran the real file against the VM.
+TEST(test_type_show_example_runs_correctly) {
+    char *source = NULL;
+    if (!g_file_get_contents("examples/type_show.logo", &source, NULL, NULL)) {
+        failures++;
+        printf("FAIL %s: could not read examples/type_show.logo\n", current_test);
+        return;
+    }
+    VmRunResult status;
+    VmTestSession s = start_vm_session(source, &status);
+    g_free(source);
+    if (s.result->error_count > 0) {
+        failures++;
+        printf("FAIL %s: example failed to parse (%d error(s)): %s\n", current_test, s.result->error_count, s.result->errors[0].message);
+        end_vm_session(s);
+        return;
+    }
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output(
+        "Hello,world!\nTO square :size\nREPEAT 4 [FD :size RT 90]\n\nEND\n"
+        "SHOW: no such procedure \"nope\n");
+    end_vm_session(s);
+}
+
 // 2026-08-11 Terrapin Logo comparison (docs/ROADMAP.md's "Language
 // completeness"): the 24-builtin easy-tier batch, one test per builtin
 // (or small logical group), same VM-only headless style as the event
@@ -2498,6 +2585,8 @@ TEST(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_orig
 
 int main(void) {
     RUN(test_literals_and_print);
+    RUN(test_type_prints_without_a_trailing_newline);
+    RUN(test_pr_is_a_print_alias);
     RUN(test_arithmetic_with_precedence_and_grouping);
     RUN(test_make_and_varref);
     RUN(test_make_negative_number);
@@ -2689,6 +2778,9 @@ int main(void) {
     RUN(test_onrelease_registers_a_valid_three_param_handler);
     RUN(test_onrelease_of_a_wrong_arity_procedure_reports_an_error);
     RUN(test_offrelease_clears_a_registered_handler);
+    RUN(test_type_exact_output_has_no_trailing_newline);
+    RUN(test_readword_readchar_example_runs_correctly);
+    RUN(test_type_show_example_runs_correctly);
     RUN(test_pi_reports_the_constant);
     RUN(test_rerandom_makes_random_reproducible);
     RUN(test_ascii_and_char_round_trip);

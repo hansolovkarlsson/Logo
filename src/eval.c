@@ -1161,6 +1161,14 @@ void eval_print_value(LogoApp *app, EvalValue v) {
 static void do_print(LogoApp *app, AstPool *pool, const int *arg_idx) {
     eval_print_value(app, eval_expr(app, pool, arg_idx[0]));
 }
+void eval_type_value(LogoApp *app, EvalValue v) {
+    char text[2048];
+    eval_value_to_text(app, v, text, sizeof(text));
+    append_output(app, text);
+}
+static void do_type(LogoApp *app, AstPool *pool, const int *arg_idx) {
+    eval_type_value(app, eval_expr(app, pool, arg_idx[0]));
+}
 static void do_make(LogoApp *app, AstPool *pool, const int *arg_idx) {
     // arg_idx[0] is an AST_WORD -- the parser's ARG_QUOTED_WORD kind
     // already guarantees this holds the variable's name directly in
@@ -2740,8 +2748,10 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_eraserect(app, pool, arg_idx);
     } else if (strcasecmp(name, "ERASE") == 0) {
         do_erase(app, pool, arg_idx);
-    } else if (strcasecmp(name, "PRINT") == 0) {
+    } else if (strcasecmp(name, "PRINT") == 0 || strcasecmp(name, "PR") == 0) {
         do_print(app, pool, arg_idx);
+    } else if (strcasecmp(name, "TYPE") == 0) {
+        do_type(app, pool, arg_idx);
     } else if (strcasecmp(name, "MAKE") == 0) {
         do_make(app, pool, arg_idx);
     } else if (strcasecmp(name, "THING") == 0) {

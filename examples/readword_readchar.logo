@@ -14,6 +14,12 @@ PRINT "one-word-at-a-time:
 PRINT READWORD :wordch
 PRINT READWORD :wordch
 PRINT READWORD :wordch
+; READWORD stops right at the trailing newline after "goodbye" without
+; consuming it (leaving it for the next call to skip), so EOF? is
+; still FALSE here -- one more READWORD (returning the empty word) is
+; what actually reaches EOF.
+PRINT EOF? :wordch
+PRINT READWORD :wordch
 PRINT EOF? :wordch
 CLOSE :wordch
 

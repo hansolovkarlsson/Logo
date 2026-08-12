@@ -1585,3 +1585,52 @@ through 2026-08-12:
   `test_eval` (`eval.c`'s own suite, exercised since this shipped
   there — also clean), and a live `bin/logo` process-liveness launch of
   the new example.
+
+## TYPE/PR — closing a real, previously-undocumented VM grammar gap
+
+- [x] **`TYPE` and `PR`** (shipped 2026-08-12): both implemented since
+  Phase 1 (`interpreter.c`, the old tree-walking engine, long before
+  the bytecode VM existed) but never ported to `src/parser.c`'s own
+  grammar (`BUILTIN_SIGNATURES`) — `bin/logo` silently reported
+  `unknown word: TYPE`/`unknown word: PR` for either one.
+  `docs/COMMAND_REFERENCE.md`'s own "Appendix: documented elsewhere,
+  not available in `bin/logo`" section had already listed both as
+  known gaps, but nobody had gone back to actually close them.
+
+  Found the hard way: `examples/readword_readchar.logo` (shipped a few
+  turns earlier, this same session) uses `TYPE` five times and was
+  silently broken the whole time — a live `bin/logo` process-liveness
+  launch (the only verification method available in this background
+  session, with no GUI screenshot access) can't distinguish "ran
+  successfully" from "failed to parse and never ran at all," since
+  both look identical from outside: no crash, no leftover scratch
+  file either way (since nothing after the parse error ever runs). A
+  user noticing the example didn't work is what actually surfaced this.
+  `examples/type_show.logo` (an actual Phase 1 relic) turned out to
+  have been silently broken by the exact same gap this whole time too,
+  never caught because nothing had ever loaded and run the real file
+  against the VM specifically.
+
+  `TYPE` is `PRINT` without the trailing newline; `PR` is a plain
+  `PRINT` alias (same shape as `FD`/`FORWARD`, `BK`/`BACK`, etc.) — both
+  trivial, well-precedented additions: `eval_type_value` (new) sits
+  right next to `eval_print_value` in `eval.c`, and both are wired into
+  all three places `PRINT` already is (`src/parser.c`'s
+  `BUILTIN_SIGNATURES`, `vm.c`'s `call_builtin`, and `eval.c`'s own
+  tree-walker dispatch — the last one specifically so `TYPE` could be
+  shadow-diff tested against the tree-walker too, not just run
+  standalone against the VM).
+
+  6 new `test_vm.c` cases (a `TYPE`/`PR` shadow-diff test each, an
+  exact-output check confirming no trailing newline, and — the real
+  point of this whole fix — two tests that load and run the *actual*
+  example files from disk rather than a copy of their text embedded in
+  the test, catching exactly the class of bug that motivated this fix:
+  an example silently failing to parse against `bin/logo` while still
+  looking fine from a live-launch check). Moved `TYPE`/`PR` out of
+  `docs/COMMAND_REFERENCE.md`'s appendix into its real "Output" section
+  alongside `PRINT`. Verified via `make test` (all 8 suites), standalone
+  ASan builds of `test_vm`/`test_eval`/`test_shadow_diff` (all clean,
+  `test_vm` with the same raised `ulimit -s` workaround as prior
+  rounds), and live `bin/logo` process-liveness launches of both
+  now-fixed example files.

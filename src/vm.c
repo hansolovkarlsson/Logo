@@ -663,8 +663,13 @@ static EvalValue eval_spacedrange_value(LogoApp *app, EvalValue from_val, EvalVa
 
 static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, const char *name, EvalValue *args, int *produced) {
     *produced = 1;
-    if (strcasecmp(name, "PRINT") == 0) {
+    if (strcasecmp(name, "PRINT") == 0 || strcasecmp(name, "PR") == 0) {
         eval_print_value(app, args[0]);
+        *produced = 0;
+        return num_val(0);
+    }
+    if (strcasecmp(name, "TYPE") == 0) {
+        eval_type_value(app, args[0]);
         *produced = 0;
         return num_val(0);
     }
