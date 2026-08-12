@@ -442,8 +442,9 @@ TEST(test_pen_and_canvas_appearance_smoke) {
 }
 
 TEST(test_drawing_primitives_smoke) {
-    shadow_diff_vm("ARC 90 50\nLABEL \"hi\nFILL\nERASERECT 10 10\nCLEAN\nHIDETURTLE\nSHOWTURTLE\nPRINT \"ok");
+    shadow_diff_vm("ARC 90 50\nLABEL \"hi\nFILL\nPLOT\nERASERECT 10 10\nCLEAN\nHIDETURTLE\nSHOWTURTLE\nPRINT \"ok");
 }
+
 
 TEST(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called) {
     // Locks in a real gap the vm.c dispatch had before this batch:
@@ -921,6 +922,46 @@ static void expect_output(const char *want) {
         failures++;
         printf("FAIL %s: output -- expected \"%s\", got \"%s\"\n", current_test, want, captured_output);
     }
+}
+
+TEST(test_plot_records_a_dot_raster_op_at_the_turtles_position_and_pen_color) {
+    // PLOT added 2026-08-12 (the user noticed no single-point command
+    // existed; DOT was already taken by the vector dot-product
+    // operator) -- checks the actual recorded RasterOp fields directly
+    // (kind/position/color/radius), since a filled dot's own visual
+    // result can't be asserted through captured text output the way
+    // FILL/ERASERECT's shared shadow-diff smoke test above does.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "SETXY 12 34\nSETPENCOLOR 255 128 0\nSETPENWIDTH 8\nPLOT\nPRINT \"ok", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("ok\n");
+
+    if (s.app->raster_op_count != 1) {
+        failures++;
+        printf("FAIL %s: raster_op_count -- expected 1, got %d\n", current_test, s.app->raster_op_count);
+    } else {
+        RasterOp *op = &s.app->raster_ops[0];
+        if (op->kind != RASTER_OP_DOT) {
+            failures++;
+            printf("FAIL %s: kind -- expected RASTER_OP_DOT, got %d\n", current_test, op->kind);
+        }
+        if (op->x != 12 || op->y != 34) {
+            failures++;
+            printf("FAIL %s: position -- expected (12, 34), got (%g, %g)\n", current_test, op->x, op->y);
+        }
+        double g_diff = op->g - 128.0 / 255.0;
+        if (g_diff < 0) g_diff = -g_diff;
+        if (op->r != 1.0 || g_diff > 0.001 || op->b != 0.0) {
+            failures++;
+            printf("FAIL %s: color -- expected (1, ~0.502, 0), got (%g, %g, %g)\n", current_test, op->r, op->g, op->b);
+        }
+        if (op->w != 4.0) {
+            failures++;
+            printf("FAIL %s: radius -- expected 4 (half pen_width), got %g\n", current_test, op->w);
+        }
+    }
+    end_vm_session(s);
 }
 
 // CLEARTEXT/LOADPIC/SAVEPIC/MOUSEPOS/MOUSEX/MOUSEY/BUTTON?/BACKTRACE/
@@ -2939,6 +2980,7 @@ int main(void) {
     RUN(test_exectime_self_referential_is_capped_not_a_crash);
     RUN(test_pen_and_canvas_appearance_smoke);
     RUN(test_drawing_primitives_smoke);
+    RUN(test_plot_records_a_dot_raster_op_at_the_turtles_position_and_pen_color);
     RUN(test_erase_deletes_a_procedure_so_it_can_no_longer_be_called);
     RUN(test_erase_of_unknown_procedure_reports_error);
     RUN(test_erase_removes_the_procedure_from_procedures_output);

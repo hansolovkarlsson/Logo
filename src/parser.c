@@ -212,6 +212,13 @@ static const BuiltinSignature BUILTIN_SIGNATURES[] = {
     { "ARC", 2, { ARG_EXPR, ARG_EXPR } },
     { "LABEL", 1, { ARG_EXPR } },
     { "FILL", 0, { 0 } },
+
+    // PLOT -- a single filled dot at the turtle's current position,
+    // added 2026-08-12 (the user noticed no command drew a lone point;
+    // other Logo dialects call this DOT, already taken here by the
+    // vector dot-product operator). Same shape as FILL: a RasterOp,
+    // no arguments -- see logo_types.h's own RASTER_OP_DOT comment.
+    { "PLOT", 0, { 0 } },
     { "ERASERECT", 2, { ARG_EXPR, ARG_EXPR } },
     { "WRAP", 0, { 0 } },
     { "FENCE", 0, { 0 } },

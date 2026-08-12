@@ -1133,6 +1133,26 @@ void do_fill(LogoApp *app) {
     op->b = t->pen_b;
     op->line_count_at_call = app->line_count;
 }
+// PLOT -- draws a single filled dot at the turtle's current position,
+// in its current pen color, radius half the current pen width (so
+// SETPENWIDTH controls dot size the same way it already controls line
+// thickness -- no separate size argument needed). Same call-time-
+// frozen treatment as FILL/ERASERECT; see logo_types.h's own
+// RASTER_OP_DOT comment for why this needs a real raster op rather
+// than a zero-length line.
+void do_plot(LogoApp *app) {
+    if (app->raster_op_count >= MAX_RASTER_OPS) return;
+    Turtle *t = current_turtle(app);
+    RasterOp *op = &app->raster_ops[app->raster_op_count++];
+    op->kind = RASTER_OP_DOT;
+    op->x = t->x;
+    op->y = t->y;
+    op->r = t->pen_r;
+    op->g = t->pen_g;
+    op->b = t->pen_b;
+    op->w = t->pen_width / 2.0;
+    op->line_count_at_call = app->line_count;
+}
 // ERASERECT w h -- paints a w-by-h rectangle centered on the turtle in
 // the background color, same call-time-frozen treatment as FILL.
 void eval_eraserect_value(LogoApp *app, EvalValue w_val, EvalValue h_val) {
@@ -2744,6 +2764,8 @@ static void exec_call(LogoApp *app, AstPool *pool, int call_node, int *resolved,
         do_label(app, pool, arg_idx);
     } else if (strcasecmp(name, "FILL") == 0) {
         do_fill(app);
+    } else if (strcasecmp(name, "PLOT") == 0) {
+        do_plot(app);
     } else if (strcasecmp(name, "ERASERECT") == 0) {
         do_eraserect(app, pool, arg_idx);
     } else if (strcasecmp(name, "ERASE") == 0) {

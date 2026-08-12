@@ -81,6 +81,7 @@
         <li><a href="#window" data-cmd="WINDOW">WINDOW</a></li>
         <li><a href="#label" data-cmd="LABEL">LABEL</a></li>
         <li><a href="#fill" data-cmd="FILL">FILL</a></li>
+        <li><a href="#plot" data-cmd="PLOT">PLOT</a></li>
         <li><a href="#eraserect" data-cmd="ERASERECT">ERASERECT</a></li>
       </ul>
       <h4><a href="#sec-turtle-speed">Turtle speed</a></h4>
@@ -496,6 +497,10 @@ PRINT TURTLES -&gt; 2</pre>
           <h3><code class="inline">FILL</code></h3>
           <p>Flood-fill the region containing the turtle with pen color</p>
         </div>
+        <div class="ref-entry" id="plot">
+          <h3><code class="inline">PLOT</code></h3>
+          <p>Draw a single filled dot at the turtle's position, in its pen color</p>
+        </div>
         <div class="ref-entry" id="eraserect">
           <h3><code class="inline">ERASERECT</code></h3>
           <p class="sig">Args: <code class="inline">width height</code></p>
@@ -516,8 +521,12 @@ PENUP SETXY 300 200 PENDOWN
 SETPENCOLOR 255 200 0
 FILL
 
+PENUP SETXY 100 400 PENDOWN
+SETPENWIDTH 10
+PLOT        ; a single dot, radius = half the current pen width
+
 CLEARTEXT   ; wipes the history pane only — canvas untouched</pre>
-        <p>Each drawn line/label/fill/erase remembers the pen state (color, width) it was made with — <code class="inline">SETPENCOLOR</code> doesn't recolor what's already drawn. <code class="inline">FILL</code>/<code class="inline">ERASERECT</code>/<code class="inline">LABEL</code> are all frozen the instant they're called: a line drawn afterward doesn't retroactively interact with them. <code class="inline">CLEARTEXT</code> is the history-pane counterpart to <code class="inline">CLEAR</code>/<code class="inline">CLEAN</code> — those two only ever touch the canvas, never the history pane, and <code class="inline">CLEARTEXT</code> is the reverse: history pane only, canvas untouched. See <code class="inline">docs/LANGUAGE.md</code>'s "Turtle commands" section for the exact <code class="inline">WRAP</code>/<code class="inline">FENCE</code> boundary behavior.</p>
+        <p>Each drawn line/label/fill/erase/dot remembers the pen state (color, width) it was made with — <code class="inline">SETPENCOLOR</code> doesn't recolor what's already drawn. <code class="inline">FILL</code>/<code class="inline">ERASERECT</code>/<code class="inline">LABEL</code>/<code class="inline">PLOT</code> are all frozen the instant they're called: a line drawn afterward doesn't retroactively interact with them. <code class="inline">PLOT</code> is the way to mark a single point — a zero-length line wouldn't render (lines have square-cut ends), so it's its own command rather than a <code class="inline">FORWARD 0</code> trick. <code class="inline">CLEARTEXT</code> is the history-pane counterpart to <code class="inline">CLEAR</code>/<code class="inline">CLEAN</code> — those two only ever touch the canvas, never the history pane, and <code class="inline">CLEARTEXT</code> is the reverse: history pane only, canvas untouched. See <code class="inline">docs/LANGUAGE.md</code>'s "Turtle commands" section for the exact <code class="inline">WRAP</code>/<code class="inline">FENCE</code> boundary behavior.</p>
       </div>
       <div class="ref-section" id="sec-turtle-speed">
         <h2>Turtle speed</h2>

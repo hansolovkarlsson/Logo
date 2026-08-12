@@ -179,6 +179,7 @@ void do_wrap(LogoApp *app);
 void do_fence(LogoApp *app);
 void do_window(LogoApp *app);
 void do_fill(LogoApp *app);
+void do_plot(LogoApp *app);
 
 void eval_fd_value(LogoApp *app, EvalValue dist_val);
 void eval_bk_value(LogoApp *app, EvalValue dist_val);

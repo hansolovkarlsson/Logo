@@ -109,17 +109,25 @@ typedef struct {
 // at the exact moment STAMPSPRITE was called (position, heading, and
 // which sprite), not be redrawn later against whatever the turtle's
 // current state happens to be.
+// RASTER_OP_DOT (PLOT, added 2026-08-12) joins the other three for the
+// same reason: a single filled dot needs to freeze at the turtle's
+// exact position/pen-color/pen-width at call time, same as
+// FILL/ERASE_RECT/STAMP. A plain zero-length line wouldn't have
+// worked instead -- Cairo's default line cap is BUTT (square-cut), so
+// a degenerate line renders nothing; a real filled circle is drawn
+// directly in ui.c instead.
 typedef enum {
     RASTER_OP_FILL,
     RASTER_OP_ERASE_RECT,
     RASTER_OP_STAMP,
+    RASTER_OP_DOT,
 } RasterOpKind;
 
 typedef struct {
     RasterOpKind kind;
-    double x, y;       // FILL: flood-fill seed point. ERASE_RECT/STAMP: center.
-    double r, g, b;     // FILL only: fill color.
-    double w, h;        // ERASE_RECT only: rectangle size.
+    double x, y;       // FILL: flood-fill seed point. ERASE_RECT/STAMP/DOT: center.
+    double r, g, b;     // FILL/DOT: fill/dot color.
+    double w, h;        // ERASE_RECT only: rectangle size. DOT: radius, reusing w (half current pen width at call time).
     double angle;       // STAMP only: heading, same convention as Turtle.angle.
     int sprite_index;   // STAMP only: index into LogoApp.sprite_images, -1 = default triangle.
     int sprite_frame;   // STAMP only: which frame of that sprite's grid, same as Turtle.sprite_frame.

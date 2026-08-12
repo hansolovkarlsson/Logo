@@ -1101,6 +1101,11 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
         *produced = 0;
         return num_val(0);
     }
+    if (strcasecmp(name, "PLOT") == 0) {
+        do_plot(app);
+        *produced = 0;
+        return num_val(0);
+    }
     if (strcasecmp(name, "ERASERECT") == 0) {
         eval_eraserect_value(app, args[0], args[1]);
         *produced = 0;

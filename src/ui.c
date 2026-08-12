@@ -208,6 +208,12 @@ static void bake_pending_fills(LogoApp *app) {
             cairo_t *ocr = cairo_create(app->fill_raster);
             draw_turtle_shape(app, ocr, op->x, op->y, op->angle, op->sprite_index, op->sprite_frame);
             cairo_destroy(ocr);
+        } else if (op->kind == RASTER_OP_DOT) {
+            cairo_t *ocr = cairo_create(app->fill_raster);
+            cairo_set_source_rgb(ocr, op->r, op->g, op->b);
+            cairo_arc(ocr, op->x, op->y, op->w, 0, 2 * G_PI);
+            cairo_fill(ocr);
+            cairo_destroy(ocr);
         } else { // RASTER_OP_FILL
             cairo_surface_flush(app->fill_raster);
             unsigned char *data = cairo_image_surface_get_data(app->fill_raster);

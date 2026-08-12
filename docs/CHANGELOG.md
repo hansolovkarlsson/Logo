@@ -1732,3 +1732,45 @@ through 2026-08-12:
   new `OP_EXECTIME` opcode didn't break the disassembler/assembler's
   own exhaustive-switch invariant) and a clean full rebuild of
   `bin/logomotive`.
+
+## PLOT — a single dot, closing a real gap DOT left behind
+
+2026-08-12. The user noticed there was no command to mark a single
+point: some other Logo dialects call this `DOT`, but that name is
+already the vector dot-product operator here (and a user-defined
+procedure can't be named `DOT` either — it collides with the builtin
+and fails to parse, rather than shadowing it). `PLOT` was picked over
+`POINT`/`DOTMARK` after asking the user directly.
+
+The obvious cheap implementation — draw a zero-length line — doesn't
+work: `ui.c` never calls `cairo_set_line_cap`, so lines use Cairo's
+default `CAIRO_LINE_CAP_BUTT` (square, not round), and a degenerate
+line renders nothing at all. (Tutorial II/III's capstones had worked
+around exactly this with an `FD 1 BK 1` "DOTMARK" hack before this was
+understood architecturally — that workaround is now obsolete but was
+left as-is rather than retroactively edited.) `PLOT` instead became a
+fourth `RasterOpKind`, `RASTER_OP_DOT`, following the same
+"instant, order-baked" shape `FILL`/`ERASERECT`/`STAMP` already use:
+`do_plot(LogoApp *app)` in `eval.c` records a `RasterOp` at the
+turtle's current position, in its current pen color, with radius set
+to half the current pen width (reusing the `RasterOp` struct's `w`
+field, since `DOT` has no width/height of its own) — same shared-core
+pattern as `do_fill`, dispatched from both `vm.c`'s `call_builtin` and
+`eval.c`'s own `exec_call` so it stays shadow-diff-testable. `ui.c`'s
+raster-op baking loop gained a `RASTER_OP_DOT` branch that draws it
+with `cairo_arc` + `cairo_fill`.
+
+One new `tests/test_vm.c` case, `start_vm_session`-based rather than
+`shadow_diff_vm` — captured text output alone can't confirm a filled
+dot actually got recorded correctly, so the test reads `app->raster_ops[0]`
+directly (`kind`/position/color/radius) after `SETXY`/`SETPENCOLOR`/
+`SETPENWIDTH`/`PLOT`. (Caught two unrelated test-writing mistakes
+along the way, both previously-seen patterns in this codebase: a new
+`TEST()` block needs its own explicit `RUN(...)` line in `main` or it
+silently never executes despite `make test` reporting success, and
+`SETXY 12 -34` parses as the single arithmetic expression `12 - 34`
+rather than two arguments — same class of surprise as the
+parens-are-arithmetic-only rule, just without parens involved.) Added
+to `docs/COMMAND_REFERENCE.md`'s "Pen, color & canvas" table and
+worked example, and regenerated `website/reference.html`. Verified via
+`make test` (all 8 suites) and a clean full rebuild of `bin/logomotive`.

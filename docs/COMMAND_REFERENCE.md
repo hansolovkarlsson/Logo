@@ -141,6 +141,7 @@ one turtle. Turtle indices run `0`-`9` (`MAX_TURTLES` = 10, shared with
 | `WINDOW` | — | — | No canvas boundary (the default) |
 | `LABEL` | — | `word`/`list` | Draw text at the turtle's position, in its pen color |
 | `FILL` | — | — | Flood-fill the region containing the turtle with pen color |
+| `PLOT` | — | — | Draw a single filled dot at the turtle's position, in its pen color |
 | `ERASERECT` | — | `width height` | Erase a rectangle centered on the turtle to background color |
 
 ```
@@ -159,14 +160,20 @@ PENUP SETXY 300 200 PENDOWN
 SETPENCOLOR 255 200 0
 FILL
 
+PENUP SETXY 100 400 PENDOWN
+SETPENWIDTH 10
+PLOT        ; a single dot, radius = half the current pen width
+
 CLEARTEXT   ; wipes the history pane only — canvas untouched
 ```
 
-Each drawn line/label/fill/erase remembers the pen state (color,
+Each drawn line/label/fill/erase/dot remembers the pen state (color,
 width) it was made with — `SETPENCOLOR` doesn't recolor what's already
-drawn. `FILL`/`ERASERECT`/`LABEL` are all frozen the instant they're
-called: a line drawn afterward doesn't retroactively interact with
-them. `CLEARTEXT` is the history-pane counterpart to `CLEAR`/`CLEAN`
+drawn. `FILL`/`ERASERECT`/`LABEL`/`PLOT` are all frozen the instant
+they're called: a line drawn afterward doesn't retroactively interact
+with them. `PLOT` is the way to mark a single point — a zero-length
+line wouldn't render (lines have square-cut ends), so it's its own
+command rather than a `FORWARD 0` trick. `CLEARTEXT` is the history-pane counterpart to `CLEAR`/`CLEAN`
 — those two only ever touch the canvas, never the history pane, and
 `CLEARTEXT` is the reverse: history pane only, canvas untouched. See
 `docs/LANGUAGE.md`'s "Turtle commands" section for the exact
