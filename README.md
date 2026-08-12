@@ -2,8 +2,9 @@
 
 # LogoMotive
 
-LogoMotive is a small Logo interpreter with turtle graphics, built in C with
-GTK4.
+LogoMotive is a Logo interpreter with turtle graphics, built in C with GTK4 —
+a bytecode compiler and VM underneath, with concurrent multi-turtle agents,
+sprites, sound, and more on top of the classic language.
 
 Type commands into the entry box and watch the turtle draw on the canvas — the
 classic 80s Logo experience, running natively on macOS.
