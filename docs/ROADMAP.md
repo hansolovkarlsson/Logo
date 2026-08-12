@@ -7,18 +7,11 @@ of marking it done in place here. Keeps this file trimmed to what's
 genuinely still ahead; see `docs/CHANGELOG.md` for the full history of
 everything that's already landed.
 
-## Future / unplanned
-
-Real ideas, not currently prioritized — pick up only on explicit request.
-
-- [ ] Joystick event triggers (`ONJOYBUTTON`/etc) — the rest of the
-  mouse/keyboard event-trigger work (`ONKEY`/`OFFKEY`/`ONCLICK`/
-  `OFFCLICK`/`ONMOUSEMOVE`/`OFFMOUSEMOVE`/`ONKEYUP`/`OFFKEYUP`/
-  `ONRELEASE`/`OFFRELEASE`) shipped 2026-08-11 (see `docs/CHANGELOG.md`'s
-  own entries and `docs/COMMAND_REFERENCE.md`'s "Event triggers"
-  section). Joystick is the odd one out — a real new dependency, not
-  just another handler in the same shape as the rest: GTK4 has no
-  built-in gamepad support on macOS, so this needs an extra dependency
-  (e.g. GNOME's libmanette) or direct IOKit/HID access. Deprioritized
-  2026-08-12 at the user's request — not important right now.
-
+Nothing currently planned — every item previously listed here has
+shipped (see `docs/CHANGELOG.md` for the full history). Joystick event
+triggers (`ONJOYBUTTON`/etc, the one remaining item as of 2026-08-12)
+were dropped rather than deferred: `JOYSTICK?`/`JOYSTICKAXIS`/
+`JOYSTICKBUTTON?` (passive polling, already shipped in Phase 4) cover
+the common case, and event-style triggers would need either a real new
+dependency (e.g. GNOME's libmanette) or direct IOKit/HID access — not
+worth it for a feature the user doesn't consider a priority.
