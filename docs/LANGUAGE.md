@@ -1768,6 +1768,9 @@ unparseable expression just evaluates to `0`, same as always) — see
   there's no window to decode an image into), so anything depending on
   a loaded sprite (`SETSPRITE`, `ANIMATESPRITE`) reports its ordinary
   "no such sprite"/"no sprite set" error if attempted.
+- **`bin/logomotive -h` / `--help`** prints the full command-line option
+  list (`--speed`, `--headless`, the optional `script.logo` argument)
+  and exits immediately, before GTK/GApplication is ever touched.
 
 ## Known limitations (intentional, permanent design choices)
 

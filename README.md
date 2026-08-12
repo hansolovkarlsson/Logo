@@ -73,6 +73,8 @@ bin/logomotive --headless examples/concurrent_agents.logo
 echo world | bin/logomotive --headless a_script_that_uses_input.logo
 ```
 
+`bin/logomotive -h` / `--help` prints the full option list above and exits.
+
 ## Example
 
 ```

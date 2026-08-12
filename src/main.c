@@ -77,7 +77,47 @@ static void consume_headless_flag(int *argc, char **argv) {
     *argc = out;
 }
 
+// Checked before consume_speed_flag/consume_headless_flag (indeed
+// before anything else at all) rather than left to GApplication's own
+// default option handling: with no GOptionEntry table registered,
+// GApplication's own -h/--help prints a generic "Help Options" stub
+// that knows nothing about --speed/--headless (both are stripped out
+// of argv by this file itself before GApplication ever sees them), so
+// it's actively misleading about this program's real CLI surface
+// rather than merely unhelpful. Prints real, complete usage instead
+// and exits immediately -- before SIGINT is even wired up, since
+// nothing needs interrupting for a --help that never runs a script.
+static void print_usage(const char *prog) {
+    printf(
+        "Usage: %s [OPTIONS] [script.logo]\n"
+        "\n"
+        "  script.logo         load and run this file immediately on startup\n"
+        "                      (otherwise starts with a blank window)\n"
+        "  --speed <seconds>   start every turtle-motion command already\n"
+        "                      throttled by this many seconds (same as calling\n"
+        "                      SETSPEED as the script's first line)\n"
+        "  --headless          run script.logo with no window at all, for\n"
+        "                      scripting/automation rather than interactive use;\n"
+        "                      every suspend point (WAIT, SETSPEED's throttle,\n"
+        "                      ANIMATESPRITE, LAUNCH) resolves instantly, and\n"
+        "                      WAITKEY/INPUT read a line from stdin\n"
+        "  -h, --help          show this help and exit\n",
+        prog);
+}
+
+static gboolean wants_help(int argc, char **argv) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) return TRUE;
+    }
+    return FALSE;
+}
+
 int main(int argc, char **argv) {
+    if (wants_help(argc, argv)) {
+        print_usage(argv[0]);
+        return 0;
+    }
+
     signal(SIGINT, handle_sigint);
     consume_speed_flag(&argc, argv);
     consume_headless_flag(&argc, argv);

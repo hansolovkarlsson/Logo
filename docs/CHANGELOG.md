@@ -1939,3 +1939,31 @@ scripts (a plain drawing script, `WAIT`/`SETSPEED` timing, `WAITKEY`/
 `LAUNCH`/`AWAIT`/`YIELD`, `ANIMATESPRITE` with no sprite set, the
 missing-file and missing-argument error paths) and a clean full
 `make`/`make test` (all 8 suites, unaffected).
+
+## `bin/logomotive -h`/`--help` — a real one, not GApplication's generic stub
+
+2026-08-12. Found by the user trying `bin/logomotive --help` right
+after `--headless` shipped: it printed GLib's own generic
+`GApplication` "Help Options" stub (`-h, --help`, `--help-all`,
+`--help-gapplication`) rather than anything about this program's own
+CLI surface, since no `GOptionEntry` table is registered here. Actively
+misleading, not just unhelpful -- it doesn't mention `--speed` or
+`--headless` at all, both of which `main.c` already strips out of
+`argv` (via `consume_speed_flag`/`consume_headless_flag`) before
+`GApplication` ever gets a look at it, so those two flags were
+invisible to GLib's own help text by construction, not by omission.
+
+Fixed with a `wants_help`/`print_usage` pair in `main.c`, checked
+before anything else in `main` -- before `consume_speed_flag`/
+`consume_headless_flag`, before `signal(SIGINT, ...)`, before
+`gtk_application_new` -- so `-h`/`--help` prints real usage (the
+optional `script.logo` argument, `--speed <seconds>`, `--headless`,
+and `-h`/`--help` itself) and exits 0 immediately, with no GTK
+involvement at all. No new test coverage (same reasoning as
+`--headless` itself: process-level CLI output, nothing for
+`tests/test_vm.c`'s `output_sink`-capture pattern to check) --
+verified by hand (`bin/logomotive -h`, `bin/logomotive --help`) and
+confirmed `--speed`/`--headless` both still parse correctly afterward.
+`README.md` and `docs/LANGUAGE.md`'s own "Interface" section both
+gained a one-line mention. Verified with a clean full rebuild and
+`make test` (all 8 suites, unaffected).
