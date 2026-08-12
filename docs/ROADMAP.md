@@ -87,6 +87,53 @@ LogoMotive genuinely doesn't have — cross-checked against
   population size, over time). Lower priority than the others — more
   "new widget" than "new capability."
 
+- [ ] **Inline VM assembly blocks (`{...}`)** — write raw bytecode
+  instructions directly in Logo source, delimited like `[...]` is for
+  lists but containing assembler text instead. Scoped 2026-08-12, no
+  blocker found — architecturally cleaner than `.MACRO` below, because
+  it splices straight into the chunk already being compiled at that
+  point rather than running a separate scratch chunk through a nested
+  `vm_run` call, so it never hits the `VmFrame`-has-no-chunk-pointer
+  issue that blocks `.MACRO`/`RUN`/`LOAD`/`EXECTIME`.
+
+  **Shape of a v1 slice**: `{`/`}` aren't literally free today —
+  `is_bareword_char()` (`src/lexer.c`) currently swallows them into
+  ordinary barewords — but nothing depends on that; needs two new
+  token types and excluding `{`/`}` from the bareword charset, same
+  as `[`/`]` already work. `src/bytecode.c`'s existing hand-rolled
+  text assembler (`bytecode_assemble` plus its internal
+  `asm_parse_operands`/`asm_lookup_opcode`/`asm_is_label_line`/
+  `asm_resolve_target` helpers, built for the save/load-bytecode
+  feature) does most of the real work already — needs a
+  `bytecode_assemble_fragment()` variant that appends onto the chunk
+  currently being compiled at its current pc instead of building a
+  whole standalone `START:`/`PROCS:`/`CODE:` file; constant-pool
+  interning for word/list literals already takes `chunk` as a
+  parameter, so literals used inside a block land in the same pool
+  for free. Two real gaps: `OP_CALL_PROC` bakes an absolute target pc
+  at compile time and `asm_resolve_target` doesn't fall back to
+  `chunk->procs[]` by name, so calling an existing Logo procedure from
+  inside a block needs the same lookup `compile_call` already does via
+  `find_proc_def`; and jump targets inside a block should be
+  restricted to labels defined within that same block (reject bare
+  `@N`, since the real pc is only known once spliced). Recommend
+  starting statement-only, not usable in expression position — that
+  needs `OP_CHECK_OUTPUT`, which reads flags (
+  `last_call_produced_output`/`last_call_resolved`) set by specific
+  call opcodes, not "is there a value on the stack," so raw assembly
+  wouldn't set them correctly without its own convention.
+
+  **Safety, precisely**: no memory-safety/ASan risk — `push`/`pop`
+  (`vm.c`) are bounds-checked and silently no-op on stack over/
+  underflow, and `chunk->code` is an array of fixed-size tagged
+  `Instr` structs, so jumping to any in-chunk pc is well-defined
+  dispatch, never a misaligned decode. The real risk is logical, not
+  memory-unsafe: nothing statically verifies a block's net stack
+  effect, so an unbalanced block silently desyncs the value stack for
+  the rest of that procedure call (`VmFrame.value_stack_base` is just
+  a stack offset). Accepted nature of an escape hatch, same category
+  as inline asm in C — document plainly rather than try to eliminate.
+
 ## Not being considered yet — real complications found while scoping
 
 Unlike the list above, these aren't just unprioritized — scoping them
