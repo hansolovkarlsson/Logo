@@ -128,6 +128,21 @@ typedef enum {
     OP_PEEK, // .a = depth below the current top (0 = the top itself); pushes a COPY of the value at that depth, leaving the original completely untouched. Used by REPEAT/FOREVER/FOR (see compiler.c's own compile_call/compile_for) to read a persistent loop-control value -- a remaining count, an iteration counter, a FOR loop's own limit/step/own internal counter -- that has to survive across however many transient values get pushed/popped computing each iteration's own condition, AND across a *recursive* call within the loop body itself. That second requirement is why these live on the value stack at all rather than in a hidden Logo variable: a hidden variable is genuinely global and would collide across nested/recursive invocations of the very same compiled loop (confirmed by direct analogy to CATCH's own tag-clobbering bug, see the THROW/CATCH batch's own notes), whereas a value's own fixed stack position is naturally protected once a recursive call pushes its own VmFrame -- that frame's own value_stack_base always sits strictly above this position, the same way exec_for's own plain C-local `limit`/`step` doubles are naturally protected by the C call stack itself.
     OP_POKE, // .a = depth below the top the value should end up at, AFTER popping; pops 1 value and overwrites the persistent slot at that (post-pop) depth with it -- the write-back half of OP_PEEK, used by FOR's own per-iteration counter update (see compiler.c's own compile_for). FOR needs this one specifically, unlike REPEAT/FOREVER's own single counter: FOR's own internal loop counter sits *underneath* its own persistent limit/step on the stack (not on top), so a plain "push 1; OP_ADD" can't update it in place the way it can for a lone top-of-stack counter -- confirmed necessary the hard way: an earlier version of FOR instead re-read the loop variable back from its own Logo-visible variable for control purposes, which (unlike exec_for's own genuinely separate C-local `i`) is global and got clobbered by a recursive call's own FOR loop over the same variable name, caught by test_vm.c's own recursion test.
 
+    // REPCOUNT's own bookkeeping (compile_call's own REPEAT branch):
+    // unlike OP_PEEK/OP_POKE's value-stack slots above, these three
+    // manage a SEPARATE per-Vm stack (vm->repcount_stack/repcount_depth,
+    // see vm.h) rather than a value-stack slot, precisely because
+    // REPCOUNT has to be readable from *anywhere* -- including a
+    // procedure called from inside the loop body, whose own compiled
+    // code has no idea what value-stack depth its caller's REPEAT
+    // counter happens to sit at (unlike OP_PEEK/OP_POKE's depths, which
+    // are only ever used by the SAME compiled loop that pushed them).
+    // No stack effect on the value stack at all -- these only touch
+    // vm->repcount_stack/repcount_depth directly.
+    OP_REPCOUNT_PUSH, // repcount_stack[repcount_depth++] = 1 (a new, innermost REPEAT just started its first pass); silently does nothing if repcount_depth is already at MAX_VM_SCOPE_DEPTH, the same "not yet a real limit anyone hits" tradeoff as this codebase's other fixed-size overflow handling.
+    OP_REPCOUNT_INCR, // repcount_stack[repcount_depth-1] += 1 (the innermost REPEAT just finished a pass and is about to run another).
+    OP_REPCOUNT_POP,  // repcount_depth-- (the innermost REPEAT is done, normally or via an uncaught THROW skipping straight to the loop's own end).
+
     // MAP/FILTER/REDUCE/FOREACH's own "compiled once" fast path (see
     // docs/BYTECODE_VM_DESIGN.md's Progress log and compiler.c's own
     // compile_template_call) -- only used when the template argument is

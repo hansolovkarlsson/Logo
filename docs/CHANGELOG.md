@@ -1430,3 +1430,50 @@ saved to file, loaded back, and hand-assembled.
   `READCHAR`/`EVAL` remain open in `docs/ROADMAP.md` — each needs real
   design work (VM loop-counter exposure, a stdin protocol, list-running
   semantics respectively), not just a wrapper like this batch.
+
+- [x] **`REPCOUNT`** (shipped shortly after the batch above): the
+  innermost currently-running `REPEAT`'s 1-indexed pass number, `-1`
+  outside any `REPEAT` — the one item from that batch flagged as
+  needing real VM support rather than a plain wrapper, since `REPEAT`'s
+  own existing loop-control counter (see this file's "Bytecode VM
+  Stage 1+2" background, and `docs/BYTECODE_REFERENCE.md`'s "Loop-
+  control stack slots") is a descending, anonymous value-stack slot —
+  wrong direction (counts down, not up) and wrong visibility (only the
+  exact compiled loop that pushed it can address it by stack depth; a
+  procedure called from inside the loop body has no way to know that
+  depth at all).
+
+  Solved with three new opcodes (`OP_REPCOUNT_PUSH`/`_INCR`/`_POP`, see
+  `docs/BYTECODE_REFERENCE.md`'s new "REPCOUNT bookkeeping" section)
+  manipulating a genuinely separate per-`Vm` stack
+  (`vm->repcount_stack`/`repcount_depth`, sized like `scopes`/
+  `scope_depth`) rather than the value stack — `REPEAT`'s own compiled
+  loop now brackets itself with a push/pop pair (even for a zero-pass
+  `REPEAT 0 [...]`) and an increment once per completed pass;
+  `REPCOUNT` itself is an ordinary 0-arg `OP_CALL_BUILTIN` reading
+  `Vm` state directly (unlike every other builtin in `vm.c`, which
+  only ever needs `LogoApp`). Being a real per-`Vm` stack rather than a
+  value-stack slot is exactly what makes it work correctly from inside
+  a procedure called from the loop body (Terrapin's own documented
+  dynamic-scope behavior — the callee sees the caller's `REPCOUNT`) and
+  through nested `REPEAT`s (each gets its own stack entry, innermost on
+  top) without any compile-time depth tracking.
+
+  7 new `test_vm.c` cases (outside any `REPEAT` reports `-1`; counts up
+  correctly; reverts to `-1` after the loop ends; a zero-pass `REPEAT`
+  never pushes; nested `REPEAT`s each report their own innermost count;
+  propagates dynamically into a called procedure; an uncaught `THROW`
+  exiting the loop early still balances the push/pop, confirmed by a
+  following unrelated `REPEAT` reporting the right count rather than a
+  leaked one) plus 1 new `test_bytecode.c` disassemble/assemble round-
+  trip case; a new `examples/repcount.logo`; verified via `make test`
+  (all 8 suites), standalone ASan builds of both `test_vm` (same raised
+  `ulimit -s` workaround as prior rounds) and `test_bytecode` (clean),
+  and a live `bin/logo` process-liveness launch of the new example.
+  Also caught and fixed a stale doc count while here:
+  `docs/BYTECODE_REFERENCE.md`'s own "N members of OpCode" claim was
+  cross-checked against `bytecode_opcode_name`'s own exhaustive switch
+  (compiler-enforced via `-Wall`'s `-Wswitch`, the only fully reliable
+  way to count — a naive grep over the enum's own declaration lines
+  undercounts, missing entries with an unusual comment layout) and
+  updated from 55 to 58.

@@ -561,6 +561,17 @@ static EvalValue eval_turtles_value(LogoApp *app) {
     return num_val(app->turtle_count);
 }
 
+// REPCOUNT: the innermost currently-running REPEAT's 1-indexed pass
+// number (pushed/incremented/popped by OP_REPCOUNT_PUSH/INCR/POP, see
+// bytecode.h's own comment), or -1 (Terrapin's own documented value)
+// outside any REPEAT. Reads vm->repcount_stack directly rather than
+// app state -- unlike every other builtin in this file, which only
+// ever needs `app` -- since this is genuinely per-Vm (per concurrent
+// agent) state, same as vm->scopes.
+static EvalValue eval_repcount_value(Vm *vm) {
+    return num_val(vm->repcount_depth > 0 ? vm->repcount_stack[vm->repcount_depth - 1] : -1);
+}
+
 // RANGE from to: integers from FROM to TO inclusive, counting by 1 if
 // FROM <= TO, otherwise by -1 -- standard Logo ISEQ convention, under a
 // more self-explanatory name (a deliberate user preference, same as
@@ -743,6 +754,7 @@ static EvalValue call_builtin(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk
     if (strcasecmp(name, "RANGE") == 0) return eval_range_value(app, args[0], args[1]);
     if (strcasecmp(name, "SPACEDRANGE") == 0) return eval_spacedrange_value(app, args[0], args[1], args[2]);
     if (strcasecmp(name, "TURTLES") == 0) return eval_turtles_value(app);
+    if (strcasecmp(name, "REPCOUNT") == 0) return eval_repcount_value(vm);
     if (strcasecmp(name, "OPENREAD") == 0) return eval_openread_value(app, args[0]);
     if (strcasecmp(name, "OPENWRITE") == 0) return eval_openwrite_value(app, args[0]);
     if (strcasecmp(name, "OPENAPPEND") == 0) return eval_openappend_value(app, args[0]);
@@ -1948,6 +1960,18 @@ VmRunResult vm_run(Vm *vm, LogoApp *app, AstPool *pool, BytecodeChunk *chunk, in
                 break;
             case OP_POKE:
                 poke(vm, instr->a, pop(vm));
+                pc++;
+                break;
+            case OP_REPCOUNT_PUSH:
+                if (vm->repcount_depth < MAX_VM_SCOPE_DEPTH) vm->repcount_stack[vm->repcount_depth++] = 1;
+                pc++;
+                break;
+            case OP_REPCOUNT_INCR:
+                if (vm->repcount_depth > 0) vm->repcount_stack[vm->repcount_depth - 1] += 1;
+                pc++;
+                break;
+            case OP_REPCOUNT_POP:
+                if (vm->repcount_depth > 0) vm->repcount_depth--;
                 pc++;
                 break;
             case OP_MAP_COMPILED:

@@ -2199,6 +2199,116 @@ TEST(test_turtles_reports_the_active_turtle_count) {
     end_vm_session(s);
 }
 
+// REPCOUNT: the innermost REPEAT's 1-indexed pass number
+// (OP_REPCOUNT_PUSH/INCR/POP, see bytecode.h's own comment). Follow-up
+// to the 2026-08-11 Terrapin comparison's easy tier -- flagged there as
+// needing real VM support, unlike that batch's own plain wrappers.
+
+TEST(test_repcount_is_minus_one_outside_any_repeat) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("PRINT REPCOUNT", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("-1\n");
+    end_vm_session(s);
+}
+
+TEST(test_repcount_counts_up_from_one_each_pass) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("REPEAT 5 [PRINT REPCOUNT]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n2\n3\n4\n5\n");
+    end_vm_session(s);
+}
+
+TEST(test_repcount_reverts_to_minus_one_after_the_loop_ends) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("REPEAT 3 [PRINT REPCOUNT]\nPRINT REPCOUNT", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n2\n3\n-1\n");
+    end_vm_session(s);
+}
+
+TEST(test_repcount_is_minus_one_for_a_zero_pass_repeat) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session("REPEAT 0 [PRINT REPCOUNT]\nPRINT REPCOUNT", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("-1\n");
+    end_vm_session(s);
+}
+
+TEST(test_repcount_in_nested_repeats_reports_the_innermost_one) {
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "REPEAT 2 [\n"
+        "  PRINT SENTENCE \"outer: REPCOUNT\n"
+        "  REPEAT 2 [PRINT SENTENCE \"inner: REPCOUNT]\n"
+        "  PRINT SENTENCE \"outer-again: REPCOUNT\n"
+        "]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output(
+        "outer: 1\ninner: 1\ninner: 2\nouter-again: 1\n"
+        "outer: 2\ninner: 1\ninner: 2\nouter-again: 2\n");
+    end_vm_session(s);
+}
+
+TEST(test_repcount_propagates_into_a_procedure_called_from_inside_repeat) {
+    // Dynamic, not lexical: a procedure called from inside a REPEAT
+    // sees the CALLER's REPCOUNT, same as Terrapin's own documented
+    // behavior -- vm->repcount_stack is genuine per-Vm runtime state,
+    // unaffected by the called procedure's own separate VmFrame/scope.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO REPORT\n"
+        "  PRINT REPCOUNT\n"
+        "END\n"
+        "REPEAT 3 [report]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("1\n2\n3\n");
+    end_vm_session(s);
+}
+
+TEST(test_repcount_pop_still_balances_after_an_uncaught_throw_exits_the_loop_early) {
+    // THROW inside the loop body jumps straight to the loop's own end
+    // (OP_CHECK_THROW), skipping OP_REPCOUNT_INCR -- but must still
+    // reach OP_REPCOUNT_POP, or repcount_depth would leak and every
+    // REPEAT for the rest of the script would report the wrong count.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "REPEAT 5 [\n"
+        "  IF REPCOUNT = 2 [THROW \"stop]\n"
+        "  PRINT REPCOUNT\n"
+        "]\n"
+        "REPEAT 2 [PRINT REPCOUNT]", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    if (strstr(captured_output, "1\n") == NULL || strstr(captured_output, "THROW: no CATCH found") == NULL ||
+        strstr(captured_output, "1\n2\n") == NULL) {
+        failures++;
+        printf("FAIL %s: unexpected output \"%s\"\n", current_test, captured_output);
+    }
+    end_vm_session(s);
+}
+
+TEST(test_repcount_survives_100_levels_of_recursive_nesting) {
+    // Real recursion depth (not just lexical nesting) exercising
+    // repcount_stack/repcount_depth at real scale -- each level pushes
+    // its own REPEAT's REPCOUNT entry via a recursive call, same
+    // stress-testing spirit as this file's own other recursion-depth
+    // checks.
+    VmRunResult status;
+    VmTestSession s = start_vm_session(
+        "TO DEEPREP :N\n"
+        "  IF :N = 0 [STOP]\n"
+        "  REPEAT 3 [\n"
+        "    IF REPCOUNT = 3 [deeprep :N - 1]\n"
+        "  ]\n"
+        "END\n"
+        "deeprep 100\n"
+        "PRINT REPCOUNT", &status);
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output("-1\n");
+    end_vm_session(s);
+}
+
 TEST(test_range_counts_up_or_down_by_one) {
     VmRunResult status;
     VmTestSession s = start_vm_session("PRINT RANGE 1 5\nPRINT RANGE 5 1", &status);
@@ -2485,6 +2595,14 @@ int main(void) {
     RUN(test_time_date_milliseconds_report_plausible_values);
     RUN(test_definedp_reports_whether_a_procedure_exists);
     RUN(test_turtles_reports_the_active_turtle_count);
+    RUN(test_repcount_is_minus_one_outside_any_repeat);
+    RUN(test_repcount_counts_up_from_one_each_pass);
+    RUN(test_repcount_reverts_to_minus_one_after_the_loop_ends);
+    RUN(test_repcount_is_minus_one_for_a_zero_pass_repeat);
+    RUN(test_repcount_in_nested_repeats_reports_the_innermost_one);
+    RUN(test_repcount_propagates_into_a_procedure_called_from_inside_repeat);
+    RUN(test_repcount_pop_still_balances_after_an_uncaught_throw_exits_the_loop_early);
+    RUN(test_repcount_survives_100_levels_of_recursive_nesting);
     RUN(test_range_counts_up_or_down_by_one);
     RUN(test_spacedrange_generates_equally_spaced_numbers);
     RUN(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_original_ast);

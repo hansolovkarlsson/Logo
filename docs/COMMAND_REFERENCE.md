@@ -358,12 +358,14 @@ booleans (parens are arithmetic-only).
 | Command | Args | Description |
 |---|---|---|
 | `REPEAT` | `expr [block]` | Run `block` `expr` times |
+| `REPCOUNT` | — (operator) | The innermost running `REPEAT`'s 1-indexed pass number, or `-1` outside any `REPEAT` |
 | `WHILE` | `<condition> [block]` | Re-check `condition` before each pass |
 | `FOR` | `[var start limit step] [block]` | Counted loop exposing `:var` |
 | `FOREVER` | `[block]` | Loop forever — only `STOP`/`OUTPUT`/`THROW` end it |
 
 ```
 REPEAT 4 [FD 100 RT 90]
+REPEAT 5 [PRINT REPCOUNT]  -> 1  2  3  4  5
 
 MAKE "i 0
 WHILE :i < 4 [FD 80 RT 90 MAKE "i :i + 1]
@@ -384,6 +386,15 @@ END
 `FOR`'s `step` defaults to `1`, or `-1` when counting down. `WHILE`/
 `FOR`/`FOREVER` all stop themselves after 1,000,000 iterations as a
 runaway-loop safety net.
+
+`REPCOUNT` is dynamic, not lexical: a procedure called from inside a
+`REPEAT` sees the *caller's* `REPCOUNT`, not `-1` — it reflects
+whichever `REPEAT` is innermost at the moment `REPCOUNT` actually runs,
+regardless of how many procedure calls sit in between. Nested `REPEAT`s
+each get their own count; `REPCOUNT` always reports the innermost one,
+and the outer one's own count is unaffected once the inner loop ends.
+`WHILE`/`FOR`/`FOREVER` don't have a `REPCOUNT` of their own — `FOR`
+already exposes its own counter as `:var`.
 
 ## Words & lists
 

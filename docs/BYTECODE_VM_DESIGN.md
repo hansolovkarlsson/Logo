@@ -3023,3 +3023,34 @@ hand-duplicated per-handler blocks into small array-driven loops (see
 `EventHandlerSlot` and `NUM_EVENT_HANDLER_OWNERS`) -- five copies was
 already a repetition smell, and the code needed to stop growing linearly
 with each new handler.
+
+## REPCOUNT -- a genuine new per-Vm stack, not another value-stack slot
+
+Shipped as a follow-up to the 2026-08-11 Terrapin comparison's easy
+tier (see docs/CHANGELOG.md's own "REPCOUNT" entry for the full
+writeup). The interesting design question: REPEAT already has a
+persistent loop-control value living on the value stack (see this
+doc's own Stage 1+2 background and docs/BYTECODE_REFERENCE.md's
+"Loop-control stack slots" -- OP_PEEK/OP_POKE), so why not just read
+that? Two reasons it doesn't work: it counts DOWN (remaining
+iterations), not up, and its own value-stack position is only ever
+addressable by the SAME compiled loop that pushed it -- a procedure
+called from inside the loop body compiles completely separately and
+has no way to know what stack depth its caller's counter happens to
+sit at.
+
+So REPCOUNT needed its own mechanism: three new opcodes
+(OP_REPCOUNT_PUSH/_INCR/_POP) manipulating a genuinely separate
+per-Vm stack (vm->repcount_stack/repcount_depth, sized like
+scopes/scope_depth) instead of the value stack. REPEAT's own compiled
+loop now brackets itself with a push/pop pair (even for a zero-pass
+REPEAT 0 [...], keeping the stack balanced regardless of how many
+times the body actually runs) and an increment once per completed
+pass, placed so an uncaught THROW's own early exit (OP_CHECK_THROW
+jumping straight to the loop's end) still reaches the pop -- confirmed
+by a dedicated test, not just reasoned about. REPCOUNT itself is an
+ordinary 0-arg OP_CALL_BUILTIN reading Vm state directly (unlike every
+other builtin in vm.c, which only ever needs LogoApp) -- exactly what
+makes it correctly dynamic rather than lexical: a procedure called
+from inside the loop body shares the same Vm, so it sees the same
+repcount_stack, matching Terrapin's own documented behavior.

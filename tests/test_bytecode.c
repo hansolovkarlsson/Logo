@@ -245,6 +245,10 @@ TEST(test_disassemble_then_assemble_roundtrips_a_compiled_map_template) {
     check_roundtrip("PRINT MAP [? * 2] [1 2 3]");
 }
 
+TEST(test_disassemble_then_assemble_roundtrips_repeat_and_repcount) {
+    check_roundtrip("REPEAT 5 [PRINT REPCOUNT]");
+}
+
 TEST(test_assemble_accepts_hand_written_labels_with_a_forward_jump) {
     const char *asm_text =
         "START: @0\n"
@@ -413,6 +417,7 @@ int main(void) {
     RUN(test_disassemble_then_assemble_roundtrips_recursion);
     RUN(test_disassemble_then_assemble_roundtrips_multiple_procedures);
     RUN(test_disassemble_then_assemble_roundtrips_a_compiled_map_template);
+    RUN(test_disassemble_then_assemble_roundtrips_repeat_and_repcount);
     RUN(test_assemble_accepts_hand_written_labels_with_a_forward_jump);
     RUN(test_assemble_accepts_a_symbolic_start_label);
     RUN(test_assemble_omits_the_optional_pc_column);

@@ -99,6 +99,9 @@ const char *bytecode_opcode_name(OpCode op) {
         case OP_CHECK_UNCAUGHT_THROW: return "OP_CHECK_UNCAUGHT_THROW";
         case OP_PEEK: return "OP_PEEK";
         case OP_POKE: return "OP_POKE";
+        case OP_REPCOUNT_PUSH: return "OP_REPCOUNT_PUSH";
+        case OP_REPCOUNT_INCR: return "OP_REPCOUNT_INCR";
+        case OP_REPCOUNT_POP: return "OP_REPCOUNT_POP";
         case OP_MAP_COMPILED: return "OP_MAP_COMPILED";
         case OP_FILTER_COMPILED: return "OP_FILTER_COMPILED";
         case OP_REDUCE_COMPILED: return "OP_REDUCE_COMPILED";

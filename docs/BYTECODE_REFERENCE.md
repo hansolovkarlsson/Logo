@@ -1,7 +1,7 @@
 # Bytecode VM Reference
 
 A complete, per-opcode reference for every `OpCode` `compiler.c` emits
-and `vm.c` executes — the 55 members of `bytecode.h`'s own `OpCode`
+and `vm.c` executes — the 58 members of `bytecode.h`'s own `OpCode`
 enum, in the order they're declared there, cross-checked directly
 against that enum (not copied from prose without verification, the
 same discipline `docs/COMMAND_REFERENCE.md` uses against
@@ -46,6 +46,7 @@ Logo-level command that compiles to it).
 - [RUN / LOAD](#run--load)
 - [THROW / CATCH](#throw--catch)
 - [Loop-control stack slots](#loop-control-stack-slots)
+- [REPCOUNT bookkeeping](#repcount-bookkeeping)
 - [Compiled MAP/FILTER/REDUCE/FOREACH templates](#compiled-mapfilterreduceforeach-templates)
 - [Suspend points](#suspend-points)
 - [Concurrent agents](#concurrent-agents)
@@ -236,6 +237,27 @@ the same compiled loop).
 |---|---|---|---|
 | `OP_PEEK` | `.a` = depth below the current top (0 = the top itself) | push 1 | Pushes a **copy** of the value at that depth, leaving the original untouched |
 | `OP_POKE` | `.a` = depth below the top the value should end up at, after popping | pop 1 | Overwrites the persistent slot at that (post-pop) depth — the write-back half of `OP_PEEK`, needed by `FOR`'s own counter, which sits underneath its own persistent limit/step rather than alone on top |
+
+## REPCOUNT bookkeeping
+
+`REPCOUNT` (the innermost `REPEAT`'s 1-indexed pass number) can't use
+the value-stack-slot trick above — it has to be readable from
+*anywhere*, including a procedure called from inside the loop body,
+whose own compiled code has no idea what value-stack depth its
+caller's counter happens to sit at. So these three manage a genuinely
+separate per-`Vm` stack instead (`vm->repcount_stack`/`repcount_depth`,
+sized like `scopes`/`scope_depth`), with no effect on the value stack
+at all. `REPEAT`'s own compiled loop brackets itself with a push/pop
+pair (even for a zero-pass `REPEAT 0 [...]`) and an increment once per
+completed pass; `REPCOUNT` itself is an ordinary 0-arg
+`OP_CALL_BUILTIN`, reading `repcount_stack[repcount_depth-1]` (or `-1`
+if empty) directly from `Vm`, not `LogoApp`.
+
+| Opcode | Operands | Stack effect | Description |
+|---|---|---|---|
+| `OP_REPCOUNT_PUSH` | — | — | A new, innermost `REPEAT` just started its first pass: `repcount_stack[repcount_depth++] = 1` |
+| `OP_REPCOUNT_INCR` | — | — | The innermost `REPEAT` just finished a pass and is about to run another: `repcount_stack[repcount_depth-1] += 1` |
+| `OP_REPCOUNT_POP` | — | — | The innermost `REPEAT` is done — normally, or via an uncaught `THROW` jumping straight to the loop's own end: `repcount_depth--` |
 
 ## Compiled MAP/FILTER/REDUCE/FOREACH templates
 

@@ -414,6 +414,11 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         trunc_instr.a = 1;
         snprintf(trunc_instr.text, sizeof(trunc_instr.text), "INT");
         emit(chunk, trunc_instr);
+        // REPCOUNT's own bookkeeping (see bytecode.h's own comment):
+        // pushed/popped once each, bracketing the whole loop exactly
+        // like the remaining-count's own OP_POP below, regardless of
+        // whether the body ever actually runs (REPEAT 0 [...]).
+        emit(chunk, (Instr){.op = OP_REPCOUNT_PUSH});
 
         int loop_start = chunk->count;
         emit(chunk, (Instr){.op = OP_PEEK, .a = 0}); // copy of the remaining count
@@ -422,6 +427,7 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         int jf = emit(chunk, (Instr){.op = OP_JUMP_IF_FALSE, .a = -1});
         compile_block(c, pool, args[1], chunk, /*is_top_level=*/0);
         int throw_check = emit(chunk, (Instr){.op = OP_CHECK_THROW, .a = -1});
+        emit(chunk, (Instr){.op = OP_REPCOUNT_INCR}); // this pass is done; the next one (if any) is REPCOUNT+1
         // count = count - 1 -- ordinary subtraction replaces the
         // persistent count in place (pops the "1" just pushed and the
         // original count, pushes their difference at the very same
@@ -433,6 +439,7 @@ static void compile_call(Compiler *c, AstPool *pool, int node_idx, BytecodeChunk
         if (jf >= 0) chunk->code[jf].a = loop_end;
         if (throw_check >= 0) chunk->code[throw_check].a = loop_end;
         emit(chunk, (Instr){.op = OP_POP}); // discard the remaining count
+        emit(chunk, (Instr){.op = OP_REPCOUNT_POP});
         emit(chunk, (Instr){.op = OP_VOID_RESULT});
         finish_call(chunk, "REPEAT", want_value);
         return;

@@ -137,6 +137,17 @@ typedef struct {
     Scope scopes[MAX_VM_SCOPE_DEPTH];
     int scope_depth;
 
+    // REPCOUNT's own bookkeeping (OP_REPCOUNT_PUSH/INCR/POP, see
+    // bytecode.h's own comment on why this is a separate stack rather
+    // than a value-stack slot): repcount_stack[repcount_depth-1] is the
+    // innermost currently-running REPEAT's 1-indexed pass number, or
+    // there simply isn't one active if repcount_depth is 0 (REPCOUNT
+    // then reports Terrapin's own documented -1). Sized like
+    // scopes/scope_depth above, for the same reason -- REPEAT nesting
+    // (including via recursion) is bounded by the same real call depth.
+    double repcount_stack[MAX_VM_SCOPE_DEPTH];
+    int repcount_depth;
+
     // Whether the most recently completed OP_CALL_PROC actually
     // OUTPUT'd a value (1) or fell through to OP_STOP/failed outright
     // -- recursion too deep, unknown procedure, frame-stack overflow

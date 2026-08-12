@@ -45,13 +45,11 @@ The easy tier of genuinely-missing general-purpose primitives shipped
 `COT`/`ASEC`/`ACSC`/`ACOT`, `TIME`/`DATE`/`MILLISECONDS`, `DEFINED?`,
 `RANGE`/`SPACEDRANGE`, `TURTLES` (see `docs/CHANGELOG.md`'s own entry
 for the full writeup, and `docs/COMMAND_REFERENCE.md` for day-to-day
-usage).
-What's left needs real design work, not just a wrapper:
+usage). `REPCOUNT` — flagged there as the single highest-value
+remaining item, since it needed real VM support rather than a plain
+wrapper — shipped shortly after (see `docs/CHANGELOG.md`'s own
+"REPCOUNT" entry). What's left still needs real design work:
 
-- [ ] `REPCOUNT` — current `REPEAT` loop's counter (common idiom:
-  `REPEAT 10 [FD REPCOUNT]`) — needs the VM to expose the loop counter;
-  probably the single highest-value item here, since real Logo programs
-  lean on it constantly
 - [ ] `READWORD`/`READCHAR` — stdin reads finer-grained than the existing
   `READLINE`
 - [ ] `EVAL` — run a list, collect outputs as a list
