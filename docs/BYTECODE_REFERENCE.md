@@ -1,7 +1,7 @@
 # Bytecode VM Reference
 
 A complete, per-opcode reference for every `OpCode` `compiler.c` emits
-and `vm.c` executes — the 58 members of `bytecode.h`'s own `OpCode`
+and `vm.c` executes — the 59 members of `bytecode.h`'s own `OpCode`
 enum, in the order they're declared there, cross-checked directly
 against that enum (not copied from prose without verification, the
 same discipline `docs/COMMAND_REFERENCE.md` uses against
@@ -194,12 +194,13 @@ check in this codebase already uses.
 | `OP_APPLY` | — (2 already-evaluated args) | pop 2 (name, arglist) | Resolves `name` via `bytecode_find_proc_entry` (a plain name lookup against `chunk->procs[]`, non-prototype-chain, unlike `SEND`); pushes a frame + jumps in on success. Every failure path (unknown procedure, wrong arity, recursion too deep) pushes a throwaway `num_val(0)` and falls through instead of jumping |
 | `OP_VOID_DISCARD` | — | pop 1, push 1 | Always emitted right after `OP_APPLY` (both the eager-failure landing spot and the resolved procedure's own return): discards whatever's on top and replaces it with an ordinary void result — `APPLY` never hands back a value at all, matching `RUN` |
 
-## RUN / LOAD
+## RUN / LOAD / EXECTIME
 
 | Opcode | Operands | Stack effect | Description |
 |---|---|---|---|
 | `OP_RUN` | — (1 already-evaluated arg) | pop 1 | `RUN thing` — re-lexes/parses/compiles a whole statement sequence into a fresh `BytecodeChunk`, runs it via a **recursive** `vm_run` sharing this `Vm`'s own stack/frames. Always followed by `OP_VOID_RESULT` |
 | `OP_LOAD` | `.text` = path (compile-time literal only) | — | `LOAD "path` — same mechanism as `OP_RUN`, but the path is always a literal, never computed. Always followed by `OP_VOID_RESULT` |
+| `OP_EXECTIME` | — (1 already-evaluated arg) | pop 1, push 1 | `EXECTIME thing` — same recursive-`vm_run` mechanism as `OP_RUN`, timed with `g_get_monotonic_time` (`vm.c`'s own `exec_exectime`). Unlike `OP_RUN`/`OP_LOAD`, this genuinely produces a value (elapsed microseconds), so it's never followed by `OP_VOID_RESULT` — it must set `vm->last_call_produced_output`/`last_call_resolved` itself, the same way `OP_APPLY` does, since bypassing `OP_CALL_BUILTIN` means nothing else sets those generically. Ported from `interpreter.c` 2026-08-12 |
 
 Neither needs its own `vm_run_depth` suspend guard (they never suspend
 themselves), but a suspend point reached *inside* the run/loaded code

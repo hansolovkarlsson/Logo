@@ -4,7 +4,7 @@
 
 LogoMotive is a Logo interpreter with turtle graphics, built in C with GTK4 —
 a bytecode compiler and VM underneath, with concurrent multi-turtle agents,
-sprites, sound, and more on top of the classic language.
+sprites, and more on top of the classic language.
 
 Type commands into the entry box and watch the turtle draw on the canvas — the
 classic 80s Logo experience, running natively on macOS.
@@ -106,7 +106,18 @@ IF :size > 10 [PRINT "big] ELSE [PRINT "small]
 
 ```
 src/logo_types.h    shared structs (Turtle, Procedure, Variable, LogoApp)
-src/interpreter.h/c the Logo language core: eval_logo, expression parser
+src/lexer.h/c       tokenizes Logo source text
+src/parser.h/c      builds an AST from tokens; the real command grammar
+                     lives here (BUILTIN_SIGNATURES)
+src/ast.h/c         fixed-pool AST node storage
+src/compiler.h/c    compiles the AST into bytecode
+src/bytecode.h/c    bytecode instruction format + fixed-pool storage
+src/vm.h/c          the bytecode VM -- bin/logomotive's actual runtime
+src/agent.h/c       LAUNCH/AWAIT/YIELD: concurrent multi-turtle agents
+src/eval.h/c        a Stage 1 tree-walking evaluator, kept only to
+                     shadow-diff test the VM against (not the runtime)
+src/interpreter.h/c the original tree-walker (eval_logo) -- frozen,
+                     pre-VM, kept only for its own tests
 src/ui.h/c          the GTK window: canvas, REPL entry, View menu
 src/headless.h/c    --headless: runs a script with no GTK window at all
 src/main.c          entry point

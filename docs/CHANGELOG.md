@@ -1967,3 +1967,65 @@ confirmed `--speed`/`--headless` both still parse correctly afterward.
 `README.md` and `docs/LANGUAGE.md`'s own "Interface" section both
 gained a one-line mention. Verified with a clean full rebuild and
 `make test` (all 8 suites, unaffected).
+
+## Documentation audit — five real issues, after the joystick mistake exposed the same failure mode elsewhere
+
+2026-08-12. Prompted by fixing the JOYSTICK?-family error in
+`docs/ROADMAP.md` (see this file's own "Fix a factual error..." entry)
+— asked whether more docs claimed something as shipped/available that
+doesn't actually exist in `src/parser.c`'s `BUILTIN_SIGNATURES`. An
+audit of every doc file plus `website/*.html` against the real source
+found five real issues (verified directly, not taken on faith) and
+fixed all of them in one batch:
+
+- **The exact same false-claim bug, for sound.** `TONE`/`PLAYSOUND`/
+  `STOPSOUND` were advertised as an already-working feature in
+  `README.md`, `website/index.html` (three spots — the intro
+  paragraph, a feature chip, and the reference card), `docs/TUTORIAL.md`,
+  and `website/tutorial.html` — but `grep -n '"TONE"\|"PLAYSOUND"\|
+  "STOPSOUND"' src/parser.c src/vm.c` returns nothing; they only exist
+  in the frozen `interpreter.c` engine, exactly like `JOYSTICK?` was.
+  `docs/COMMAND_REFERENCE.md`'s own appendix already correctly listed
+  Sound as unported — the other five docs just hadn't caught up. Fixed
+  by dropping the false "sound" mentions from all five (not by
+  claiming it's planned — it's simply not there yet).
+- **Two dead cross-references** in `docs/COMMAND_REFERENCE.md`,
+  pointing at `docs/ROADMAP.md` subsections ("Mouse/keyboard event
+  triggers", "Future / unplanned") that no longer exist now that
+  `ROADMAP.md` is trimmed to a single paragraph (see the entries just
+  above this one). Fixed: the event-triggers pointer now points at
+  `docs/CHANGELOG.md`'s own "Mouse/keyboard event triggers" entries
+  (confirmed that heading exists); the joystick one now points at
+  `docs/ROADMAP.md` generically rather than quoting a specific
+  subsection, so it can't go stale the same way again.
+- **`docs/BYTECODE_REFERENCE.md` was out of sync with its own subject**,
+  violating the "keep in sync" rule its own header states: claimed
+  "the 58 members of `bytecode.h`'s own `OpCode` enum," but a real
+  count (stripping comments, deduplicating) is 59 — missing
+  `OP_EXECTIME`, added when `EXECTIME` was ported to the VM 2026-08-12
+  and apparently missed in that same batch. Added its row (in a new
+  "RUN / LOAD / EXECTIME" section, alongside its two closest relatives)
+  and corrected the count. Cross-checked afterward: all 59 opcodes now
+  appear somewhere in the doc.
+- **`README.md`'s "Project structure" table described the pre-Stage-2
+  architecture** — listed `interpreter.h/c` as "the Logo language
+  core: eval_logo, expression parser," with no mention anywhere of
+  `lexer.c`/`parser.c`/`ast.c`/`compiler.c`/`vm.c`/`bytecode.c`/
+  `agent.c`, i.e. every file the real running app actually uses.
+  Rewritten to list the real pipeline, with `interpreter.c`/`eval.c`
+  both clearly labeled for what they now are (frozen legacy engine;
+  shadow-diff-only Stage 1 evaluator, respectively).
+- **`docs/COMMAND_REFERENCE.md`'s own Output table didn't list `PR`**
+  as a `PRINT` alias, even though `PR` shipped 2026-08-12 (confirmed in
+  `parser.c`/`vm.c`) and the appendix already said so. Added an
+  Aliases column.
+
+`website/reference.html` regenerated afterward (`website/build_reference.py`)
+to pick up the `COMMAND_REFERENCE.md` changes. One item from the audit
+was deliberately left as-is: a leftover `bin/logo` (pre-rename binary
+name) in `docs/CONCURRENT_AGENTS_DESIGN.md` — that file, like
+`docs/CHANGELOG.md`/`docs/BYTECODE_VM_DESIGN.md`, was explicitly
+exempted from the 2026-08-12 `bin/logo` → `bin/logomotive` rename pass
+as a dated historical record, and this is the same kind of entry.
+Verified with a clean full rebuild and `make test` (all 8 suites,
+unaffected — this batch never touched `src/`).

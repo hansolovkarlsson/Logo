@@ -294,10 +294,10 @@ ignored" (raised from the original 200 — see
 
 ## Output
 
-| Command | Args | Description |
-|---|---|---|
-| `PRINT` | `expr` | Write to the history pane, with a trailing newline |
-| `TYPE` | `expr` | Same as `PRINT`, but no trailing newline |
+| Command | Aliases | Args | Description |
+|---|---|---|---|
+| `PRINT` | `PR` | `expr` | Write to the history pane, with a trailing newline |
+| `TYPE` | — | `expr` | Same as `PRINT`, but no trailing newline |
 
 ```
 PRINT "hello
@@ -966,8 +966,8 @@ Unlike `WAITKEY` above (which blocks the running script until the next
 key), `ONKEY`/`ONCLICK`/`ONMOUSEMOVE`/`ONKEYUP`/`ONRELEASE` register a
 procedure to run in the background whenever a key/click/pointer-motion/
 key-release/button-release event happens, without pausing anything. See
-`docs/ROADMAP.md`'s "Mouse/keyboard event triggers" for the original
-design writeup.
+`docs/CHANGELOG.md`'s "Mouse/keyboard event triggers" entries for the
+original design writeup.
 
 | Command | Args | Description |
 |---|---|---|
@@ -1054,9 +1054,10 @@ table is still accurate.
 | `JOYSTICK?` / `JOYSTICKAXIS` / `JOYSTICKBUTTON?` | Joystick/game-controller input |
 | `TONE` / `PLAYSOUND` / `STOPSOUND` | Sound |
 
-Joystick input is deprioritized (`docs/ROADMAP.md`'s "Future /
-unplanned" — needs a real new dependency, GTK4 has no built-in gamepad
-support on macOS). Sound (`TONE`/`PLAYSOUND`/`STOPSOUND`) is the one
+Joystick input was dropped entirely, not deferred (see `docs/ROADMAP.md`
+— needs a real new dependency, GTK4 has no built-in gamepad support on
+macOS, not worth it for a low-priority feature). Sound (`TONE`/
+`PLAYSOUND`/`STOPSOUND`) is the one
 remaining category with no VM porting effort scoped yet — worth its
 own pass if wanted, likely following the same
 `eval_X_value`-core-extraction pattern the 35-name VM

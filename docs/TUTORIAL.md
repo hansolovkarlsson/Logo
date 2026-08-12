@@ -619,6 +619,6 @@ a random spot between flowers without drawing a connecting line.
 ---
 
 From here, `docs/COMMAND_REFERENCE.md` has the complete list of every
-command this interpreter supports — sprites, sound, file I/O, arrays,
+command this interpreter supports — sprites, file I/O, arrays,
 property lists, and more — organized as a lookup table rather than a
 story. `examples/` in this repo has many more full programs to read.
