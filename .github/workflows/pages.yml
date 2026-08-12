@@ -1,0 +1,45 @@
+name: Deploy website to GitHub Pages
+
+# Publishes website/ (the static tutorial+reference site, see
+# website/build_reference.py's own comment) to GitHub Pages on every
+# push to main that touches it. Uses the Actions-based deploy path,
+# not the legacy "serve from a branch" option -- Pages' branch-based
+# source only supports the repo root or a /docs folder, and this site
+# deliberately lives in /website (docs/ is the project's markdown
+# reference docs, a different thing).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload website/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "website"
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
