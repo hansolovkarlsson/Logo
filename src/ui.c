@@ -2188,8 +2188,13 @@ static LogoApp *build_main_window(GtkApplication *app) {
     g_action_map_add_action_entries(G_ACTION_MAP(app), view_toggle_actions,
                                      G_N_ELEMENTS(view_toggle_actions), logo);
 
-    // <Primary> doesn't resolve to Cmd on this GTK build (shows as Ctrl in
-    // the menu), so use <Meta> directly — this app is macOS-only anyway.
+    // <Primary> doesn't resolve to Cmd on the macOS Homebrew GTK build
+    // (shows as Ctrl in the menu), so macOS hardcodes <Meta> (Cmd)
+    // directly. Linux has no such quirk, but <Meta> there is the Super
+    // key, not Ctrl — and GNOME reserves many Super combos for the shell
+    // before the app ever sees them — so Linux hardcodes <Control>
+    // directly rather than relying on <Primary> to resolve correctly.
+#ifdef __APPLE__
     const char *open_accels[] = {"<Meta>o", NULL};
     const char *save_accels[] = {"<Meta>s", NULL};
     const char *load_bytecode_accels[] = {"<Meta><Shift>o", NULL};
@@ -2200,6 +2205,18 @@ static LogoApp *build_main_window(GtkApplication *app) {
     const char *reset_accels[] = {"<Meta>0", NULL};
     const char *toggle_input_window_accels[] = {"<Meta><Shift>i", NULL};
     const char *quit_accels[] = {"<Meta>q", NULL};
+#else
+    const char *open_accels[] = {"<Control>o", NULL};
+    const char *save_accels[] = {"<Control>s", NULL};
+    const char *load_bytecode_accels[] = {"<Control><Shift>o", NULL};
+    const char *save_bytecode_accels[] = {"<Control><Shift>s", NULL};
+    const char *export_png_accels[] = {"<Control>e", NULL};
+    const char *increase_accels[] = {"<Control>plus", "<Control>equal", NULL};
+    const char *decrease_accels[] = {"<Control>minus", NULL};
+    const char *reset_accels[] = {"<Control>0", NULL};
+    const char *toggle_input_window_accels[] = {"<Control><Shift>i", NULL};
+    const char *quit_accels[] = {"<Control>q", NULL};
+#endif
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.save-file", save_accels);
     gtk_application_set_accels_for_action(app, "app.load-bytecode", load_bytecode_accels);

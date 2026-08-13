@@ -109,21 +109,21 @@ LogoMotive genuinely doesn't have — cross-checked against
     hardware. `scripts/install_gtk.sh` already has an `apt-get` branch,
     but its package names (`libgtk-4-dev`, `libsdl2-dev`) come from
     documentation rather than a real build — verify them there first.
-  - **Menu accelerators use `<Meta>`** (`src/ui.c`, all ten of them:
-    open, save, load/save bytecode, export PNG, the three text-size
-    actions, toggle input window, quit). `<Meta>` is Cmd on macOS but
-    the Super key on Linux, where the convention is Ctrl — and GNOME
-    reserves many Super combinations for the shell, so several are
-    likely swallowed before the app ever sees them. Found by reading
-    `src/ui.c`, not by using the app — the Fedora verification covered
-    the build, the headless suites and a clean GUI launch, but nobody
-    has click-tested the menus or tried a shortcut there yet, so treat
-    the severity as predicted rather than observed. The code comment
-    there justifies the choice with "this app is macOS-only anyway",
-    which is precisely the assumption that just stopped being true.
-    Wants a platform conditional, not a global swap to `<Primary>` —
-    that same comment records that `<Primary>` renders as Ctrl in the
-    menu on macOS's GTK build, which is why it was avoided originally.
+
+  Fixed 2026-08-13: menu accelerators in `src/ui.c` (all ten — open,
+  save, load/save bytecode, export PNG, the three text-size actions,
+  toggle input window, quit) were hardcoded to `<Meta>` under the
+  reasoning "this app is macOS-only anyway," which stopped being true
+  once the Fedora build landed. Now `#ifdef __APPLE__`-gated: macOS
+  keeps `<Meta>` (Cmd) unchanged, Linux gets `<Control>` directly rather
+  than `<Primary>` — deliberately, since `<Primary>` was already known
+  not to resolve correctly on macOS's Homebrew GTK build, and Linux
+  hardcoding `<Control>` sidesteps needing `<Primary>` to resolve
+  correctly there either. Verified: macOS still builds clean and all
+  8 `make test` binaries pass unchanged. Not yet click-tested on actual
+  Linux hardware — this session has no Linux machine — so treat the fix
+  as compiled-but-unverified-in-the-GUI until the next Fedora/Ubuntu/
+  Mint pass confirms the menu shows `Ctrl` and the shortcuts fire.
 
   Separate from pre-built binaries via GitHub Releases (not yet on
   this list) — that idea is blocked on CI + macOS notarization for the
