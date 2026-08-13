@@ -1728,14 +1728,17 @@ unparseable expression just evaluates to `0`, same as always) — see
   set of defined procedures — this is a separate, lightweight scan, not
   the real interpreter, so it only classifies text for coloring and
   doesn't validate it. Also entry-box only.
-- The **File** menu (native macOS menu bar) has **Open…** (⌘O), which picks
-  a file via a native dialog and runs it the same way `LOAD` does;
-  **Save…** (⌘S), which does the same for `SAVE`; **Export as PNG…**
-  (⌘E), which renders the current canvas (background, drawn lines, and the
-  turtle) to an image file at the canvas's actual pixel size; and **Quit**
-  (⌘Q), which closes the app.
-- The **View** menu (native macOS menu bar) has Increase/Decrease/Reset
-  Text Size, applied to both the history pane and the entry box, and a
+- The **File** menu has **Open…** (⌘O), which picks a file via a native
+  dialog and runs it the same way `LOAD` does; **Save…** (⌘S), which does
+  the same for `SAVE`; **Export as PNG…** (⌘E), which renders the current
+  canvas (background, drawn lines, and the turtle) to an image file at the
+  canvas's actual pixel size; and **Quit** (⌘Q), which closes the app. The
+  menu bar holding these is the system-wide one at the top of the screen on
+  macOS and an in-window bar on Linux, and every ⌘ shortcut listed here and
+  below is **Ctrl** on Linux — ⌘O is Ctrl+O, ⌘⇧I is Ctrl+Shift+I, and so
+  on.
+- The **View** menu has Increase/Decrease/Reset Text Size, applied to both
+  the history pane and the entry box, and a
   **Show Input Window** checkbox (⌘⇧I) that hides the whole history
   pane/entry box, leaving the canvas alone — useful for a
   presentation/demo mode. The canvas expands to fill the freed space;

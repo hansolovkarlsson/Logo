@@ -781,7 +781,8 @@ own last statement, for the same reason described above) plus
 of produced by `SAVEBYTECODE`, loaded by `bytecode_load.logo`'s own
 last line.
 
-**File menu equivalents** (native macOS menu bar, `⌘⇧S`/`⌘⇧O`): *File >
+**File menu equivalents** (`⌘⇧S`/`⌘⇧O` on macOS,
+`Ctrl+Shift+S`/`Ctrl+Shift+O` on Linux): *File >
 Save Bytecode…* compiles whatever's currently in the entry box and
 saves the result, without running it — no side effects (no drawing, no
 `PRINT` output), unlike the `SAVEBYTECODE` builtin itself, which only
