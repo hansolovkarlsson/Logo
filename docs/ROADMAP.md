@@ -87,16 +87,19 @@ LogoMotive genuinely doesn't have — cross-checked against
   population size, over time). Lower priority than the others — more
   "new widget" than "new capability."
 
-- [ ] **Linux port** — **the dev target now works**; what's left is
-  validation on the other two distros and one UX fix. LogoMotive builds
-  and runs on Fedora 42 (aarch64) as of 2026-08-13: clean `make`, all
-  eight `make test` binaries green, `bin/logi`/`bin/vmrun` working, and
-  the GUI running under both the Wayland and X11 GDK backends. Full
+- [ ] **Linux port** — **the dev target is done and fully verified**;
+  all that's left is the other two distros. LogoMotive builds and runs
+  on Fedora 42 (aarch64) as of 2026-08-13: clean `make`, all eight
+  `make test` binaries green, `bin/logi`/`bin/vmrun` working, the GUI
+  running under both the Wayland and X11 GDK backends, and the menus,
+  keyboard shortcuts and example scripts all exercised by hand. Full
   write-up in `docs/CHANGELOG.md`; the short version is that the
-  2026-08-12 prediction held — it was build configuration, not a source
-  port. Three `Makefile` flags (`-std=gnu11`, `-lm`, `-fconserve-stack`)
-  and one test that had hardcoded a platform-specific float, no changes
-  to `src/*.c` at all.
+  2026-08-12 prediction *mostly* held — the build side was pure
+  configuration (three `Makefile` flags: `-std=gnu11`, `-lm`,
+  `-fconserve-stack`, plus one test that had hardcoded a
+  platform-specific float). What it missed was the GUI: two real
+  `src/ui.c` bugs, both invisible to every headless check, described
+  below.
 
   **Remaining before the port is done:**
 
@@ -109,6 +112,9 @@ LogoMotive genuinely doesn't have — cross-checked against
     hardware. `scripts/install_gtk.sh` already has an `apt-get` branch,
     but its package names (`libgtk-4-dev`, `libsdl2-dev`) come from
     documentation rather than a real build — verify them there first.
+    Note the menu-bar bug below was a GTK-version-behaviour difference,
+    exactly the class of thing an older GTK4 could differ on again, so
+    open the menus on each rather than trusting a clean build.
 
   Fixed 2026-08-13: menu accelerators in `src/ui.c` (all ten — open,
   save, load/save bytecode, export PNG, the three text-size actions,
@@ -149,13 +155,12 @@ LogoMotive genuinely doesn't have — cross-checked against
   went from no menu at all to exposing `menu bar: 'Menu bar'` with
   `File` and `View` items.
 
-  Still unverified, and now a much smaller list: the leaf menu items
-  (Open…, Save…, the text-size actions) build lazily when a popover
-  opens, so they need a real click to appear — and no key has actually
-  been pressed on Linux. Worth a couple of minutes at a real keyboard:
-  open both menus, and try `Ctrl+Q` and `Ctrl+S`, the two likeliest to
-  be intercepted by GNOME or by the REPL entry widget before the app's
-  own accelerator sees them.
+  Both fixes then confirmed by hand on Fedora, 2026-08-13 — the part no
+  amount of tree-walking could establish: the menus open and their items
+  are there, `Ctrl+S`/`Ctrl+Q`/`Ctrl+O` all fire (so neither GNOME nor
+  the REPL entry widget swallows them), the text-size actions work, and
+  an example script runs. Nothing on the GUI side of the Fedora target
+  is outstanding.
 
   Separate from pre-built binaries via GitHub Releases (not yet on
   this list) — that idea is blocked on CI + macOS notarization for the

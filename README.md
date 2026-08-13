@@ -82,7 +82,7 @@ echo world | bin/logomotive --headless a_script_that_uses_input.logo
 | | Status |
 |---|---|
 | **macOS** (Apple Silicon) | The original target — developed and used here daily. |
-| **Fedora** (42, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, GUI runs under both Wayland and X11. |
+| **Fedora** (42, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, GUI runs under both Wayland and X11, menus and keyboard shortcuts exercised by hand. |
 | **Ubuntu 24.04 LTS / Linux Mint** | Not yet built. `scripts/install_gtk.sh` has an `apt-get` branch, but the package names in it come from documentation rather than a real build. |
 
 The build is a single shared flag set for both platforms rather than a
@@ -95,8 +95,9 @@ bound to `<Meta>`, which is Cmd on macOS but the Super key on Linux, and
 the File/View menu bar didn't render at all, because GTK4 defaults
 `GtkApplicationWindow:show-menubar` to FALSE and macOS never needed it
 (its backend routes the menu model to the system menu bar instead).
-Both verified on Fedora; see [`docs/ROADMAP.md`](docs/ROADMAP.md) for
-what's still unconfirmed.
+Both are fixed and confirmed working on Fedora; see
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for the remaining distro
+validation.
 
 ## Example
 
