@@ -2091,11 +2091,19 @@ script, and `bin/logomotive` launching with zero stderr output under
 the end of this entry.
 
 This closes `docs/ROADMAP.md`'s Linux port entry, moved here per that
-file's convention. One caveat on the record: **Linux Mint (Cinnamon) was
-never built**, though the original entry named it alongside Ubuntu as a
-validation target. Closing the item on two distributions rather than
-three was the user's call, 2026-08-13. Mint tracks Ubuntu LTS directly,
-so the Ubuntu result is strong evidence for it — not proof.
+file's convention. The original entry named **Linux Mint (Cinnamon)** as
+a third validation target alongside Fedora and Ubuntu; it was dropped as
+a separate requirement, 2026-08-13, rather than being built. The
+reasoning, recorded so it can be revisited if Mint ever does misbehave:
+Mint's main edition is not an independent distribution but a
+re-spin of the Ubuntu LTS base, installing the same `libgtk-4-dev`/
+`libsdl2-dev` packages at the same versions, so an Ubuntu pass carries
+over. Two things it does *not* carry over, neither judged to warrant a
+build: Mint defaults to Cinnamon rather than GNOME, so desktop-level
+keyboard-shortcut grabbing could in principle differ (menu-bar
+rendering can't — that's internal to GTK, which is why the 4.14.5
+result is the one that transfers), and LMDE is built on Debian instead,
+putting it outside this inference entirely.
 
 The 2026-08-12 scoping prediction held exactly for the build side (it
 missed the GUI entirely — see below): this was build configuration, not
