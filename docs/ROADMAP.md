@@ -134,6 +134,93 @@ LogoMotive genuinely doesn't have — cross-checked against
   a stack offset). Accepted nature of an escape hatch, same category
   as inline asm in C — document plainly rather than try to eliminate.
 
+## Distribution & infrastructure
+
+Not language features, and not from the dialect research pass above.
+These came out of the 2026-08-13 Linux port, which turned "how does
+someone who isn't the author actually get this" into a real question
+for the first time — there are now three supported platforms and a
+pre-built binary for exactly one of them. Same rule as the section
+above: pick up only on explicit request. They're listed in dependency
+order; the first unblocks the other two.
+
+- [ ] **CI (GitHub Actions)** — build the project and run `make test`
+  automatically on every push, on machines this project doesn't own. A
+  YAML file in `.github/workflows/`; free for public repos.
+
+  **Why it's first**: the Linux port's build failures are exactly what
+  CI exists to catch. `-std=c11` hiding `open_memstream`/`usleep`/
+  `clock_gettime` behind glibc's feature-test macros, and the missing
+  `-lm`, were both *immediate, deterministic* failures on any Linux
+  box — but they sat undiscovered until 2026-08-13, because the
+  2026-08-12 session that scoped the port ran on macOS and said so
+  outright ("this session's dev environment is macOS and cannot itself
+  validate Linux builds"). A Linux job would have gone red the day the
+  code was written. The same applies going forward: `#ifdef
+  __APPLE__`-gated code in `src/ui.c` means the two platforms now
+  compile *different source*, and only one of them gets compiled on any
+  given developer machine.
+
+  **Shape of a v1 slice**: one workflow, `make && make test` on
+  `ubuntu-latest` and `macos-latest`, on push and PR. Roughly 20 lines.
+  Runners are available in both x86_64 and aarch64, which matters
+  because every machine this project has been developed on is aarch64
+  while most Linux desktop users are x86_64 — CI is the cheapest way to
+  compile for hardware nobody here owns.
+
+  **The limit, stated plainly so CI isn't over-trusted**: it cannot see
+  the GUI. The 2026-08-13 menu-bar bug compiled clean, emitted no
+  warnings, passed all 8 suites and launched with zero stderr — a
+  headless CI run would have been exactly as blind to it as the local
+  suites were. CI covers the build and the test suites. Every GUI claim
+  still needs introspection or a human.
+
+- [ ] **A Linux package** — there's no Linux download, only build-from-
+  source. Worth fixing eventually, but **not by uploading a binary to
+  Releases**, which is the obvious move and the wrong one.
+
+  **Why a plain binary doesn't work on Linux**: `bin/logomotive`
+  dynamically links glibc, GTK4 and SDL2. glibc's symbol versioning is
+  forward-compatible only, so a binary built on Fedora 42 won't start
+  on Ubuntu 24.04's older glibc — you must build on the *oldest* system
+  you intend to support, not the newest. GTK compounds it: the verified
+  targets are 4.18.6 (Fedora) and 4.14.5 (Ubuntu). macOS has no
+  equivalent problem, which is why the existing single-binary approach
+  works there and doesn't transfer.
+
+  **Preferred answer: Flatpak, published on Flathub.** GTK4 comes from
+  the `org.gnome.Platform` runtime rather than the host, so the version
+  skew disappears by construction; Flathub's build bots produce x86_64
+  and aarch64 from one manifest, which also solves the "all dev
+  machines here are aarch64" problem and doubles as CI for the packaged
+  build. Cost is learning a manifest file. **Unverified**: whether SDL2
+  comes from the GNOME runtime or has to be a bundled module in the
+  manifest — check before committing to an estimate.
+
+  Alternatives, and why they rank lower: **AppImage** is a single file
+  with no install, which is genuinely appealing, but bundling GTK4 is
+  notoriously fiddly (gdk-pixbuf loaders, GSettings schemas, icon
+  themes and graphics drivers all have to be handled by hand) — more
+  work than Flatpak for strictly less compatibility. **`.deb`/`.rpm`**
+  are the most native and the most maintenance: one build plus a
+  dependency declaration per distro per release.
+
+- [ ] **Automated, notarized releases** — the current release is
+  `v0.1.0` (2026-08-12), a single hand-built asset
+  (`logomotive-v0.1.0-macos-arm64.zip`). Built and uploaded by hand,
+  which doesn't scale to three platforms and doesn't repeat reliably.
+
+  Two separate things are missing. **Automation** — building the
+  release artifacts from a tag rather than from whatever was on the
+  author's machine that day — is blocked on CI above and is mostly
+  mechanical once it exists. **macOS notarization** is the real work:
+  Apple requires a downloaded app to be signed and notarized or
+  Gatekeeper refuses to open it, which needs a paid Developer ID and a
+  signing step in the release job. Not verified either way what
+  Gatekeeper currently does with the v0.1.0 zip on a machine that
+  didn't build it — worth actually checking before assuming it's a
+  problem, since that determines whether this is urgent or cosmetic.
+
 ## Not being considered yet — real complications found while scoping
 
 Unlike the list above, these aren't just unprioritized — scoping them

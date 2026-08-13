@@ -2274,11 +2274,13 @@ gcc 15.2.1):
   `snprintf` buffers in `src/vm.c`'s `ONKEY`/`ONCLICK` handler-name
   fields — pre-existing, in code this port never touched.
 
-Distinct from shipping pre-built binaries via GitHub Releases, which is
-*not* on the roadmap and is unaffected by any of this: that idea stays
-blocked on CI plus macOS notarization for the existing macOS build, and
-would now want a Linux artifact as well. Building from source is still
-the documented route for Linux users (see `website/index.html`).
+Distinct from shipping a downloadable Linux build, which this port
+deliberately doesn't attempt: building from source stays the documented
+route for Linux users (see `website/index.html`). Having a third
+supported platform and a pre-built binary for only one of them is what
+prompted `docs/ROADMAP.md`'s new "Distribution & infrastructure"
+section — CI, a Flatpak, and automated/notarized releases — added
+2026-08-13 as scoped-but-not-started.
 
 One operational note for anyone repeating this: `bin/logomotive` does
 not die on SIGTERM. Its Ctrl+C interrupt handler (`request_interrupt`,
