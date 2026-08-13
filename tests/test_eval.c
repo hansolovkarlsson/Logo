@@ -668,7 +668,15 @@ TEST(test_setheading_towards_then_forward_reaches_the_point) {
     // DISTANCE POS point, should walk straight to point.
     LogoApp *app = new_app();
     run_source(app, "HOME\nSETHEADING TOWARDS [0 100]\nFORWARD DISTANCE POS [0 100]\nPRINT POS");
-    CHECK_STREQ(captured_output, "-1.52006e-13 100\n");
+    // x is mathematically 0, but lands on whatever tiny rounding
+    // residue the platform's own sin/cos leaves behind: macOS printed
+    // -1.52006e-13, glibc/aarch64 prints -1.42109e-13. Pinning the
+    // exact digits pinned the test to one libm -- assert what the test
+    // is actually about (the turtle arrived at [0 100]) instead.
+    double x = 0.0, y = 0.0;
+    CHECK(sscanf(captured_output, "%lf %lf", &x, &y) == 2);
+    CHECK_NEAR(x, 0.0);
+    CHECK_NEAR(y, 100.0);
 }
 
 TEST(test_list_literal_keeps_a_glued_leading_sign_as_one_element) {

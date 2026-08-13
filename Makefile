@@ -29,27 +29,71 @@ SDL_LIBS = sdl2
 # stack slots, and empirically survives the full 200-level cap cleanly,
 # repeatedly, direct invocation and not just through `make test`
 # (confirmed 2026-08-07).
-CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS) $(SDL_LIBS))
-LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS) $(SDL_LIBS))
+# gnu11 rather than c11, and not merely as a style preference: glibc
+# gates POSIX declarations behind feature-test macros that strict
+# -std=c11 leaves undefined, so open_memstream (ui.c, vm.c,
+# test_bytecode.c, test_vm.c), usleep (interpreter.c, ui.c) and
+# clock_gettime (vm.c) all vanish from their own headers on Linux.
+# macOS's headers don't gate them, which is why -std=c11 was fine there
+# and only broke on the first Linux build (Fedora 42, gcc 15, 2026-08-12)
+# -- and broke as hard *errors*, not warnings, because gcc 14 promoted
+# -Wimplicit-function-declaration to an error by default. gnu11 keeps
+# C11 semantics and just turns the glibc extensions back on; it's
+# equally valid for clang on macOS, so this stays one shared flag set
+# rather than a per-platform branch.
+#
+# -fconserve-stack finishes the job -O1 only half-does under gcc, and is
+# what makes MAX_SCOPE_DEPTH's 200-level cap actually reachable on
+# Linux. exec_call (src/eval.c) is the same one-giant-switch shape as
+# eval_logo described above, and gcc 15 at -O1 still gives every
+# branch's locals its own slot: measured with -fstack-usage, exec_call's
+# frame is 61856 bytes. Each Logo recursion level costs one of those
+# (exec_call -> do_user_procedure_call -> call_ast_procedure ->
+# exec_block -> exec_statement -> exec_call), so an 8MB stack runs out
+# near depth ~130 and test_eval's own
+# test_recursion_depth_cap_reports_error_not_a_crash segfaults before
+# the interpreter's cap can report the error it's asserting. The flag
+# takes that frame to 1232 bytes -- a 50x cut -- and the cap becomes
+# reachable as designed. It is gcc-only, hence the probe rather than a
+# literal flag: clang (macOS) rejects it, and -Werror in the probe means
+# a compiler that merely warns about the unknown flag also opts out.
+# Note -O2 is NOT a substitute: measured, it makes exec_call slightly
+# *worse* (63376 bytes) and -O2 -fconserve-stack is far worse than
+# -O1 -fconserve-stack (27536 vs 1232). Confirmed Fedora 42 / gcc 15 /
+# aarch64, 2026-08-13.
+CONSERVE_STACK := $(shell $(CC) -fconserve-stack -Werror -E -x c /dev/null >/dev/null 2>&1 && echo -fconserve-stack)
+
+CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS) $(SDL_LIBS))
+
+# -lm on every link line below, for the same macOS-vs-Linux reason as
+# gnu11 above: macOS folds libm into libSystem so nothing has to ask for
+# it, while glibc keeps it a separate DSO. eval.c's atan2 (and the rest
+# of the math.h use across eval.c/interpreter.c/vm.c) therefore links
+# clean on macOS and fails with "DSO missing from command line" on
+# Linux. Harmless no-op on macOS, so it stays unconditional rather than
+# platform-guarded. The three pkg-config-free targets
+# (test_lexer/test_parser/test_bytecode) genuinely don't need it --
+# lexer.c/parser.c/ast.c/compiler.c/bytecode.c touch no math.h.
+LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS) $(SDL_LIBS)) -lm
 
 TEST_TARGET = build/test_interpreter
 TEST_SRC = tests/test_interpreter.c src/interpreter.c
-TEST_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+TEST_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 
 # lexer.c (docs/BYTECODE_VM_DESIGN.md's Stage 1) has zero dependency on
 # GTK/GLib/interpreter.h by design -- its own test binary needs no
 # pkg-config flags at all, unlike every other target in this Makefile.
 TEST_LEXER_TARGET = build/test_lexer
 TEST_LEXER_SRC = tests/test_lexer.c src/lexer.c
-TEST_LEXER_CFLAGS = -Wall -Wextra -g -O1 -std=c11
+TEST_LEXER_CFLAGS = -Wall -Wextra -g -O1 -std=gnu11
 
 # ast.c/parser.c (Stage 1's AST + recursive-descent parser) are the
 # same story -- no GTK/GLib/interpreter.h dependency, no pkg-config
 # flags needed.
 TEST_PARSER_TARGET = build/test_parser
 TEST_PARSER_SRC = tests/test_parser.c src/parser.c src/ast.c src/lexer.c
-TEST_PARSER_CFLAGS = -Wall -Wextra -g -O1 -std=c11
+TEST_PARSER_CFLAGS = -Wall -Wextra -g -O1 -std=gnu11
 
 # eval.c (Stage 1's tree-walking evaluator) is different from
 # lexer.c/ast.c/parser.c above: it deliberately DOES depend on
@@ -58,8 +102,8 @@ TEST_PARSER_CFLAGS = -Wall -Wextra -g -O1 -std=c11
 # interpreter.c linked in and GTK_LIBS, same as TEST_TARGET above.
 TEST_EVAL_TARGET = build/test_eval
 TEST_EVAL_SRC = tests/test_eval.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
-TEST_EVAL_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+TEST_EVAL_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 
 # test_shadow_diff.c (the migration strategy from
 # docs/BYTECODE_VM_DESIGN.md) needs both engines in one binary --
@@ -68,8 +112,8 @@ TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 # source file.
 TEST_SHADOW_DIFF_TARGET = build/test_shadow_diff
 TEST_SHADOW_DIFF_SRC = tests/test_shadow_diff.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
-TEST_SHADOW_DIFF_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+TEST_SHADOW_DIFF_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 
 # test_vm.c (Stage 2's own shadow-diff corpus, docs/BYTECODE_VM_DESIGN.md)
 # needs the compiler+VM (compiler.c/bytecode.c/vm.c) alongside the same
@@ -79,8 +123,8 @@ TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 # too.
 TEST_VM_TARGET = build/test_vm
 TEST_VM_SRC = tests/test_vm.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
-TEST_VM_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+TEST_VM_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 
 # test_bytecode.c (Stage B of the bytecode save/load/assembler
 # initiative, docs/ROADMAP.md) -- bytecode.c/compiler.c are both
@@ -89,7 +133,7 @@ TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 # shape as TEST_PARSER_TARGET above.
 TEST_BYTECODE_TARGET = build/test_bytecode
 TEST_BYTECODE_SRC = tests/test_bytecode.c src/compiler.c src/bytecode.c src/parser.c src/ast.c src/lexer.c
-TEST_BYTECODE_CFLAGS = -Wall -Wextra -g -O1 -std=c11
+TEST_BYTECODE_CFLAGS = -Wall -Wextra -g -O1 -std=gnu11
 
 # test_agent.c (Phase 6's own first slice, docs/CONCURRENT_AGENTS_DESIGN.md)
 # -- same stack as TEST_VM_TARGET plus agent.c itself. Fully headless
@@ -97,8 +141,8 @@ TEST_BYTECODE_CFLAGS = -Wall -Wextra -g -O1 -std=c11
 # comment), so no window/display needed here either.
 TEST_AGENT_TARGET = build/test_agent
 TEST_AGENT_SRC = tests/test_agent.c src/agent.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
-TEST_AGENT_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_AGENT_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+TEST_AGENT_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+TEST_AGENT_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 
 # tools/logi_cli.c -- a standalone command-line driver for Stage 1's new
 # evaluator (see docs/BYTECODE_VM_DESIGN.md), letting a script be run
@@ -113,8 +157,8 @@ TEST_AGENT_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
 # matching test-eval/test-shadow-diff's own opt-in targets.
 LOGI_TARGET = bin/logi
 LOGI_SRC = tools/logi_cli.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
-LOGI_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+LOGI_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 
 .PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm test-bytecode test-agent logi vmrun
 
@@ -214,8 +258,8 @@ $(LOGI_TARGET): $(LOGI_SRC) $(HEADERS)
 # above, plus compiler.c/bytecode.c linked in.
 VMRUN_TARGET = bin/vmrun
 VMRUN_SRC = tools/vmrun_cli.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
-VMRUN_CFLAGS = -Wall -Wextra -g -O1 -std=c11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-VMRUN_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS))
+VMRUN_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
+VMRUN_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 
 vmrun: $(VMRUN_TARGET)
 

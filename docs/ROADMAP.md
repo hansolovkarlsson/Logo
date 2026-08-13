@@ -87,34 +87,47 @@ LogoMotive genuinely doesn't have — cross-checked against
   population size, over time). Lower priority than the others — more
   "new widget" than "new capability."
 
-- [ ] **Linux port** — `src/*.c` has zero macOS-specific code today;
-  confirmed 2026-08-12 that `Makefile`/`build.sh` are already
-  plain `pkg-config`/`gcc` with no hardcoded Homebrew paths — the only
-  macOS coupling is three helper scripts (`scripts/install_brew.sh`,
-  `scripts/check_brew.sh`, `scripts/install_gtk.sh`) that exist purely
-  to get GTK4 installed via Homebrew. So this is expected to be mostly
-  a new `scripts/install_gtk_linux.sh`-equivalent (`apt`/`dnf` instead
-  of `brew`) plus an actual build-and-run smoke test on real Linux —
-  not a source port, unless something GTK4/Cairo-version-specific
-  turns up once actually attempted.
+- [ ] **Linux port** — **the dev target now works**; what's left is
+  validation on the other two distros and one UX fix. LogoMotive builds
+  and runs on Fedora 42 (aarch64) as of 2026-08-13: clean `make`, all
+  eight `make test` binaries green, `bin/logi`/`bin/vmrun` working, and
+  the GUI running under both the Wayland and X11 GDK backends. Full
+  write-up in `docs/CHANGELOG.md`; the short version is that the
+  2026-08-12 prediction held — it was build configuration, not a source
+  port. Three `Makefile` flags (`-std=gnu11`, `-lm`, `-fconserve-stack`)
+  and one test that had hardcoded a platform-specific float, no changes
+  to `src/*.c` at all.
 
-  **Dev target**: Fedora Workstation (latest) — it's GNOME's own
-  reference platform, so it carries the newest GTK4/libadwaita and
-  surfaces API/deprecation issues earliest, before anyone else hits
-  them.
+  **Remaining before the port is done:**
 
-  **Pre-release validation targets**: Ubuntu 24.04 LTS and Linux Mint
-  (Cinnamon) — both lag Fedora's GTK4 version (Mint tracks Ubuntu LTS
-  directly), so they're not where to develop, but they're the more
-  representative real-world targets: Ubuntu LTS as the most common
-  Linux desktop baseline, Mint as a proxy for less technical users on
-  older/modest hardware. Build clean on Fedora first, then confirm on
-  both before calling the port done.
+  - **Ubuntu 24.04 LTS and Linux Mint (Cinnamon)** — the original
+    pre-release validation targets, still unbuilt. Both lag Fedora's
+    GTK4 version (Mint tracks Ubuntu LTS directly), which is why they
+    were never the dev target, but they're the representative
+    real-world ones: Ubuntu LTS as the most common Linux desktop
+    baseline, Mint as a proxy for less technical users on older/modest
+    hardware. `scripts/install_gtk.sh` already has an `apt-get` branch,
+    but its package names (`libgtk-4-dev`, `libsdl2-dev`) come from
+    documentation rather than a real build — verify them there first.
+  - **Menu accelerators use `<Meta>`** (`src/ui.c`, all ten of them:
+    open, save, load/save bytecode, export PNG, the three text-size
+    actions, toggle input window, quit). `<Meta>` is Cmd on macOS but
+    the Super key on Linux, where the convention is Ctrl — and GNOME
+    reserves many Super combinations for the shell, so several are
+    likely swallowed before the app ever sees them. Found by reading
+    `src/ui.c`, not by using the app — the Fedora verification covered
+    the build, the headless suites and a clean GUI launch, but nobody
+    has click-tested the menus or tried a shortcut there yet, so treat
+    the severity as predicted rather than observed. The code comment
+    there justifies the choice with "this app is macOS-only anyway",
+    which is precisely the assumption that just stopped being true.
+    Wants a platform conditional, not a global swap to `<Primary>` —
+    that same comment records that `<Primary>` renders as Ctrl in the
+    menu on macOS's GTK build, which is why it was avoided originally.
 
   Separate from pre-built binaries via GitHub Releases (not yet on
   this list) — that idea is blocked on CI + macOS notarization for the
-  *existing* macOS build, independent of whether Linux is ever
-  ported.
+  *existing* macOS build, and now would want a Linux artifact too.
 
 - [ ] **Inline VM assembly blocks (`{...}`)** — write raw bytecode
   instructions directly in Logo source, delimited like `[...]` is for

@@ -7,7 +7,7 @@ a bytecode compiler and VM underneath, with concurrent multi-turtle agents,
 sprites, and more on top of the classic language.
 
 Type commands into the entry box and watch the turtle draw on the canvas — the
-classic 80s Logo experience, running natively on macOS.
+classic 80s Logo experience, running natively on macOS and Linux.
 
 **[Tutorial & command reference →](https://hansolovkarlsson.github.io/LogoMotive/)**
 
@@ -24,20 +24,22 @@ classic 80s Logo experience, running natively on macOS.
 - Conditionals: `IF <cond> [block]`, `IF <cond> [block] ELSE [block]`, and
   classic `IFELSE <cond> [block] [block]`, with `< > = <= >= <>` comparisons
 - `PRINT`/`PR` to write text or expression results to the history pane
-- A **View** menu (native macOS menu bar) to increase, decrease, or reset the
-  text size of the REPL
+- A **View** menu to increase, decrease, or reset the text size of the REPL
 
 ## Requirements
 
-- macOS
-- [Homebrew](https://brew.sh)
-- GTK4 and pkg-config (`scripts/install_gtk.sh` installs both)
+- macOS, or Linux
+- GTK4, SDL2 and pkg-config (`scripts/install_gtk.sh` installs all three)
+- On macOS: [Homebrew](https://brew.sh)
+
+Linux is built and tested on Fedora (see [Platform support](#platform-support)
+below for exactly what's verified where).
 
 ## Build & Run
 
 ```sh
-./scripts/install_brew.sh   # only if Homebrew isn't installed yet
-./scripts/install_gtk.sh    # installs gtk4 + pkg-config
+./scripts/install_brew.sh   # macOS only, and only if Homebrew isn't installed
+./scripts/install_gtk.sh    # gtk4 + sdl2 + pkg-config, via brew/dnf/apt/pacman
 make run
 ```
 
@@ -74,6 +76,24 @@ echo world | bin/logomotive --headless a_script_that_uses_input.logo
 ```
 
 `bin/logomotive -h` / `--help` prints the full option list above and exits.
+
+## Platform support
+
+| | Status |
+|---|---|
+| **macOS** (Apple Silicon) | The original target — developed and used here daily. |
+| **Fedora** (42, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, GUI runs under both Wayland and X11. |
+| **Ubuntu 24.04 LTS / Linux Mint** | Not yet built. `scripts/install_gtk.sh` has an `apt-get` branch, but the package names in it come from documentation rather than a real build. |
+
+The build is a single shared flag set for both platforms rather than a
+per-OS branch — see the `Makefile`'s own comments for why `-std=gnu11`,
+`-lm` and `-fconserve-stack` are each load-bearing on Linux specifically.
+
+One known gap on Linux: the menu keyboard shortcuts are all bound to
+`<Meta>` (`src/ui.c`), which is Cmd on macOS but the Super key on Linux,
+where the convention is Ctrl. Read from the source rather than found by
+using it — the menus haven't been click-tested on Linux yet, only the
+launch and the headless suites. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Example
 
@@ -125,5 +145,5 @@ tests/              headless tests for the interpreter core (make test)
 docs/               language reference and roadmap
 Makefile            make / make run / make test / make clean
 build.sh            one-shot alternative build script
-scripts/            Homebrew/GTK setup helpers
+scripts/            dependency setup helpers (brew/dnf/apt/pacman)
 ```

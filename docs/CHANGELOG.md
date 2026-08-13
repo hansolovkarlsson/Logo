@@ -2078,3 +2078,91 @@ regenerated to match. Verified via a clean full rebuild, `make test`
 (all 8 suites), and a headless smoke run (`TONE`/`PLAYSOUND`/
 `STOPSOUND` all parse and no-op silently with no callback, exactly as
 designed).
+
+## Linux port — the dev target builds and runs (2026-08-13)
+
+LogoMotive now builds and runs on Linux, verified on Fedora 42
+(aarch64, gcc 15.2.1, GTK 4.18.6, SDL2 2.32.64): clean `make`, all
+eight `make test` binaries passing, `make logi`/`make vmrun` built and
+smoke-tested against a real script, and `bin/logomotive` launching with
+zero stderr output under *both* the Wayland and X11 GDK backends. This
+is the dev target from `docs/ROADMAP.md`'s Linux port entry; that entry
+stays open for the Ubuntu/Mint validation still outstanding.
+
+The 2026-08-12 scoping prediction held exactly: this was build
+configuration, not a source port. **`src/*.c` was not touched at all.**
+Three flags in the `Makefile` and one over-specified test, and that was
+the whole port. Each of the three is a real macOS-vs-Linux difference
+rather than a preference, and each is now documented in place in the
+`Makefile`:
+
+- **`-std=c11` → `-std=gnu11`** (13 occurrences). Strict-conformance
+  mode leaves glibc's POSIX feature-test macros undefined, so
+  `open_memstream` (`ui.c`, `vm.c`, `test_bytecode.c`, `test_vm.c`),
+  `usleep` (`interpreter.c`, `ui.c`) and `clock_gettime` (`vm.c`)
+  disappear from their own headers. macOS's headers don't gate them,
+  which is why this had never surfaced. It failed as a hard *error*,
+  not a warning, because gcc 14 promoted
+  `-Wimplicit-function-declaration` to an error by default.
+  `strcasecmp` — ~430 uses across the codebase, the obvious suspect —
+  turned out to be fine, since glibc declares it unguarded.
+- **`-lm` on all eight link lines.** macOS folds libm into libSystem;
+  glibc keeps it a separate DSO, so `eval.c`'s `atan2` failed with
+  "DSO missing from command line". The three pkg-config-free targets
+  (`test_lexer`/`test_parser`/`test_bytecode`) genuinely don't need it.
+- **`-fconserve-stack`**, gcc-only and therefore probed rather than
+  hardcoded (the probe uses `-Werror` so a compiler that merely warns
+  about the unknown flag also opts out). This is the interesting one.
+  `exec_call` (`src/eval.c`) is the same one-giant-switch shape as
+  `eval_logo` that this file's older `-O1` note already describes, and
+  gcc 15 at `-O1` still gives every branch's locals its own stack slot:
+  measured with `-fstack-usage`, its frame is **61,856 bytes**. Each
+  Logo recursion level costs one of those (`exec_call` →
+  `do_user_procedure_call` → `call_ast_procedure` → `exec_block` →
+  `exec_statement` → `exec_call`), so an 8 MB stack is exhausted near
+  depth ~130 — and `test_eval`'s own
+  `test_recursion_depth_cap_reports_error_not_a_crash` segfaulted
+  before `MAX_SCOPE_DEPTH`'s 200-level cap could report the error it
+  exists to assert. The flag takes that frame to **1,232 bytes**, a 50×
+  cut, and the cap becomes reachable as designed. Worth recording for
+  anyone tempted to reach for optimization level instead: `-O2` is not
+  a substitute — measured, it makes the frame slightly *worse* (63,376
+  bytes), and `-O2 -fconserve-stack` is far worse than
+  `-O1 -fconserve-stack` (27,536 vs 1,232).
+
+The one test change was `test_setheading_towards_then_forward_reaches_
+the_point` (`tests/test_eval.c`), which asserted the exact printed
+string `"-1.52006e-13 100\n"`. That x-coordinate is mathematically 0
+and the digits are just whatever rounding residue the platform's own
+sin/cos leaves behind — glibc/aarch64 produces `-1.42109e-13`. Confirmed
+this fails on the *unmodified* `-O1` build too (run with a raised
+`ulimit -s` to get past the stack overflow first), so it's a genuine
+libm difference and not a side effect of the flag changes. Now parses
+the two numbers out and uses the suite's existing `CHECK_NEAR`, which
+is what the test was always actually about. It was the only hardcoded
+float-noise literal in the entire suite.
+
+Two support scripts were fixed alongside:
+
+- **`build.sh`** passed neither `sdl2` nor `-lm`, so the "one-shot
+  alternative to `make`" had in fact been failing at link on every
+  platform since Phase 4 added SDL2. It now mirrors the Makefile's
+  flags rather than a minimal compile line, since `-O0` would also
+  produce a binary that blows the stack on deep recursion.
+- **`scripts/install_gtk.sh`** was `brew install gtk4 pkg-config`. It
+  now probes brew/dnf/apt-get/pacman, and installs SDL2 — which was
+  missing from it even on macOS, despite the Makefile having required
+  it since Phase 4. Only the `dnf` branch is verified; the `apt-get`
+  and `pacman` package names are from documentation and marked as such
+  in the script. No separate `install_gtk_linux.sh` was added: the
+  Makefile and `build.sh` are already platform-neutral, so this is the
+  only file in the repo that needs to know what OS it's on.
+
+One genuine gap found and deliberately *not* fixed here, now recorded
+on `docs/ROADMAP.md`: all ten menu accelerators in `src/ui.c` are bound
+to `<Meta>`, which is Cmd on macOS but Super on Linux. Fixing it means
+a platform conditional rather than a global switch to `<Primary>` —
+the existing comment there records that `<Primary>` renders as Ctrl in
+the menu on macOS's GTK build, which is why it was rejected the first
+time. Left as a separate decision rather than folded into a
+"make it compile" change.
