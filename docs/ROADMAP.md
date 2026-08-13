@@ -119,11 +119,20 @@ LogoMotive genuinely doesn't have — cross-checked against
   than `<Primary>` — deliberately, since `<Primary>` was already known
   not to resolve correctly on macOS's Homebrew GTK build, and Linux
   hardcoding `<Control>` sidesteps needing `<Primary>` to resolve
-  correctly there either. Verified: macOS still builds clean and all
-  8 `make test` binaries pass unchanged. Not yet click-tested on actual
-  Linux hardware — this session has no Linux machine — so treat the fix
-  as compiled-but-unverified-in-the-GUI until the next Fedora/Ubuntu/
-  Mint pass confirms the menu shows `Ctrl` and the shortcuts fire.
+  correctly there either. Verified on macOS: still builds clean, all 8
+  `make test` binaries pass unchanged. Verified on Fedora 42 (aarch64)
+  the same day: clean `make`, all 8 suites pass, and the GUI launches
+  with no stderr under both the Wayland and X11 GDK backends. The
+  `#else` branch is confirmed to be the one that actually compiles
+  there — the Linux binary carries 11 `<Control>` accelerator strings
+  and zero `<Meta>` ones (11 rather than 10 because increase-text-size
+  has two, `<Control>plus` and `<Control>equal`).
+
+  One piece still genuinely unverified: nobody has pressed the keys or
+  read the rendered menu on Linux. That needs a human at a keyboard —
+  worth a couple of minutes, especially on `Ctrl+Q` and `Ctrl+S`, the
+  two likeliest to be intercepted by GNOME or by the REPL entry widget
+  before the app's own accelerator sees them.
 
   Separate from pre-built binaries via GitHub Releases (not yet on
   this list) — that idea is blocked on CI + macOS notarization for the
