@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogoMotive on Linux</title>
+<link rel="icon" type="image/svg+xml" href="assets/turtle-mark.svg">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-logo" href="index.html">
+      <svg class="logo-mark" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path class="trail" d="M -22,24 A 22,22 0 0 1 -3,-20" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path class="turtle" d="M 0,-30 L 21,30 L -21,30 Z" transform="rotate(-14)"/>
+      </svg>
+      LogoMotive
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tutorial.html">Tutorial</a>
+      <a href="tutorial-2.html">Tutorial II</a>
+      <a href="tutorial-3.html">Tutorial III</a>
+      <a href="reference.html">Reference</a>
+      <a href="linux.html" class="current">Linux</a>
+    </nav>
+    <a class="site-github" href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">GitHub &#8599;</a>
+  </div>
+</header>
+
+<div class="wrap narrow">
+
+  <div class="page-hero">
+    <p class="eyebrow">Download, prepare, build</p>
+    <h1 class="title">LogoMotive on Linux</h1>
+    <p class="lede">
+      There's no Linux binary to download yet &mdash; you build it from
+      source, which is three commands and usually under a minute.
+      Everything on this page has been run on a real machine, not
+      transcribed from documentation.
+    </p>
+  </div>
+
+  <div class="layout">
+    <nav class="chapter-toc">
+      <p class="toc-label">Contents</p>
+      <ol>
+        <li><a href="#requirements"><span class="num">1</span>What you need</a></li>
+        <li><a href="#source"><span class="num">2</span>Get the source</a></li>
+        <li><a href="#deps"><span class="num">3</span>Install dependencies</a></li>
+        <li><a href="#build"><span class="num">4</span>Build &amp; test</a></li>
+        <li><a href="#run"><span class="num">5</span>Run it</a></li>
+        <li><a href="#ui"><span class="num">6</span>Menus &amp; shortcuts</a></li>
+        <li><a href="#trouble"><span class="num">7</span>Troubleshooting</a></li>
+        <li><a href="#tested"><span class="num">8</span>What's tested</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <div class="howto">
+        <h2>The short version</h2>
+        <pre class="code">git clone https://github.com/hansolovkarlsson/LogoMotive.git
+cd LogoMotive
+./scripts/install_gtk.sh
+make run</pre>
+        <p>If that worked, you can stop reading. The rest of this page is for when it didn't, or when you'd rather install things yourself.</p>
+      </div>
+
+      <section class="chapter" id="requirements">
+        <div class="chapter-head"><span class="chapter-num">1</span><h2>What you need</h2></div>
+        <p>LogoMotive is a C program with two runtime libraries. You need all of these before it will build:</p>
+        <ul>
+          <li><strong>GTK4</strong> &mdash; the windowing toolkit. This is the big one.</li>
+          <li><strong>SDL2</strong> &mdash; used for sound and joystick input. Not optional, even if you never make a sound: the interpreter links against it unconditionally.</li>
+          <li><strong>pkg-config</strong> &mdash; how the <code class="inline">Makefile</code> finds the other two.</li>
+          <li><strong>A C compiler and <code class="inline">make</code></strong> &mdash; gcc and clang both work.</li>
+        </ul>
+        <div class="note">
+          <p><strong>The compiler is the easy one to miss.</strong> <code class="inline">scripts/install_gtk.sh</code> installs GTK4, SDL2 and pkg-config &mdash; but <em>not</em> a compiler. On a machine that has never built anything, install your distribution's build-tools package too (<code class="inline">build-essential</code> on Debian/Ubuntu, <code class="inline">gcc make</code> on Fedora, <code class="inline">base-devel</code> on Arch). The manual commands in step 3 include it.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="source">
+        <div class="chapter-head"><span class="chapter-num">2</span><h2>Get the source</h2></div>
+        <pre class="code">git clone https://github.com/hansolovkarlsson/LogoMotive.git
+cd LogoMotive</pre>
+        <p>No git? The GitHub page has a <em>Download ZIP</em> button under <em>Code</em>, which works just as well &mdash; unzip it and <code class="inline">cd</code> into the folder. Every command on this page is run from the project root, the directory holding <code class="inline">Makefile</code>.</p>
+      </section>
+
+      <section class="chapter" id="deps">
+        <div class="chapter-head"><span class="chapter-num">3</span><h2>Install the dependencies</h2></div>
+        <p>The bundled script detects your package manager and installs the three libraries:</p>
+        <pre class="code">./scripts/install_gtk.sh</pre>
+        <p>It probes for <code class="inline">brew</code>, <code class="inline">dnf</code>, <code class="inline">apt-get</code> and <code class="inline">pacman</code>, in that order, and uses the first one it finds. It will ask for your password, because installing packages needs root.</p>
+        <p>Or do it by hand. These include the compiler, so they're complete on a fresh machine:</p>
+        <p><strong>Fedora, RHEL, and relatives</strong></p>
+        <pre class="code">sudo dnf install gtk4-devel SDL2-devel pkgconf-pkg-config gcc make</pre>
+        <p><strong>Ubuntu, Debian, Mint, and relatives</strong></p>
+        <pre class="code">sudo apt-get install libgtk-4-dev libsdl2-dev pkg-config build-essential</pre>
+        <p><strong>Arch and relatives</strong></p>
+        <pre class="code">sudo pacman -S --needed gtk4 sdl2 pkgconf base-devel</pre>
+        <div class="note">
+          <p>The Fedora and Ubuntu package names above are known-good &mdash; both were used to build and test LogoMotive on 2026-08-13. The Arch names come from Arch's own package index and have <em>not</em> been through a real build. If you're on Arch and they're wrong, that's a bug worth reporting.</p>
+        </div>
+        <p>Want to check what you've got before building? These print a version number if the library is installed and fail if it isn't:</p>
+        <pre class="code">pkg-config --modversion gtk4
+pkg-config --modversion sdl2</pre>
+      </section>
+
+      <section class="chapter" id="build">
+        <div class="chapter-head"><span class="chapter-num">4</span><h2>Build and test</h2></div>
+        <pre class="code">make</pre>
+        <p>That produces <code class="inline">bin/logomotive</code>. You'll see a number of <code class="inline">-Wformat-truncation</code> warnings scroll past &mdash; those are known and harmless. What matters is that it finishes without an <strong>error</strong>.</p>
+        <p>To confirm the build is actually sound rather than merely complete, run the test suites:</p>
+        <pre class="code">make test</pre>
+        <p>Eight test binaries build and run. All eight should end the same way:</p>
+        <div class="output">All tests passed.</div>
+        <p>These are headless &mdash; no window opens and none is needed. If all eight pass, the interpreter, parser, evaluator, bytecode compiler and VM are all working correctly on your machine.</p>
+        <p>There's also <code class="inline">./build.sh</code>, a single-shot alternative that compiles everything in one gcc invocation without <code class="inline">make</code>. Use it if <code class="inline">make</code> is unavailable; otherwise prefer <code class="inline">make</code>, which only rebuilds what changed.</p>
+      </section>
+
+      <section class="chapter" id="run">
+        <div class="chapter-head"><span class="chapter-num">5</span><h2>Run it</h2></div>
+        <pre class="code">make run</pre>
+        <p>Builds if needed, then opens the window: turtle canvas on one side, history pane and entry box on the other. Type <code class="inline">REPEAT 4 [FD 100 RT 90]</code> into the entry box and press Enter.</p>
+        <p>Once built, you can also run the binary directly, optionally handing it a script to load and run at startup:</p>
+        <pre class="code">./bin/logomotive
+./bin/logomotive examples/sample.logo</pre>
+        <p>There are 71 scripts in <code class="inline">examples/</code> covering most of the language. And for scripting or automation, there's a mode with no window at all &mdash; <code class="inline">PRINT</code> goes to stdout and the process exits when the script ends:</p>
+        <pre class="code">./bin/logomotive --headless examples/lists.logo</pre>
+        <p><code class="inline">./bin/logomotive --help</code> lists every option.</p>
+      </section>
+
+      <section class="chapter" id="ui">
+        <div class="chapter-head"><span class="chapter-num">6</span><h2>Menus and shortcuts on Linux</h2></div>
+        <p>Two differences from the macOS build, both deliberate:</p>
+        <p>The <strong>menu bar is inside the window</strong>, near the top, rather than in a system-wide bar at the top of the screen. <strong>File</strong> has Open, Save, Export as PNG, Load/Save Bytecode and Quit; <strong>View</strong> has the text-size actions and the <em>Show Input Window</em> toggle.</p>
+        <p>The <strong>modifier key is Ctrl</strong>, where macOS uses Cmd:</p>
+        <ul>
+          <li><code class="inline">Ctrl+O</code> open a <code class="inline">.logo</code> file &middot; <code class="inline">Ctrl+S</code> save</li>
+          <li><code class="inline">Ctrl+E</code> export the canvas as a PNG</li>
+          <li><code class="inline">Ctrl+Shift+O</code> / <code class="inline">Ctrl+Shift+S</code> load and save bytecode</li>
+          <li><code class="inline">Ctrl+Plus</code> / <code class="inline">Ctrl+Minus</code> / <code class="inline">Ctrl+0</code> text size</li>
+          <li><code class="inline">Ctrl+Shift+I</code> hide the input pane, leaving just the canvas</li>
+          <li><code class="inline">Ctrl+Q</code> quit</li>
+        </ul>
+        <div class="note">
+          <p><strong>Ctrl+C is different.</strong> Typed in the terminal you launched from, it interrupts the <em>running script</em> and prints <code class="inline">Interrupted.</code> &mdash; it doesn't close the app, which keeps running and stays ready for the next command. That's the only way to stop a runaway loop short of quitting.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="trouble">
+        <div class="chapter-head"><span class="chapter-num">7</span><h2>Troubleshooting</h2></div>
+
+        <p><strong><code class="inline">Package gtk4 was not found in the pkg-config search path</code></strong></p>
+        <p>GTK4's <em>development</em> files are missing. Having GTK4 itself installed isn't enough &mdash; you need the <code class="inline">-devel</code> / <code class="inline">-dev</code> package, which is what step 3 installs. The same message naming <code class="inline">sdl2</code> means the same thing for SDL2.</p>
+
+        <p><strong><code class="inline">make: gcc: No such file or directory</code></strong></p>
+        <p>No compiler. See the note in step 1 &mdash; the dependency script doesn't install one.</p>
+
+        <p><strong>Errors mentioning <code class="inline">open_memstream</code>, <code class="inline">usleep</code> or <code class="inline">clock_gettime</code>, or a linker error about <code class="inline">atan2</code></strong></p>
+        <p>You're building an old checkout. Both were fixed on 2026-08-13 (a strict-C11 mode hiding glibc functions, and a missing <code class="inline">-lm</code>). Pull the latest <code class="inline">main</code>.</p>
+
+        <p><strong>The window doesn't appear, or renders oddly</strong></p>
+        <p>LogoMotive has been tested under both Wayland and X11. If your session is Wayland and something looks wrong, force the X11 backend to compare:</p>
+        <pre class="code">GDK_BACKEND=x11 ./bin/logomotive</pre>
+
+        <p><strong>No File or View menu at all</strong></p>
+        <p>That was a real bug, fixed on 2026-08-13 &mdash; GTK4 changed a default that macOS never depended on, so the menu bar silently never rendered on Linux. If you see it on a current checkout, it's new: please report it, noting your GTK version from <code class="inline">pkg-config --modversion gtk4</code>.</p>
+
+        <p><strong>The app won't close from the terminal</strong></p>
+        <p>Its interrupt handler survives <code class="inline">SIGTERM</code>, so a plain <code class="inline">kill</code> &mdash; and <code class="inline">timeout</code> &mdash; won't stop it. Use <code class="inline">Ctrl+Q</code> in the window, or:</p>
+        <pre class="code">pkill -x -9 logomotive</pre>
+        <p>Don't use <code class="inline">pkill -f bin/logomotive</code>: that pattern matches the shell you typed it into and kills your own terminal.</p>
+      </section>
+
+      <section class="chapter" id="tested">
+        <div class="chapter-head"><span class="chapter-num">8</span><h2>What's actually been tested</h2></div>
+        <p>Stated precisely, so you know what you're relying on:</p>
+        <ul>
+          <li><strong>Fedora 42 (aarch64)</strong>, GTK 4.18.6 &mdash; verified 2026-08-13. Clean build, all 8 suites, GUI under both Wayland and X11, menus and shortcuts exercised by hand.</li>
+          <li><strong>Ubuntu 24.04.4 LTS (aarch64)</strong>, GTK 4.14.5 &mdash; verified 2026-08-13. Clean build, all 8 suites, <code class="inline">build.sh</code> and headless mode working, menu bar confirmed present.</li>
+          <li><strong>Mint, Pop!_OS and other Ubuntu derivatives</strong> &mdash; expected to work, not separately tested. They're built on the Ubuntu base and install the same packages.</li>
+          <li><strong>Arch, Debian proper, x86_64 anything</strong> &mdash; untested. Nothing is known to be wrong; nobody has run it. Both verified machines above were ARM.</li>
+        </ul>
+        <p>If you build it somewhere not on this list, <a href="https://github.com/hansolovkarlsson/LogoMotive/issues" target="_blank" rel="noopener">say so on the issue tracker</a> &mdash; working or not, that's useful.</p>
+        <div class="note">
+          <p><strong>Why no download?</strong> A Linux binary can't simply be handed out the way the macOS one is: it links against glibc, GTK4 and SDL2, and glibc's versioning means a binary built on a newer distribution won't start on an older one. Doing it properly means a Flatpak, which is on the roadmap but not built yet. Until then, from source is the honest answer &mdash; and it does compile in well under a minute.</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap narrow">
+    Built alongside LogoMotive's own C interpreter &mdash; see the
+    <a href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">repository</a>
+    for the source, the language design docs, and the full changelog.
+  </div>
+</footer>
+
+</body>
+</html>

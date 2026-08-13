@@ -34,7 +34,9 @@ classic 80s Logo experience, running natively on macOS and Linux.
 
 Linux is built and tested on Fedora and Ubuntu (see
 [Platform support](#platform-support) below for exactly what's verified
-where).
+where). There's a step-by-step Linux build guide, with per-distribution
+package commands and troubleshooting, at
+[`website/linux.html`](website/linux.html).
 
 ## Build & Run
 
