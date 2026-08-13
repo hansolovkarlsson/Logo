@@ -87,6 +87,35 @@ LogoMotive genuinely doesn't have — cross-checked against
   population size, over time). Lower priority than the others — more
   "new widget" than "new capability."
 
+- [ ] **Linux port** — `src/*.c` has zero macOS-specific code today;
+  confirmed 2026-08-12 that `Makefile`/`build.sh` are already
+  plain `pkg-config`/`gcc` with no hardcoded Homebrew paths — the only
+  macOS coupling is three helper scripts (`scripts/install_brew.sh`,
+  `scripts/check_brew.sh`, `scripts/install_gtk.sh`) that exist purely
+  to get GTK4 installed via Homebrew. So this is expected to be mostly
+  a new `scripts/install_gtk_linux.sh`-equivalent (`apt`/`dnf` instead
+  of `brew`) plus an actual build-and-run smoke test on real Linux —
+  not a source port, unless something GTK4/Cairo-version-specific
+  turns up once actually attempted.
+
+  **Dev target**: Fedora Workstation (latest) — it's GNOME's own
+  reference platform, so it carries the newest GTK4/libadwaita and
+  surfaces API/deprecation issues earliest, before anyone else hits
+  them.
+
+  **Pre-release validation targets**: Ubuntu 24.04 LTS and Linux Mint
+  (Cinnamon) — both lag Fedora's GTK4 version (Mint tracks Ubuntu LTS
+  directly), so they're not where to develop, but they're the more
+  representative real-world targets: Ubuntu LTS as the most common
+  Linux desktop baseline, Mint as a proxy for less technical users on
+  older/modest hardware. Build clean on Fedora first, then confirm on
+  both before calling the port done.
+
+  Separate from pre-built binaries via GitHub Releases (not yet on
+  this list) — that idea is blocked on CI + macOS notarization for the
+  *existing* macOS build, independent of whether Linux is ever
+  ported.
+
 - [ ] **Inline VM assembly blocks (`{...}`)** — write raw bytecode
   instructions directly in Logo source, delimited like `[...]` is for
   lists but containing assembler text instead. Scoped 2026-08-12, no
