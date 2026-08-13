@@ -2266,10 +2266,14 @@ gcc 15.2.1):
   Narrow caveat: both were already installed on this machine, so the
   *names* are confirmed while `apt-get install` itself remains
   unexercised.
-- Not verified live: the `Ctrl`-key accelerators on Ubuntu. GTK's
-  `GtkPopoverMenuBar` builds submenus lazily, so the items don't exist
-  in the accessibility tree until a menu is opened; the `<Control>`
-  branch was confirmed by source read only.
+- **`Ctrl+O` and `Ctrl+S` fire on Ubuntu**, confirmed by hand by the
+  user, 2026-08-13. Introspection couldn't establish this — GTK's
+  `GtkPopoverMenuBar` builds submenus lazily, so the accelerators
+  aren't in the accessibility tree until a menu is opened — so it
+  needed a human, same as on Fedora. The remaining eight accelerators
+  are covered by source read only (they share the one `#ifdef`
+  branch, so there's no plausible way for two to work and the rest
+  not, but that's an inference and not a test).
 - The 12 build warnings are all `-Wformat-truncation=` on fixed-size
   `snprintf` buffers in `src/vm.c`'s `ONKEY`/`ONCLICK` handler-name
   fields — pre-existing, in code this port never touched.

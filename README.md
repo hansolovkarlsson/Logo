@@ -90,7 +90,7 @@ echo world | bin/logomotive --headless a_script_that_uses_input.logo
 |---|---|
 | **macOS** (Apple Silicon) | The original target — developed and used here daily. |
 | **Fedora** (42, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, GUI runs under both Wayland and X11, menus and keyboard shortcuts exercised by hand. |
-| **Ubuntu** (24.04 LTS, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, `build.sh` and `--headless` working, File/View menu bar confirmed present on its older GTK 4.14.5 via accessibility introspection. `scripts/install_gtk.sh`'s `apt-get` package names check out. |
+| **Ubuntu** (24.04 LTS, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, `build.sh` and `--headless` working, File/View menu bar confirmed present on its older GTK 4.14.5 via accessibility introspection, and `Ctrl+O`/`Ctrl+S` confirmed firing by hand. `scripts/install_gtk.sh`'s `apt-get` package names check out. |
 | **Ubuntu derivatives** (Linux Mint, Pop!_OS, …) | Expected to work, covered by the Ubuntu row rather than tested separately — Mint's main edition is built on the Ubuntu LTS base and installs the same GTK4/SDL2 packages. Mint ships Cinnamon rather than GNOME, which could in principle grab a keyboard shortcut differently; menu-bar rendering is GTK-internal and unaffected. LMDE is Debian-based, so it's outside this. |
 
 The build is a single shared flag set for both platforms rather than a
