@@ -89,11 +89,14 @@ The build is a single shared flag set for both platforms rather than a
 per-OS branch — see the `Makefile`'s own comments for why `-std=gnu11`,
 `-lm` and `-fconserve-stack` are each load-bearing on Linux specifically.
 
-One known gap on Linux: the menu keyboard shortcuts are all bound to
-`<Meta>` (`src/ui.c`), which is Cmd on macOS but the Super key on Linux,
-where the convention is Ctrl. Read from the source rather than found by
-using it — the menus haven't been click-tested on Linux yet, only the
-launch and the headless suites. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Two Linux-only menu issues have been found and fixed (`src/ui.c`, both
+`#ifdef`-gated so macOS behaviour is untouched): the accelerators were
+bound to `<Meta>`, which is Cmd on macOS but the Super key on Linux, and
+the File/View menu bar didn't render at all, because GTK4 defaults
+`GtkApplicationWindow:show-menubar` to FALSE and macOS never needed it
+(its backend routes the menu model to the system menu bar instead).
+Both verified on Fedora; see [`docs/ROADMAP.md`](docs/ROADMAP.md) for
+what's still unconfirmed.
 
 ## Example
 

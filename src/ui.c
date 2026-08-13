@@ -2251,6 +2251,22 @@ static LogoApp *build_main_window(GtkApplication *app) {
     gtk_application_set_menubar(app, G_MENU_MODEL(menu_bar));
     g_object_unref(menu_bar);
 
+#ifndef __APPLE__
+    // set_menubar() alone is enough on macOS, where the GTK backend
+    // hands the model to the system's global menu bar, but it draws
+    // nothing at all on Linux: GtkApplicationWindow has to build the
+    // menubar widget itself there, and GTK4 changed "show-menubar" to
+    // default FALSE (it was TRUE in GTK3). Without this the File and
+    // View menus exist as a GMenuModel that nothing ever renders --
+    // load/save, export, and the text-size actions are unreachable
+    // except through their accelerators. Confirmed against GTK 4.18.6
+    // by walking the widget tree: no GtkPopoverMenuBar is present until
+    // this is set, and one appears fully populated once it is.
+    // #ifndef'd rather than unconditional so macOS can't end up drawing
+    // an in-window menubar duplicating its global one.
+    gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(window), TRUE);
+#endif
+
     gtk_window_present(GTK_WINDOW(window));
     // Focus the entry box immediately -- otherwise a fresh window opens
     // with no widget focused at all, and nothing typed (or WAITKEY

@@ -128,11 +128,34 @@ LogoMotive genuinely doesn't have — cross-checked against
   and zero `<Meta>` ones (11 rather than 10 because increase-text-size
   has two, `<Control>plus` and `<Control>equal`).
 
-  One piece still genuinely unverified: nobody has pressed the keys or
-  read the rendered menu on Linux. That needs a human at a keyboard —
-  worth a couple of minutes, especially on `Ctrl+Q` and `Ctrl+S`, the
-  two likeliest to be intercepted by GNOME or by the REPL entry widget
-  before the app's own accelerator sees them.
+  Also fixed 2026-08-13, and the reason the accelerators mattered less
+  than they looked: **the menu bar wasn't rendering on Linux at all** —
+  no File, no View, so load/save, export and the text-size actions were
+  unreachable except through their shortcuts. `gtk_application_set_menubar()`
+  is sufficient on macOS, where the backend hands the model to the
+  system's global menu bar, but on Linux `GtkApplicationWindow` has to
+  build the widget itself, and GTK4 changed `show-menubar` to default
+  FALSE (it was TRUE in GTK3). One `#ifndef __APPLE__`-gated
+  `gtk_application_window_set_show_menubar(..., TRUE)` fixes it; gated
+  rather than unconditional so macOS can't draw an in-window menubar
+  duplicating its global one. Both window construction paths
+  (`logo_activate` and `logo_open`) go through `build_main_window`, so
+  the single call covers both.
+
+  Confirmed twice over on GTK 4.18.6, not by eye: a standalone probe
+  walking the widget tree showed `show-menubar` defaulting to FALSE with
+  no `GtkPopoverMenuBar` present, and one appearing fully populated once
+  set; then the real `bin/logomotive`, introspected live over AT-SPI,
+  went from no menu at all to exposing `menu bar: 'Menu bar'` with
+  `File` and `View` items.
+
+  Still unverified, and now a much smaller list: the leaf menu items
+  (Open…, Save…, the text-size actions) build lazily when a popover
+  opens, so they need a real click to appear — and no key has actually
+  been pressed on Linux. Worth a couple of minutes at a real keyboard:
+  open both menus, and try `Ctrl+Q` and `Ctrl+S`, the two likeliest to
+  be intercepted by GNOME or by the REPL entry widget before the app's
+  own accelerator sees them.
 
   Separate from pre-built binaries via GitHub Releases (not yet on
   this list) — that idea is blocked on CI + macOS notarization for the
