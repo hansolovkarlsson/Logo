@@ -29,7 +29,11 @@ classic 80s Logo experience, running natively on macOS and Linux.
 ## Requirements
 
 - macOS, or Linux
-- GTK4, SDL2 and pkg-config (`scripts/install_gtk.sh` installs all three)
+- GTK4, SDL2 and pkg-config
+- A C compiler and `make`
+- `scripts/install_gtk.sh` installs all of the above on Linux, and the
+  libraries on macOS (where the compiler comes from Xcode's Command Line
+  Tools instead); it verifies the toolchain is present either way
 - On macOS: [Homebrew](https://brew.sh)
 
 Linux is built and tested on Fedora and Ubuntu (see
@@ -42,7 +46,7 @@ package commands and troubleshooting, at
 
 ```sh
 ./scripts/install_brew.sh   # macOS only, and only if Homebrew isn't installed
-./scripts/install_gtk.sh    # gtk4 + sdl2 + pkg-config, via brew/dnf/apt/pacman
+./scripts/install_gtk.sh    # gtk4 + sdl2 + pkg-config + toolchain, via brew/dnf/apt/pacman
 make run
 ```
 

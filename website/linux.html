@@ -79,7 +79,7 @@ make run</pre>
           <li><strong>A C compiler and <code class="inline">make</code></strong> &mdash; gcc and clang both work.</li>
         </ul>
         <div class="note">
-          <p><strong>The compiler is the easy one to miss.</strong> <code class="inline">scripts/install_gtk.sh</code> installs GTK4, SDL2 and pkg-config &mdash; but <em>not</em> a compiler. On a machine that has never built anything, install your distribution's build-tools package too (<code class="inline">build-essential</code> on Debian/Ubuntu, <code class="inline">gcc make</code> on Fedora, <code class="inline">base-devel</code> on Arch). The manual commands in step 3 include it.</p>
+          <p><strong>You don't have to install these individually.</strong> <code class="inline">scripts/install_gtk.sh</code> in step 3 installs all four on Linux, and checks afterwards that the compiler and <code class="inline">make</code> really are present rather than assuming it &mdash; so if something is still missing you're told immediately, not three commands later in the middle of a compile.</p>
         </div>
       </section>
 
@@ -92,10 +92,10 @@ cd LogoMotive</pre>
 
       <section class="chapter" id="deps">
         <div class="chapter-head"><span class="chapter-num">3</span><h2>Install the dependencies</h2></div>
-        <p>The bundled script detects your package manager and installs the three libraries:</p>
+        <p>The bundled script detects your package manager and installs everything from step 1:</p>
         <pre class="code">./scripts/install_gtk.sh</pre>
-        <p>It probes for <code class="inline">brew</code>, <code class="inline">dnf</code>, <code class="inline">apt-get</code> and <code class="inline">pacman</code>, in that order, and uses the first one it finds. It will ask for your password, because installing packages needs root.</p>
-        <p>Or do it by hand. These include the compiler, so they're complete on a fresh machine:</p>
+        <p>It probes for <code class="inline">brew</code>, <code class="inline">dnf</code>, <code class="inline">apt-get</code> and <code class="inline">pacman</code>, in that order, and uses the first one it finds. It will ask for your password, because installing packages needs root. On macOS it installs the libraries only &mdash; the compiler there comes from Xcode's Command Line Tools, and it'll tell you so if they're absent.</p>
+        <p>Or do it by hand. These are complete on a fresh machine:</p>
         <p><strong>Fedora, RHEL, and relatives</strong></p>
         <pre class="code">sudo dnf install gtk4-devel SDL2-devel pkgconf-pkg-config gcc make</pre>
         <p><strong>Ubuntu, Debian, Mint, and relatives</strong></p>
@@ -159,7 +159,7 @@ pkg-config --modversion sdl2</pre>
         <p>GTK4's <em>development</em> files are missing. Having GTK4 itself installed isn't enough &mdash; you need the <code class="inline">-devel</code> / <code class="inline">-dev</code> package, which is what step 3 installs. The same message naming <code class="inline">sdl2</code> means the same thing for SDL2.</p>
 
         <p><strong><code class="inline">make: gcc: No such file or directory</code></strong></p>
-        <p>No compiler. See the note in step 1 &mdash; the dependency script doesn't install one.</p>
+        <p>No compiler. Run <code class="inline">./scripts/install_gtk.sh</code>, which installs one on Linux &mdash; or install your distribution's build-tools package by hand, as in step 3.</p>
 
         <p><strong>Errors mentioning <code class="inline">open_memstream</code>, <code class="inline">usleep</code> or <code class="inline">clock_gettime</code>, or a linker error about <code class="inline">atan2</code></strong></p>
         <p>You're building an old checkout. Both were fixed on 2026-08-13 (a strict-C11 mode hiding glibc functions, and a missing <code class="inline">-lm</code>). Pull the latest <code class="inline">main</code>.</p>
