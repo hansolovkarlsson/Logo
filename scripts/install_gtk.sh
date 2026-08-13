@@ -19,7 +19,12 @@ elif command -v dnf >/dev/null 2>&1; then
     # Verified on Fedora 42 (aarch64), 2026-08-13.
     sudo dnf install -y gtk4-devel SDL2-devel pkgconf-pkg-config
 elif command -v apt-get >/dev/null 2>&1; then
-    # Package names per Ubuntu 24.04 LTS / Debian; not yet built there.
+    # All three names confirmed to exist on Ubuntu 24.04 LTS (aarch64),
+    # 2026-08-13, and LogoMotive builds and tests clean against what
+    # they provide (gtk4 4.14.5, sdl2 2.30.0, pkg-config 1.8.1). The
+    # apt-get call itself is still unexercised -- they were already
+    # installed on the box that verified them. Debian names assumed
+    # from Ubuntu's, as before.
     sudo apt-get install -y libgtk-4-dev libsdl2-dev pkg-config
 elif command -v pacman >/dev/null 2>&1; then
     # Package names per Arch; not yet built there.

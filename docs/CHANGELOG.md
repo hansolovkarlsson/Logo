@@ -2079,18 +2079,27 @@ regenerated to match. Verified via a clean full rebuild, `make test`
 `STOPSOUND` all parse and no-op silently with no callback, exactly as
 designed).
 
-## Linux port — the dev target builds and runs (2026-08-13)
+## Linux port (2026-08-13)
 
-LogoMotive now builds and runs on Linux, verified on Fedora 42
-(aarch64, gcc 15.2.1, GTK 4.18.6, SDL2 2.32.64): clean `make`, all
-eight `make test` binaries passing, `make logi`/`make vmrun` built and
-smoke-tested against a real script, and `bin/logomotive` launching with
-zero stderr output under *both* the Wayland and X11 GDK backends. This
-is the dev target from `docs/ROADMAP.md`'s Linux port entry; that entry
-stays open for the Ubuntu/Mint validation still outstanding.
+LogoMotive now builds and runs on Linux, verified on two distributions:
+**Fedora 42** (aarch64, gcc 15.2.1, GTK 4.18.6, SDL2 2.32.64), the dev
+target, and **Ubuntu 24.04.4 LTS** (aarch64, gcc 13.3.0, GTK 4.14.5,
+SDL2 2.30.0). On Fedora: clean `make`, all eight `make test` binaries
+passing, `make logi`/`make vmrun` built and smoke-tested against a real
+script, and `bin/logomotive` launching with zero stderr output under
+*both* the Wayland and X11 GDK backends. The Ubuntu run is written up at
+the end of this entry.
 
-The 2026-08-12 scoping prediction held exactly: this was build
-configuration, not a source port. **`src/*.c` was not touched at all.**
+This closes `docs/ROADMAP.md`'s Linux port entry, moved here per that
+file's convention. One caveat on the record: **Linux Mint (Cinnamon) was
+never built**, though the original entry named it alongside Ubuntu as a
+validation target. Closing the item on two distributions rather than
+three was the user's call, 2026-08-13. Mint tracks Ubuntu LTS directly,
+so the Ubuntu result is strong evidence for it — not proof.
+
+The 2026-08-12 scoping prediction held exactly for the build side (it
+missed the GUI entirely — see below): this was build configuration, not
+a source port. **`src/*.c` was not touched at all.**
 Three flags in the `Makefile` and one over-specified test, and that was
 the whole port. Each of the three is a real macOS-vs-Linux difference
 rather than a preference, and each is now documented in place in the
@@ -2158,11 +2167,114 @@ Two support scripts were fixed alongside:
   Makefile and `build.sh` are already platform-neutral, so this is the
   only file in the repo that needs to know what OS it's on.
 
-One genuine gap found and deliberately *not* fixed here, now recorded
-on `docs/ROADMAP.md`: all ten menu accelerators in `src/ui.c` are bound
-to `<Meta>`, which is Cmd on macOS but Super on Linux. Fixing it means
+One genuine gap was found during this build work and deliberately *not*
+fixed as part of it: all ten menu accelerators in `src/ui.c` were bound
+to `<Meta>`, which is Cmd on macOS but Super on Linux. Fixing it meant
 a platform conditional rather than a global switch to `<Primary>` —
 the existing comment there records that `<Primary>` renders as Ctrl in
 the menu on macOS's GTK build, which is why it was rejected the first
-time. Left as a separate decision rather than folded into a
-"make it compile" change.
+time. Kept as a separate decision rather than folded into a
+"make it compile" change; it shipped later the same day, below.
+
+**The GUI, which the build work missed entirely.** The scoping
+prediction quoted above held for the build and was wrong about the
+whole. Two real `src/ui.c` bugs turned up only once someone looked at
+the running window, and both are `#ifdef`-gated so macOS is untouched
+by construction.
+
+The first is the accelerator gap described just above. All ten
+bindings — open, save, load/save bytecode, export PNG, the three
+text-size actions, toggle input window, quit — had been hardcoded to
+`<Meta>` under the reasoning "this app is macOS-only anyway," which
+stopped being true once the Fedora build landed. Now `#ifdef
+__APPLE__`-gated: macOS keeps `<Meta>` (Cmd) unchanged, Linux gets
+`<Control>` **directly rather than `<Primary>`** — deliberately, since
+`<Primary>` was already known not to resolve correctly on macOS's
+Homebrew GTK build, and hardcoding `<Control>` on Linux sidesteps
+needing `<Primary>` to resolve correctly there either. Verified on
+macOS: still builds clean, all 8 `make test` binaries pass unchanged.
+The `#else` branch is confirmed to be the one that actually compiles on
+Linux — the binary carries 11 `<Control>` accelerator strings and zero
+`<Meta>` ones (11 rather than 10 because increase-text-size has two,
+`<Control>plus` and `<Control>equal`).
+
+The second is the reason the accelerators mattered less than they
+looked: **the menu bar wasn't rendering on Linux at all** — no File, no
+View, so load/save, export and the text-size actions were unreachable
+except through their shortcuts. `gtk_application_set_menubar()` is
+sufficient on macOS, where the backend hands the model to the system's
+global menu bar, but on Linux `GtkApplicationWindow` has to build the
+widget itself, and GTK4 changed `show-menubar` to default FALSE (it was
+TRUE in GTK3). One `#ifndef __APPLE__`-gated
+`gtk_application_window_set_show_menubar(..., TRUE)` fixes it; gated
+rather than unconditional so macOS can't draw an in-window menubar
+duplicating its global one. Both window construction paths
+(`logo_activate` and `logo_open`) go through `build_main_window`, so the
+single call covers both.
+
+Confirmed twice over on GTK 4.18.6, not by eye: a standalone probe
+walking the widget tree showed `show-menubar` defaulting to FALSE with
+no `GtkPopoverMenuBar` present, and one appearing fully populated once
+set; then the real `bin/logomotive`, introspected live over AT-SPI, went
+from no menu at all to exposing `menu bar: 'Menu bar'` with `File` and
+`View` items. Both fixes were then confirmed **by hand** on Fedora — the
+part no amount of tree-walking could establish: the menus open and their
+items are there, `Ctrl+S`/`Ctrl+Q`/`Ctrl+O` all fire (so neither GNOME
+nor the REPL entry widget swallows them), the text-size actions work,
+and an example script runs.
+
+**Why this is worth writing down.** The menu-bar bug survived three
+commits. It compiled clean, emitted no warnings, passed all eight test
+suites, and launched with zero stderr — and the menu bar still wasn't
+there. The headless suites cannot see the GUI, and "it starts without
+errors" was never evidence the UI was correct. Every GUI claim in this
+entry is backed by introspection or by hand, and none by a green build.
+
+**Ubuntu 24.04.4 LTS (aarch64), 2026-08-13 — no code changes needed.**
+The second distribution, and the one that mattered: Ubuntu ships **GTK
+4.14.5** against Fedora's 4.18.6, and the menu-bar bug was a
+GTK-version behaviour difference, exactly the class of thing that can
+differ again on an older GTK4. Results, on gcc 13.3.0 (against Fedora's
+gcc 15.2.1):
+
+- `make clean && make` builds clean, and **all 8 `make test` binaries
+  pass**. `make logi`/`make vmrun` build; `./build.sh` succeeds; a
+  `--headless` script runs and prints correctly.
+- The `-fconserve-stack` probe passes on gcc 13 and the flag lands on
+  the compile line, so the 61,856-byte `exec_call` frame problem stays
+  fixed on this compiler too — `test_eval`'s recursion-depth-cap test,
+  the one that segfaulted without it, passes.
+- The `CHECK_NEAR` fix above generalizes: the float test passes against
+  a second glibc/aarch64 libm.
+- **The File/View menu bar does render on 4.14.5**, confirmed by AT-SPI
+  introspection of the running binary rather than assumed from the
+  Fedora result: `frame: 'LogoMotive'` → `menu bar` with `menu item:
+  'File'` and `menu item: 'View'`. As on Fedora, the app launched with
+  zero stderr both before and after this check, which is precisely why
+  the check was run.
+- **`scripts/install_gtk.sh`'s `apt-get` package names are real.**
+  `libgtk-4-dev` and `libsdl2-dev` — documented but never built against
+  — resolve on Ubuntu 24.04 and provide gtk4 4.14.5 / sdl2 2.30.0.
+  Narrow caveat: both were already installed on this machine, so the
+  *names* are confirmed while `apt-get install` itself remains
+  unexercised.
+- Not verified live: the `Ctrl`-key accelerators on Ubuntu. GTK's
+  `GtkPopoverMenuBar` builds submenus lazily, so the items don't exist
+  in the accessibility tree until a menu is opened; the `<Control>`
+  branch was confirmed by source read only.
+- The 12 build warnings are all `-Wformat-truncation=` on fixed-size
+  `snprintf` buffers in `src/vm.c`'s `ONKEY`/`ONCLICK` handler-name
+  fields — pre-existing, in code this port never touched.
+
+Distinct from shipping pre-built binaries via GitHub Releases, which is
+*not* on the roadmap and is unaffected by any of this: that idea stays
+blocked on CI plus macOS notarization for the existing macOS build, and
+would now want a Linux artifact as well. Building from source is still
+the documented route for Linux users (see `website/index.html`).
+
+One operational note for anyone repeating this: `bin/logomotive` does
+not die on SIGTERM. Its Ctrl+C interrupt handler (`request_interrupt`,
+`src/main.c`) survives it, so `timeout N ./bin/logomotive` will not kill
+the app and a plain `kill` leaves it running — use `pkill -x -9
+logomotive`. Do **not** use `pkill -f "bin/logomotive"`: the pattern
+matches the invoking shell's own command line and kills the shell.

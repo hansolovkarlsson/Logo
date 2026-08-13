@@ -32,8 +32,9 @@ classic 80s Logo experience, running natively on macOS and Linux.
 - GTK4, SDL2 and pkg-config (`scripts/install_gtk.sh` installs all three)
 - On macOS: [Homebrew](https://brew.sh)
 
-Linux is built and tested on Fedora (see [Platform support](#platform-support)
-below for exactly what's verified where).
+Linux is built and tested on Fedora and Ubuntu (see
+[Platform support](#platform-support) below for exactly what's verified
+where).
 
 ## Build & Run
 
@@ -83,7 +84,8 @@ echo world | bin/logomotive --headless a_script_that_uses_input.logo
 |---|---|
 | **macOS** (Apple Silicon) | The original target — developed and used here daily. |
 | **Fedora** (42, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, GUI runs under both Wayland and X11, menus and keyboard shortcuts exercised by hand. |
-| **Ubuntu 24.04 LTS / Linux Mint** | Not yet built. `scripts/install_gtk.sh` has an `apt-get` branch, but the package names in it come from documentation rather than a real build. |
+| **Ubuntu** (24.04 LTS, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, `build.sh` and `--headless` working, File/View menu bar confirmed present on its older GTK 4.14.5 via accessibility introspection. `scripts/install_gtk.sh`'s `apt-get` package names check out. |
+| **Linux Mint** (Cinnamon) | Not built. Mint tracks Ubuntu LTS directly, so the Ubuntu result above is good evidence it works — but nobody has run it. |
 
 The build is a single shared flag set for both platforms rather than a
 per-OS branch — see the `Makefile`'s own comments for why `-std=gnu11`,
@@ -95,9 +97,9 @@ bound to `<Meta>`, which is Cmd on macOS but the Super key on Linux, and
 the File/View menu bar didn't render at all, because GTK4 defaults
 `GtkApplicationWindow:show-menubar` to FALSE and macOS never needed it
 (its backend routes the menu model to the system menu bar instead).
-Both are fixed and confirmed working on Fedora; see
-[`docs/ROADMAP.md`](docs/ROADMAP.md) for the remaining distro
-validation.
+Both are fixed and confirmed working on Fedora and Ubuntu; see
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md)'s Linux port entry for the full
+write-up.
 
 ## Example
 
