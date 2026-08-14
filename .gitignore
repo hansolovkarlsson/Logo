@@ -3,3 +3,8 @@ bin/
 *.o
 myapp
 logo
+
+# scripts/bundle_windows.sh's output -- the .exe plus ~60 GTK/SDL DLLs
+# and their runtime data, ~50 MB per environment. A build artifact like
+# build/ and bin/, just a much larger one.
+dist/
