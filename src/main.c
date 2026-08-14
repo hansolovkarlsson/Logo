@@ -14,6 +14,74 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+static int win_handle_is_set(HANDLE h) {
+    return h != NULL && h != INVALID_HANDLE_VALUE;
+}
+
+// Windows only, and the reason --help and --headless printed nothing at
+// all when run from a console before this existed.
+//
+// pkg-config's own gtk4 libs pull in -mwindows, which marks the PE as
+// GUI-subsystem (confirmed: objdump -p reports "Subsystem 00000002
+// (Windows GUI)"). Windows deliberately does NOT give a GUI-subsystem
+// process a console, even when a console is what launched it -- so
+// GetStdHandle(STD_OUTPUT_HANDLE) comes back unset and every printf
+// goes nowhere. The process still runs and still exits 0, which is what
+// makes the symptom so confusing: `logomotive.exe --help` in cmd.exe
+// completes silently.
+//
+// Redirection and pipes were never affected, because there the parent
+// hands down a real file/pipe handle that the CRT is happy to write to
+// -- which is exactly why this survived the first round of testing.
+//
+// AttachConsole(ATTACH_PARENT_PROCESS) borrows the launching console
+// when there is one, and fails harmlessly when there isn't (launched
+// from Explorer, or already owning a console), in which case a GUI run
+// is unaffected.
+//
+// The ordering below is the subtle part. AttachConsole itself points
+// any standard handle that ISN'T already set at the newly attached
+// console, so asking about the handles afterwards cannot distinguish
+// "the caller redirected this" from "the attach just filled it in".
+// Each handle is therefore sampled BEFORE attaching, and only the ones
+// the caller left unset get repointed at CONOUT$/CONIN$. Without that,
+// `logomotive --headless x.logo > out.txt` would have its stdout
+// yanked away from out.txt and sent to the console instead -- breaking
+// the one path that already worked.
+static void attach_parent_console(void) {
+    HANDLE out_before = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE err_before = GetStdHandle(STD_ERROR_HANDLE);
+    HANDLE in_before = GetStdHandle(STD_INPUT_HANDLE);
+
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) return;
+
+    if (!win_handle_is_set(out_before)) {
+        if (freopen("CONOUT$", "w", stdout) != NULL) {
+            // The CRT fully buffers a fresh stream it doesn't consider
+            // interactive, and _IOLBF is a no-op on Windows (the CRT
+            // treats it as _IOFBF), so line buffering isn't available
+            // to ask for. Unbuffered instead: this stream only ever
+            // carries --help text and a script's own PRINT output, and
+            // having those appear as they happen matters more here than
+            // the throughput of a buffer would.
+            setvbuf(stdout, NULL, _IONBF, 0);
+        }
+    }
+    if (!win_handle_is_set(err_before)) {
+        if (freopen("CONOUT$", "w", stderr) != NULL) setvbuf(stderr, NULL, _IONBF, 0);
+    }
+    // stdin matters for --headless specifically: WAITKEY/INPUT read a
+    // real line from it (see headless.c's read_stdin_line).
+    if (!win_handle_is_set(in_before)) freopen("CONIN$", "r", stdin);
+}
+#else
+static void attach_parent_console(void) {}
+#endif
+
 // Ctrl+C in the terminal this app was launched from would otherwise
 // just kill the whole process outright (the default SIGINT
 // disposition) -- request_interrupt instead asks whatever script is
@@ -113,6 +181,10 @@ static gboolean wants_help(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    // Before anything prints -- including --help's own usage text,
+    // which is the very next thing that can happen. No-op off Windows.
+    attach_parent_console();
+
     if (wants_help(argc, argv)) {
         print_usage(argv[0]);
         return 0;
