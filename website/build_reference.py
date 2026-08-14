@@ -28,11 +28,40 @@ def slugify(s):
 
 
 def inline_md(s):
+    # Code spans are pulled out before the emphasis passes run and put
+    # back afterwards, so their contents stay literal -- which is what
+    # markdown means by a code span.
+    #
+    # This used to convert code spans to <code> first and then run the
+    # emphasis regexes across the whole string, including the markup it
+    # had just emitted. An asterisk inside a code span was therefore
+    # still live as an emphasis delimiter. COMMAND_REFERENCE.md's
+    # numeric-expression paragraph has three such spans (`+ - * /`,
+    # `(1 + 2) * 3` and `* / + -`), so the single-asterisk pattern
+    # matched from the one inside the first span to the one inside the
+    # second, swallowing the intervening </code>...<code> and emitting
+    # mis-nested <code>/<em> -- visible in the rendered page as a stray
+    # italic run through the middle of that paragraph.
+    #
+    # \x00 is safe as the placeholder delimiter: the source is markdown
+    # prose and contains no NUL bytes, and html.escape can't introduce
+    # one.
     s = html.escape(s, quote=False)
-    s = re.sub(r"`([^`]+)`", r'<code class="inline">\1</code>', s)
+
+    spans = []
+
+    def stash(m):
+        spans.append(m.group(1))
+        return "\x00%d\x00" % (len(spans) - 1)
+
+    s = re.sub(r"`([^`]+)`", stash, s)
     s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", s)
-    return s
+
+    def restore(m):
+        return '<code class="inline">%s</code>' % spans[int(m.group(1))]
+
+    return re.sub(r"\x00(\d+)\x00", restore, s)
 
 
 def leading_token(cell_text):

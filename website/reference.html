@@ -555,7 +555,7 @@ SETSPEED 0                ; back to instant</pre>
       </div>
       <div class="ref-section" id="sec-expressions-math">
         <h2>Expressions &amp; math</h2>
-        <p>Anywhere a command expects a number, a full expression is accepted: literals (<code class="inline">100</code>, <code class="inline">3.5</code>, <code class="inline">-2</code>), operators (<code class="inline">+ - <em> /</code>, standard precedence, unary <code class="inline">+</code>/<code class="inline">-</code>), parentheses (<code class="inline">(1 + 2) </em> 3</code>), variables (<code class="inline">:name</code>), and the prefix operators below (tighter-binding than <code class="inline">* / + -</code>, so <code class="inline">MOD 7 3 + 1</code> is <code class="inline">(MOD 7 3) + 1</code>).</p>
+        <p>Anywhere a command expects a number, a full expression is accepted: literals (<code class="inline">100</code>, <code class="inline">3.5</code>, <code class="inline">-2</code>), operators (<code class="inline">+ - * /</code>, standard precedence, unary <code class="inline">+</code>/<code class="inline">-</code>), parentheses (<code class="inline">(1 + 2) * 3</code>), variables (<code class="inline">:name</code>), and the prefix operators below (tighter-binding than <code class="inline">* / + -</code>, so <code class="inline">MOD 7 3 + 1</code> is <code class="inline">(MOD 7 3) + 1</code>).</p>
         <div class="ref-entry" id="mod">
           <h3><code class="inline">MOD</code></h3>
           <p class="sig">Args: <code class="inline">a b</code></p>

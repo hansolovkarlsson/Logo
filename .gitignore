@@ -8,3 +8,7 @@ logo
 # and their runtime data, ~50 MB per environment. A build artifact like
 # build/ and bin/, just a much larger one.
 dist/
+
+# Python bytecode cache, e.g. from importing website/build_reference.py.
+__pycache__/
+*.pyc
