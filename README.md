@@ -7,7 +7,7 @@ a bytecode compiler and VM underneath, with concurrent multi-turtle agents,
 sprites, and more on top of the classic language.
 
 Type commands into the entry box and watch the turtle draw on the canvas — the
-classic 80s Logo experience, running natively on macOS and Linux.
+classic 80s Logo experience, running natively on macOS, Linux and Windows.
 
 **[Tutorial & command reference →](https://hansolovkarlsson.github.io/LogoMotive/)**
 
@@ -28,13 +28,16 @@ classic 80s Logo experience, running natively on macOS and Linux.
 
 ## Requirements
 
-- macOS, or Linux
+- macOS, Linux, or Windows
 - GTK4, SDL2 and pkg-config
 - A C compiler and `make`
-- `scripts/install_gtk.sh` installs all of the above on Linux, and the
-  libraries on macOS (where the compiler comes from Xcode's Command Line
-  Tools instead); it verifies the toolchain is present either way
+- On macOS and Linux, `scripts/install_gtk.sh` installs all of the above
+  on Linux, and the libraries on macOS (where the compiler comes from
+  Xcode's Command Line Tools instead); it verifies the toolchain is
+  present either way
 - On macOS: [Homebrew](https://brew.sh)
+- On Windows: [MSYS2](https://www.msys2.org) — see
+  [Building on Windows](#building-on-windows) below
 
 Linux is built and tested on Fedora and Ubuntu (see
 [Platform support](#platform-support) below for exactly what's verified
@@ -46,9 +49,12 @@ package commands and troubleshooting, at
 
 ```sh
 ./scripts/install_brew.sh   # macOS only, and only if Homebrew isn't installed
-./scripts/install_gtk.sh    # gtk4 + sdl2 + pkg-config + toolchain, via brew/dnf/apt/pacman
+./scripts/install_gtk.sh    # gtk4 + sdl2 + pkg-config + toolchain, via brew/dnf/apt
 make run
 ```
+
+On Windows the dependency step is different — see below — but `make`,
+`make run` and `make test` are then exactly the same commands.
 
 `make` alone builds `bin/logomotive` without launching it; `make clean` removes
 build artifacts; `make test` runs the headless interpreter test suite
@@ -84,6 +90,65 @@ echo world | bin/logomotive --headless a_script_that_uses_input.logo
 
 `bin/logomotive -h` / `--help` prints the full option list above and exits.
 
+On Windows the binary is `bin/logomotive.exe`; every command above works
+unchanged otherwise, including `--headless` printing straight to a
+console (see [Building on Windows](#building-on-windows)).
+
+## Building on Windows
+
+Everything builds from the same sources and the same `Makefile` as macOS
+and Linux; the only Windows-specific pieces are `src/compat.h`'s shims
+and the Makefile's own `STACK_FLAGS` (both explained in their own
+comments). Build under [MSYS2](https://www.msys2.org), which supplies
+the compiler, GTK4, SDL2, pkg-config, and the POSIX shell the Makefile
+needs for `mkdir -p` / `rm -rf` and its `$(shell ...)` probes.
+
+Pick the MSYS2 environment matching your CPU and open that shell:
+
+| CPU | MSYS2 environment | Package prefix |
+|---|---|---|
+| ARM64 | **CLANGARM64** | `mingw-w64-clang-aarch64-` |
+| x86-64 | **UCRT64** | `mingw-w64-ucrt-x86_64-` |
+
+Then install the dependencies with the prefix for your environment
+(CLANGARM64 shown):
+
+```sh
+pacman -S --needed \
+    mingw-w64-clang-aarch64-clang \
+    mingw-w64-clang-aarch64-gcc-compat \
+    mingw-w64-clang-aarch64-make \
+    mingw-w64-clang-aarch64-pkgconf \
+    mingw-w64-clang-aarch64-gtk4 \
+    mingw-w64-clang-aarch64-SDL2 \
+    make
+make run
+```
+
+`gcc-compat` is what supplies the `gcc` the Makefile's `CC` asks for,
+wrapping clang; on UCRT64 you get a real gcc instead and can install
+`mingw-w64-ucrt-x86_64-gcc` in place of the `clang`/`gcc-compat` pair.
+
+**Do not use `scripts/install_gtk.sh` on Windows.** It detects `pacman`
+and assumes Arch Linux, so it asks for the bare `gtk4`/`sdl2` package
+names — which don't exist in MSYS2's repositories, where every native
+package carries an environment prefix. It fails with "target not found"
+rather than installing anything. Use the `pacman` line above instead.
+
+Two things behave differently on Windows and are handled in-tree rather
+than being anything you need to do:
+
+- **Console output.** GTK4's own pkg-config libs link `-mwindows`, which
+  makes the binary GUI-subsystem, and Windows withholds a console from
+  such a process even when a console launched it. `main.c` calls
+  `AttachConsole(ATTACH_PARENT_PROCESS)` at startup so `--help` and
+  `--headless` print normally, while leaving redirection and pipes
+  alone.
+- **Line endings.** `.gitattributes` pins the working tree to LF, and
+  `logo_normalize_newlines` (`src/lexer.h`) normalizes ingested source,
+  so a `.logo` file written in a Windows editor with CRLF behaves
+  exactly like an LF one.
+
 ## Platform support
 
 | | Status |
@@ -92,10 +157,26 @@ echo world | bin/logomotive --headless a_script_that_uses_input.logo
 | **Fedora** (42, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, GUI runs under both Wayland and X11, menus and keyboard shortcuts exercised by hand. |
 | **Ubuntu** (24.04 LTS, aarch64) | Verified 2026-08-13: clean `make`, full `make test` suite green, `build.sh` and `--headless` working, File/View menu bar confirmed present on its older GTK 4.14.5 via accessibility introspection, and `Ctrl+O`/`Ctrl+S` confirmed firing by hand. `scripts/install_gtk.sh`'s `apt-get` package names check out. |
 | **Ubuntu derivatives** (Linux Mint, Pop!_OS, …) | Expected to work, covered by the Ubuntu row rather than tested separately — Mint's main edition is built on the Ubuntu LTS base and installs the same GTK4/SDL2 packages. Mint ships Cinnamon rather than GNOME, which could in principle grab a keyboard shortcut differently; menu-bar rendering is GTK-internal and unaffected. LMDE is Debian-based, so it's outside this. |
+| **Windows 11** (ARM64, MSYS2 CLANGARM64) | Verified 2026-08-14 on clang 22.1.8 / GTK 4.22.4 / SDL2 2.32.10: clean `make` with zero warnings, full `make test` suite green, GUI runs and draws with the File/View menu bar present, `--headless` correct to a console, to a file redirect and through a pipe, and `INPUT` reading a piped stdin. |
+| **Windows** (x86-64, MSYS2 UCRT64) | Expected to work but **not yet verified** — no x86-64 machine was available. It's the likelier-to-just-work of the two if anything, since UCRT64 uses a real gcc, which accepts `-fconserve-stack` and so gets the same small frames Linux does. The stack maths therefore differs from the ARM64 row: see `STACK_FLAGS` in the `Makefile`. |
 
-The build is a single shared flag set for both platforms rather than a
-per-OS branch — see the `Makefile`'s own comments for why `-std=gnu11`,
-`-lm` and `-fconserve-stack` are each load-bearing on Linux specifically.
+The build is a single shared flag set for all three platforms rather
+than a per-OS branch — see the `Makefile`'s own comments for why
+`-std=gnu11`, `-lm` and `-fconserve-stack` are each load-bearing on
+Linux specifically, and why `STACK_FLAGS` is on Windows.
+
+Windows needs three small pieces of its own, each isolated and
+commented where it lives: `src/compat.h` supplies `strcasestr` and
+`localtime_r` (absent from mingw-w64) and compiles to nothing
+elsewhere; `bytecode_disassemble_to_string` (`src/bytecode.c`) backs
+Windows with a temp file where POSIX uses `open_memstream`; and
+`STACK_FLAGS` raises the stack from the 1 MB a PE image gets by default
+to the 8 MB macOS and Linux already give the main thread, which
+`MAX_SCOPE_DEPTH`'s 200-level recursion cap needs.
+
+Both `#ifdef __APPLE__` sites in `src/ui.c` already had the right
+answer for Windows without changes — it takes the same `#else` branch
+Linux does, giving `<Control>` accelerators and an in-window menu bar.
 
 Two Linux-only menu issues have been found and fixed (`src/ui.c`, both
 `#ifdef`-gated so macOS behaviour is untouched): the accelerators were
@@ -152,10 +233,14 @@ src/interpreter.h/c the original tree-walker (eval_logo) -- frozen,
                      pre-VM, kept only for its own tests
 src/ui.h/c          the GTK window: canvas, REPL entry, View menu
 src/headless.h/c    --headless: runs a script with no GTK window at all
-src/main.c          entry point
+src/compat.h        Windows-only shims for the libc functions mingw-w64
+                     lacks (strcasestr, localtime_r) -- empty elsewhere
+src/main.c          entry point (and, on Windows, the parent-console
+                     attach that lets --help/--headless print)
 tests/              headless tests for the interpreter core (make test)
 docs/               language reference and roadmap
 Makefile            make / make run / make test / make clean
 build.sh            one-shot alternative build script
-scripts/            dependency setup helpers (brew/dnf/apt/pacman)
+scripts/            dependency setup helpers (brew/dnf/apt; not Windows
+                     -- see "Building on Windows" above)
 ```
