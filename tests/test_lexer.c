@@ -45,6 +45,55 @@ static void check_token(LogoToken tok, LogoTokenType expected_type, const char *
 
 #define MAX_TEST_TOKENS 64
 
+// A CRLF file has always tokenized correctly -- isspace() covers '\r',
+// so skip_insignificant and is_bareword_char both stop on one exactly
+// as they stop on a space. Pinned here anyway, because the CRLF fix
+// lives in logo_normalize_newlines rather than in the lexer, and this
+// is what says why: had the lexer needed changing, this test would
+// have been the one to fail first.
+TEST(test_crlf_source_lexes_the_same_as_lf) {
+    LogoToken crlf[MAX_TEST_TOKENS];
+    LogoToken lf[MAX_TEST_TOKENS];
+    int n_crlf = logo_lex("FD 100\r\nRT 90\r\n", crlf, MAX_TEST_TOKENS);
+    int n_lf = logo_lex("FD 100\nRT 90\n", lf, MAX_TEST_TOKENS);
+    CHECK(n_crlf == n_lf);
+    CHECK(n_crlf == 5); // FD 100 RT 90 EOF
+    CHECK_TOKEN(crlf[0], LOGO_TOK_BAREWORD, "FD");
+    CHECK_TOKEN(crlf[1], LOGO_TOK_NUMBER, "100");
+    CHECK_TOKEN(crlf[2], LOGO_TOK_BAREWORD, "RT");
+    CHECK_TOKEN(crlf[3], LOGO_TOK_NUMBER, "90");
+    CHECK_TOKEN(crlf[4], LOGO_TOK_EOF, "");
+}
+
+// The actual CRLF fix. What made this matter is not tokenizing but the
+// raw source spans captured downstream -- AST_PROC_DEF's own
+// body_text/body_len, which TEXT/SHOW/SAVE print back verbatim -- so a
+// '\r' left in the buffer ends up in program output. See lexer.h.
+TEST(test_normalize_newlines_rewrites_crlf_and_lone_cr) {
+    char crlf[] = "TO square :size\r\n  REPEAT 4 [FD :size]\r\nEND\r\n";
+    CHECK(strcmp(logo_normalize_newlines(crlf),
+                 "TO square :size\n  REPEAT 4 [FD :size]\nEND\n") == 0);
+    CHECK(strchr(crlf, '\r') == NULL);
+
+    // A lone CR (classic Mac) becomes a newline rather than vanishing.
+    char lone_cr[] = "FD 100\rRT 90\r";
+    CHECK(strcmp(logo_normalize_newlines(lone_cr), "FD 100\nRT 90\n") == 0);
+
+    // Mixed endings in one buffer, and a CR at the very end with no
+    // following byte to inspect -- the bounds case of the r[1] peek.
+    char mixed[] = "A\r\nB\rC\n\r";
+    CHECK(strcmp(logo_normalize_newlines(mixed), "A\nB\nC\n\n") == 0);
+
+    CHECK(logo_normalize_newlines(NULL) == NULL);
+}
+
+TEST(test_normalize_newlines_leaves_lf_only_source_untouched) {
+    char lf[] = "FD 100\nRT 90\n";
+    CHECK(strcmp(logo_normalize_newlines(lf), "FD 100\nRT 90\n") == 0);
+    char empty[] = "";
+    CHECK(strcmp(logo_normalize_newlines(empty), "") == 0);
+}
+
 TEST(test_empty_source_is_just_eof) {
     LogoToken toks[MAX_TEST_TOKENS];
     int n = logo_lex("", toks, MAX_TEST_TOKENS);
@@ -285,6 +334,9 @@ int main(void) {
     RUN(test_a_realistic_line_of_source);
     RUN(test_line_and_col_tracking);
     RUN(test_too_many_tokens_reports_overflow_not_silent_truncation);
+    RUN(test_crlf_source_lexes_the_same_as_lf);
+    RUN(test_normalize_newlines_rewrites_crlf_and_lone_cr);
+    RUN(test_normalize_newlines_leaves_lf_only_source_untouched);
 
     if (failures == 0) {
         printf("All tests passed.\n");

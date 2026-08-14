@@ -1489,6 +1489,8 @@ static gboolean on_entry_key_pressed(GtkEventControllerKey *controller, guint ke
     GtkTextIter start, end;
     gtk_text_buffer_get_bounds(buffer, &start, &end);
     char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    // GTK's own buffer holds LF, but pasted text can arrive as CRLF.
+    logo_normalize_newlines(text); // see lexer.h
 
     if (!is_input_complete(text)) {
         g_free(text);
@@ -1562,6 +1564,7 @@ static void on_file_open_response(GObject *source, GAsyncResult *result, gpointe
         append_output(app, "\n");
         g_free(path);
 
+        logo_normalize_newlines(contents); // see lexer.h
         run_logo_script(app, contents);
         g_free(contents);
     } else {
@@ -2311,6 +2314,7 @@ void logo_open(GApplication *app, GFile **files, gint n_files, const gchar *hint
         append_output(logo, "\n");
         g_free(path);
 
+        logo_normalize_newlines(contents); // see lexer.h
         run_logo_script(logo, contents);
         g_free(contents);
     } else {

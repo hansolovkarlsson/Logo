@@ -2738,6 +2738,72 @@ TEST(test_type_show_example_runs_correctly) {
     end_vm_session(s);
 }
 
+// The same example again, but fed in with CRLF line endings -- the
+// shape a Windows editor produces, and the shape a Windows clone of
+// this repo used to get before .gitattributes pinned the working tree
+// to LF. It must produce BYTE-IDENTICAL output to the LF run above.
+//
+// This is the end-to-end half of the CRLF fix; test_lexer.c covers
+// logo_normalize_newlines itself. Worth having both, because the bug
+// was never in tokenizing: SHOW prints a procedure's body straight
+// from AST_PROC_DEF's body_text span (see ast.h), and parse_proc_def
+// sets that span to run up to the END token, so it takes in the line
+// ending before END. On CRLF input every body line SHOW printed
+// carried a stray '\r' -- invisible in a diff, which is exactly what
+// made the original failure so confusing to read.
+//
+// Note the normalize call here stands in for the real ingest points
+// (headless.c, ui.c, vm.c's exec_load, ...), which is where a CRLF
+// buffer actually gets cleaned before it ever reaches the parser.
+TEST(test_crlf_source_produces_identical_output_to_lf) {
+    char *lf_source = NULL;
+    if (!g_file_get_contents("examples/type_show.logo", &lf_source, NULL, NULL)) {
+        failures++;
+        printf("FAIL %s: could not read examples/type_show.logo\n", current_test);
+        return;
+    }
+
+    // Build a CRLF copy: every '\n' becomes "\r\n". Worst case is one
+    // extra byte per character, so 2x the original is always enough.
+    size_t lf_len = strlen(lf_source);
+    char *crlf_source = malloc(lf_len * 2 + 1);
+    size_t w = 0;
+    for (size_t r = 0; r < lf_len; r++) {
+        if (lf_source[r] == '\n') crlf_source[w++] = '\r';
+        crlf_source[w++] = lf_source[r];
+    }
+    crlf_source[w] = '\0';
+    if (strchr(crlf_source, '\r') == NULL) {
+        failures++;
+        printf("FAIL %s: fixture is not actually CRLF\n", current_test);
+    }
+
+    logo_normalize_newlines(crlf_source);
+    if (strcmp(crlf_source, lf_source) != 0) {
+        failures++;
+        printf("FAIL %s: normalising the CRLF copy did not reproduce the LF original\n", current_test);
+    }
+
+    VmRunResult status;
+    VmTestSession s = start_vm_session(crlf_source, &status);
+    if (s.result->error_count > 0) {
+        failures++;
+        printf("FAIL %s: CRLF example failed to parse (%d error(s)): %s\n",
+               current_test, s.result->error_count, s.result->errors[0].message);
+        end_vm_session(s);
+        free(crlf_source);
+        g_free(lf_source);
+        return;
+    }
+    expect_status(status, VM_RUN_HALTED, "run");
+    expect_output(
+        "Hello,world!\nTO square :size\nREPEAT 4 [FD :size RT 90]\n\nEND\n"
+        "SHOW: no such procedure \"nope\n");
+    end_vm_session(s);
+    free(crlf_source);
+    g_free(lf_source);
+}
+
 // examples/objects.logo used the OLD tree-walking engine's SEND
 // calling convention (SEND obj "message, with trailing positional
 // args) -- bin/logomotive's own SEND is deliberately fixed at 3 args (obj,
@@ -3369,6 +3435,7 @@ int main(void) {
     RUN(test_type_exact_output_has_no_trailing_newline);
     RUN(test_readword_readchar_example_runs_correctly);
     RUN(test_type_show_example_runs_correctly);
+    RUN(test_crlf_source_produces_identical_output_to_lf);
     RUN(test_objects_example_runs_correctly);
     RUN(test_pi_reports_the_constant);
     RUN(test_rerandom_makes_random_reproducible);

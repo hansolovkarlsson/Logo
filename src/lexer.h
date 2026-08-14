@@ -10,6 +10,12 @@
 // keeping it this decoupled is what makes it independently testable
 // (see tests/test_lexer.c) before any parser/AST code exists to
 // depend on it.
+//
+// <stddef.h> is the one include, and it doesn't compromise that: it's
+// a freestanding header (no libc runtime behind it), needed only for
+// NULL in logo_normalize_newlines below.
+
+#include <stddef.h>
 
 typedef enum {
     LOGO_TOK_EOF,
@@ -55,5 +61,51 @@ typedef struct {
 // truncation" policy this project's other fixed-size buffers already
 // follow (see extract_block's own comment in interpreter.c).
 int logo_lex(const char *source, LogoToken *out, int max_tokens);
+
+// Rewrites `source` in place so every line ends with a single '\n': a
+// CRLF pair loses its '\r', and a lone CR (classic Mac) becomes '\n'.
+// Returns `source`. Every point where Logo *source text* enters the
+// program calls this -- see the call sites in headless.c, parser.c,
+// ui.c, vm.c, eval.c and interpreter.c.
+//
+// This is deliberately NOT about tokenizing, and the lexer itself
+// needed no change for CRLF: isspace() already covers '\r', so both
+// skip_insignificant and is_bareword_char stop on one exactly as they
+// stop on a space, and `FD 10\r\n` tokenizes identically to `FD 10\n`.
+//
+// The problem is downstream, in the things that capture RAW SPANS of
+// the source buffer rather than re-rendering parsed tokens. The
+// clearest is AST_PROC_DEF's body_text/body_len (see ast.h), which
+// TEXT/SHOW/SAVE print back verbatim: parse_proc_def sets that span to
+// run from the body's first token up to the END token, so it includes
+// the line ending before END, and on CRLF input every line of a
+// printed procedure body ends up carrying a stray carriage return into
+// the output. 'raw text' literals have the same exposure, since they
+// span newlines by design. Normalizing once at ingest fixes all of
+// them at the source rather than teaching each consumer to strip.
+//
+// Kept here (rather than in lexer.c) and static inline on purpose:
+// interpreter.c needs it too, and the Makefile's TEST_TARGET builds
+// interpreter.c WITHOUT lexer.c, so a linked symbol would break that
+// target. lexer.h has no dependencies of its own, so including it
+// costs those translation units nothing.
+//
+// Only ever shrinks the buffer, so it is safe in place on any mutable
+// NUL-terminated string, and it is a no-op on the LF input macOS and
+// Linux normally produce.
+static inline char *logo_normalize_newlines(char *source) {
+    if (source == NULL) return NULL;
+    char *w = source;
+    for (const char *r = source; *r != '\0'; r++) {
+        if (*r == '\r') {
+            if (r[1] == '\n') continue; // CRLF: drop the CR, keep the LF
+            *w++ = '\n';                // lone CR: classic Mac line ending
+            continue;
+        }
+        *w++ = *r;
+    }
+    *w = '\0';
+    return source;
+}
 
 #endif

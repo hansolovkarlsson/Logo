@@ -17,6 +17,7 @@
 #include <signal.h> // request_interrupt (Ctrl+C, see main.c)
 #include <glib/gstdio.h> // g_remove (DELETEFILE)
 #include "compat.h" // strcasestr on Windows -- no-op on macOS/Linux
+#include "lexer.h"  // logo_normalize_newlines (static inline; adds no link dependency)
 
 // Set only by request_interrupt (an async-signal-safe write, per the C
 // standard's one guarantee for signal handlers), checked everywhere
@@ -2537,6 +2538,7 @@ void eval_logo(LogoApp *app, const char *code) {
                 char *contents = NULL;
                 GError *error = NULL;
                 if (g_file_get_contents(path_buf + 1, &contents, NULL, &error)) {
+                    logo_normalize_newlines(contents); // see lexer.h
                     eval_logo(app, contents);
                     g_free(contents);
                 } else {

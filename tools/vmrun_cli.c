@@ -89,6 +89,7 @@ static int run_file(const char *prog, const char *path) {
     size_t read = fread(source, 1, (size_t)size, f);
     source[read] = '\0';
     fclose(f);
+    logo_normalize_newlines(source); // see lexer.h
 
     // Heap, not stack -- same rule this project applies everywhere
     // else (see logi_cli.c's own comment on this).

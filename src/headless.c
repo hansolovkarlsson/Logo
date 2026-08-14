@@ -116,6 +116,7 @@ int run_headless_script(const char *prog, const char *path) {
     size_t bytes_read = fread(source, 1, (size_t)size, f);
     source[bytes_read] = '\0';
     fclose(f);
+    logo_normalize_newlines(source); // a CRLF script must behave as an LF one
 
     // Heap, not stack -- same rule this project applies everywhere else
     // (see vmrun_cli.c's own comment on this).

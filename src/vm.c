@@ -1696,6 +1696,7 @@ static void exec_load(Vm *vm, LogoApp *app, const char *path) {
         g_error_free(error);
         return;
     }
+    logo_normalize_newlines(contents); // see lexer.h -- body_text spans point into this
     LogoToken *tokens = malloc(sizeof(LogoToken) * VM_LOAD_MAX_TOKENS);
     int n = logo_lex(contents, tokens, VM_LOAD_MAX_TOKENS);
     if (n >= 0) {

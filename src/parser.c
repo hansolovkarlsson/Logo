@@ -632,6 +632,9 @@ static void eager_follow_load(Parser *p, const char *path, int depth) {
     size_t read_bytes = fread(contents, 1, (size_t)size, f);
     fclose(f);
     contents[read_bytes] = '\0';
+    // Before pass 2 re-lexes this buffer and points body_text spans
+    // into it -- a '\r' left here would ride into SHOW/TEXT output.
+    logo_normalize_newlines(contents);
 
     // Owned for as long as `p->pool` is -- pass 2 (build_eager_procedures)
     // re-lexes this exact buffer to build real AST_PROC_DEF nodes whose

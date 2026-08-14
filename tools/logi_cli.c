@@ -65,6 +65,7 @@ static int run_file(const char *prog, const char *path) {
     size_t read = fread(source, 1, (size_t)size, f);
     source[read] = '\0';
     fclose(f);
+    logo_normalize_newlines(source); // see lexer.h
 
     // Same "heap, not stack" rule this project applies to every
     // multi-KB-or-larger buffer (see LogoApp/ParseResult below) --

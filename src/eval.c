@@ -2442,6 +2442,7 @@ static void do_load(LogoApp *app, AstPool *pool, const int *arg_idx) {
         g_error_free(error);
         return;
     }
+    logo_normalize_newlines(contents); // see lexer.h -- body_text spans point into this
     LogoToken *tokens = malloc(sizeof(LogoToken) * MAX_LOAD_TOKENS);
     int n = logo_lex(contents, tokens, MAX_LOAD_TOKENS);
     if (n >= 0) {
