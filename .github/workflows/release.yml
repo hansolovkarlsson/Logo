@@ -1,0 +1,224 @@
+name: Release
+
+# Builds the release archives from a tag and publishes them, replacing
+# the hand-built-and-uploaded process that produced v0.1.0.
+#
+# This is docs/ROADMAP.md's "Automated, notarized releases" item, minus
+# the notarization half -- see the macos job's own comment for exactly
+# what is and isn't signed, and what it would take to finish.
+#
+# Tag a release and this does the rest:
+#
+#     git tag v0.2.0 && git push origin v0.2.0
+#
+# The tag name is the only version marker the project has -- there is no
+# version string anywhere in src/ to keep in sync, which is deliberate
+# and worth not "fixing" without reason.
+#
+# The Linux job builds and tests but publishes nothing, on purpose. See
+# docs/ROADMAP.md's "A Linux package" entry: a dynamically-linked Linux
+# binary can't be handed out usefully, because glibc's symbol versioning
+# is forward-compatible only, so a binary built on the runner's
+# distribution won't start on an older one. It's here to gate the
+# release rather than to produce an asset -- cutting a release from a
+# tree that doesn't build on Linux would be worse than shipping no Linux
+# asset at all.
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Lets the whole thing be exercised without tagging: it builds and
+  # uploads the archives as run artifacts, and stops before publishing.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp into the archives for a dry run (e.g. v0.2.0-test)"
+        required: true
+        default: "v0.0.0-dryrun"
+
+# Needed by `gh release create` in the publish job below. Everything
+# else here only reads the repo.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Gate only: proves the tagged tree still builds and tests on Linux.
+  # Produces no asset, for the reason in this file's header comment.
+  linux-gate:
+    name: linux (gate, no asset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/install_gtk.sh
+      - run: make
+      - run: make test
+
+  macos:
+    name: macos-arm64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: echo "version=${{ github.event.inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - run: ./scripts/install_gtk.sh
+      - run: make
+      - run: make test
+
+      # Staged as a plain folder holding the binary, examples/ and a
+      # README.txt -- the same shape the hand-built v0.1.0 archive had,
+      # kept so anyone who downloaded that one finds this familiar.
+      #
+      # Deliberately NOT bundling the GTK/SDL dylibs the way the Windows
+      # job bundles DLLs. Doing that on macOS means rewriting install
+      # names with install_name_tool, which is fiddly enough to be worth
+      # testing rather than assuming -- and no macOS machine was
+      # available to test it on. Shipping an untested bundler would be
+      # worse than the documented Homebrew requirement, so the README
+      # states the dependency instead. Bundling stays open work.
+      - name: Stage the archive
+        run: |
+          NAME="logomotive-${{ steps.v.outputs.version }}-macos-arm64"
+          mkdir -p "dist/$NAME"
+          cp bin/logomotive "dist/$NAME/"
+          cp -R examples "dist/$NAME/"
+          ./scripts/release_readme.sh macos-arm64 "${{ steps.v.outputs.version }}" > "dist/$NAME/README.txt"
+          cd dist && zip -qr "$NAME.zip" "$NAME"
+          echo "archive=dist/$NAME.zip" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logomotive-macos-arm64
+          path: ${{ env.archive }}
+          retention-days: 7
+
+  windows:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            msystem: UCRT64
+            platform: windows-x86_64
+          - runner: windows-11-arm
+            msystem: CLANGARM64
+            platform: windows-arm64
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          # zip only, and note this differs from build.yml, which
+          # deliberately passes no `install:` at all so that
+          # install_gtk.sh is the single source of the build
+          # dependencies. zip isn't one of those -- it's a packaging
+          # tool needed only here -- and it is genuinely absent from a
+          # default MSYS2 install, so without this the archive step
+          # fails with "zip: command not found" after a full build.
+          install: >-
+            zip
+
+      - name: Resolve version
+        id: v
+        run: echo "version=${{ github.event.inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - run: ./scripts/install_gtk.sh
+      - run: make
+      - run: make test
+
+      # Windows ships self-contained: bundle_windows.sh already collects
+      # the DLL closure and GTK's filesystem-resolved runtime data, so
+      # this only has to rename the folder to the release convention and
+      # drop the README in.
+      - name: Bundle and stage the archive
+        run: |
+          ./scripts/bundle_windows.sh
+          NAME="logomotive-${{ steps.v.outputs.version }}-${{ matrix.platform }}"
+          SRC=$(echo dist/logomotive-windows-*)
+          mv "$SRC" "dist/$NAME"
+          ./scripts/release_readme.sh "${{ matrix.platform }}" "${{ steps.v.outputs.version }}" > "dist/$NAME/README.txt"
+          # bundle_windows.sh copies the repo README.md in as well; the
+          # release archive wants only its own README.txt.
+          rm -f "dist/$NAME/README.md"
+          cd dist && zip -qr "$NAME.zip" "$NAME"
+          echo "archive=dist/$NAME.zip" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logomotive-${{ matrix.platform }}
+          path: ${{ env.archive }}
+          retention-days: 7
+
+  publish:
+    name: Publish the release
+    # Every platform must be green before anything is published,
+    # including the Linux gate that ships nothing.
+    needs: [linux-gate, macos, windows]
+    runs-on: ubuntu-latest
+    # Only a real tag publishes. A workflow_dispatch run stops here,
+    # having still built and uploaded every archive as a run artifact,
+    # so the whole thing can be exercised without cutting a release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List what will be published
+        run: ls -la artifacts/
+
+      # gh is preinstalled on the runners, so this needs no third-party
+      # action -- one less thing in the supply chain for a job that
+      # holds a write token.
+      #
+      # --generate-notes gives the commit list; the body below is
+      # prepended to it and is the part worth writing by hand, because
+      # "which of these downloads do I want and what does it need"
+      # isn't answerable from a commit log.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > notes.md <<'NOTES'
+          ### Downloads
+
+          | Platform | Archive | Needs anything installed? |
+          |---|---|---|
+          | Windows (Intel/AMD 64-bit) | `…-windows-x86_64.zip` | No — GTK4 and SDL2 are bundled |
+          | Windows (ARM64) | `…-windows-arm64.zip` | No — GTK4 and SDL2 are bundled |
+          | macOS (Apple Silicon) | `…-macos-arm64.zip` | Yes — `brew install gtk4 sdl2` |
+
+          Each archive holds the executable, the `examples/` scripts, and a
+          `README.txt` with the platform's own setup notes.
+
+          **Linux**: no download — build from source, which is three commands
+          and under a minute. See [the build guide](https://github.com/hansolovkarlsson/LogoMotive#build--run).
+          A dynamically-linked Linux binary can't be distributed usefully
+          because of glibc symbol versioning; a Flatpak is the intended fix.
+
+          **Signing**: none of these builds are code-signed. macOS will warn
+          about an unidentified developer and Windows SmartScreen may warn
+          too; each archive's `README.txt` says how to proceed past it.
+          NOTES
+          gh release create "${{ github.ref_name }}" \
+            --title "LogoMotive ${{ github.ref_name }}" \
+            --notes-file notes.md \
+            --generate-notes \
+            artifacts/*.zip

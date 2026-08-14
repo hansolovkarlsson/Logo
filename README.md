@@ -45,6 +45,25 @@ where). There's a step-by-step Linux build guide, with per-distribution
 package commands and troubleshooting, at
 [`website/linux.html`](website/linux.html).
 
+## Download
+
+Pre-built archives for each tagged release are on the
+[Releases page](https://github.com/hansolovkarlsson/LogoMotive/releases):
+Windows x86-64, Windows ARM64 and macOS (Apple Silicon). The Windows
+archives are self-contained; the macOS one needs `brew install gtk4
+sdl2` first. Each holds the executable, the `examples/` scripts and a
+`README.txt` with that platform's setup notes.
+
+There is no Linux download — build from source below, which is three
+commands and usually under a minute. A dynamically-linked Linux binary
+can't be distributed usefully because glibc's symbol versioning is
+forward-compatible only; a Flatpak is the intended fix (see
+[`docs/ROADMAP.md`](docs/ROADMAP.md)).
+
+None of the builds are code-signed, so macOS Gatekeeper and Windows
+SmartScreen will both warn on first run; each archive's `README.txt`
+says how to proceed.
+
 ## Build & Run
 
 ```sh

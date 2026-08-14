@@ -221,28 +221,54 @@ explicit request.
   AppImage should come down somewhat, but the ranking below Flatpak
   stands.
 
-- [ ] **Automated, notarized releases** — the current release is
-  `v0.1.0` (2026-08-12), a single hand-built asset
-  (`logomotive-v0.1.0-macos-arm64.zip`). Built and uploaded by hand,
-  which doesn't scale to four platforms and doesn't repeat reliably.
+- [x] **Automated releases** — done 2026-08-14,
+  `.github/workflows/release.yml`. Pushing a `v*` tag builds, tests and
+  publishes three archives: Windows x86-64, Windows ARM64 and macOS
+  ARM64. The Windows two are self-contained (`bundle_windows.sh`'s DLL
+  closure); macOS carries the binary and examples and states its
+  Homebrew requirement, matching the shape of the hand-built v0.1.0
+  archive so anyone who downloaded that finds this familiar.
 
-  **No longer blocked**: this listed CI as its prerequisite, and CI
-  landed 2026-08-14. The Windows half is closer than the rest, since
-  `build.yml` already produces exactly the artifact a release would
-  ship — attaching it to a tag rather than to a run is the remaining
-  step, and it needs no signing story to be useful. macOS notarization
-  is the part that stays genuinely involved.
+  Linux builds and tests in the release run but publishes no asset, for
+  the glibc reason in the entry above — it gates the release rather
+  than contributing to it, since cutting one from a tree that doesn't
+  build on Linux would be worse than shipping no Linux asset.
 
-  Two separate things are missing. **Automation** — building the
-  release artifacts from a tag rather than from whatever was on the
-  author's machine that day — is blocked on CI above and is mostly
-  mechanical once it exists. **macOS notarization** is the real work:
-  Apple requires a downloaded app to be signed and notarized or
-  Gatekeeper refuses to open it, which needs a paid Developer ID and a
-  signing step in the release job. Not verified either way what
-  Gatekeeper currently does with the v0.1.0 zip on a machine that
-  didn't build it — worth actually checking before assuming it's a
-  problem, since that determines whether this is urgent or cosmetic.
+  `workflow_dispatch` runs everything except the publish step, so the
+  whole pipeline can be exercised without cutting a release.
+
+  **A real bug this turned up**: the v0.1.0 archive's own README.txt
+  told users to `brew install gtk4` and stopped there. The binary links
+  SDL2 as well (joystick and audio), so following those instructions
+  exactly gets a dyld error rather than a window. The generated README
+  (`scripts/release_readme.sh`) names both.
+
+- [ ] **macOS notarization** — split out from the automation above,
+  which is now done. Apple requires a downloaded app to be signed and
+  notarized or Gatekeeper refuses to open it. That needs a paid
+  Developer ID, the certificate and an app-specific password in repo
+  secrets, and a signing step in the release job — none of which can be
+  set up from outside the account, which is why this is separate rather
+  than folded in.
+
+  Still **not verified either way** what Gatekeeper actually does with
+  an unsigned zip on a machine that didn't build it. Worth checking
+  before assuming urgency, since that determines whether this is a real
+  barrier or a scary-looking dialog with a documented right-click
+  workaround. The archives' README.txt describes that workaround today.
+
+  Windows SmartScreen is the same shape of problem and is deliberately
+  *not* being treated as work: an EV certificate is expensive and the
+  warning is dismissible.
+
+- [ ] **Bundle the macOS dylibs** — the Windows archives are
+  self-contained but the macOS one isn't, so it's the only download
+  that asks the user to install anything. Doing it means rewriting
+  install names with `install_name_tool`, which is fiddly enough to
+  want testing rather than assuming; it was left alone in the
+  2026-08-14 release work specifically because no macOS machine was
+  available to test it on, and shipping an untested bundler would be
+  worse than a documented Homebrew line.
 
 ## Not being considered yet — real complications found while scoping
 
