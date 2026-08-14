@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogoMotive on Windows</title>
+<link rel="icon" type="image/svg+xml" href="assets/turtle-mark.svg">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-logo" href="index.html">
+      <svg class="logo-mark" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path class="trail" d="M -22,24 A 22,22 0 0 1 -3,-20" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path class="turtle" d="M 0,-30 L 21,30 L -21,30 Z" transform="rotate(-14)"/>
+      </svg>
+      LogoMotive
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tutorial.html">Tutorial</a>
+      <a href="tutorial-2.html">Tutorial II</a>
+      <a href="tutorial-3.html">Tutorial III</a>
+      <a href="reference.html">Reference</a>
+      <a href="linux.html">Linux</a>
+      <a href="windows.html" class="current">Windows</a>
+    </nav>
+    <a class="site-github" href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">GitHub &#8599;</a>
+  </div>
+</header>
+
+<div class="wrap narrow">
+
+  <div class="page-hero">
+    <p class="eyebrow">Download, prepare, build</p>
+    <h1 class="title">LogoMotive on Windows</h1>
+    <p class="lede">
+      LogoMotive builds natively on Windows from the same sources as
+      macOS and Linux &mdash; no WSL, no virtual machine. It needs
+      MSYS2, which supplies the compiler and libraries. Everything on
+      this page has been run on a real machine; where it hasn't, the
+      page says so.
+    </p>
+  </div>
+
+  <div class="layout">
+    <nav class="chapter-toc">
+      <p class="toc-label">Contents</p>
+      <ol>
+        <li><a href="#requirements"><span class="num">1</span>What you need</a></li>
+        <li><a href="#msys2"><span class="num">2</span>Install MSYS2</a></li>
+        <li><a href="#shell"><span class="num">3</span>Pick the right shell</a></li>
+        <li><a href="#source"><span class="num">4</span>Get the source</a></li>
+        <li><a href="#deps"><span class="num">5</span>Install dependencies</a></li>
+        <li><a href="#build"><span class="num">6</span>Build &amp; test</a></li>
+        <li><a href="#run"><span class="num">7</span>Run it</a></li>
+        <li><a href="#bundle"><span class="num">8</span>Share a build</a></li>
+        <li><a href="#trouble"><span class="num">9</span>Troubleshooting</a></li>
+        <li><a href="#tested"><span class="num">10</span>What's tested</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <div class="howto">
+        <h2>The short version</h2>
+        <p>In the MSYS2 shell for your CPU &mdash; <strong>CLANGARM64</strong> on ARM, <strong>UCRT64</strong> on Intel/AMD:</p>
+        <pre class="code">git clone https://github.com/hansolovkarlsson/LogoMotive.git
+cd LogoMotive
+./scripts/install_gtk.sh
+make run</pre>
+        <p>If that worked, you can stop reading. Step 3 is the one people get wrong, so start there if it didn't.</p>
+      </div>
+
+      <section class="chapter" id="requirements">
+        <div class="chapter-head"><span class="chapter-num">1</span><h2>What you need</h2></div>
+        <p>The same three libraries every other platform needs, plus a way to get them on Windows:</p>
+        <ul>
+          <li><strong>GTK4</strong> &mdash; the windowing toolkit. This is the big one.</li>
+          <li><strong>SDL2</strong> &mdash; sound and joystick input. Not optional, even if you never make a sound: the interpreter links against it unconditionally.</li>
+          <li><strong>pkg-config</strong> &mdash; how the <code class="inline">Makefile</code> finds the other two.</li>
+          <li><strong>A C compiler and <code class="inline">make</code></strong>.</li>
+          <li><strong><a href="https://www.msys2.org" target="_blank" rel="noopener">MSYS2</a></strong> &mdash; which provides all four, plus the POSIX shell the <code class="inline">Makefile</code> needs for <code class="inline">mkdir -p</code> and its <code class="inline">$(shell &hellip;)</code> probes.</li>
+        </ul>
+        <div class="note">
+          <p><strong>Why MSYS2 and not Visual Studio?</strong> GTK4 has no supported MSVC build, and the <code class="inline">Makefile</code> is a plain POSIX makefile. MSYS2 gives you both a working GTK4 and the shell to drive it. The binary it produces is a normal native Windows <code class="inline">.exe</code> &mdash; it is not a Cygwin-style emulation layer, and it does not need MSYS2 present to run once bundled (see step 8).</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="msys2">
+        <div class="chapter-head"><span class="chapter-num">2</span><h2>Install MSYS2</h2></div>
+        <p>Download the installer from <a href="https://www.msys2.org" target="_blank" rel="noopener">msys2.org</a> and run it, or from a terminal:</p>
+        <pre class="code">winget install MSYS2.MSYS2</pre>
+        <p>The default location is <code class="inline">C:\msys64</code>. The installer picks the right build for your CPU automatically.</p>
+      </section>
+
+      <section class="chapter" id="shell">
+        <div class="chapter-head"><span class="chapter-num">3</span><h2>Pick the right shell</h2></div>
+        <p>This is the step that trips people up, and it's worth understanding rather than just copying. MSYS2 installs <em>several</em> shells, each building for a different target. They look identical. Opening the wrong one is the most common way this goes wrong.</p>
+        <p>Open the one matching your CPU from the Start menu:</p>
+        <ul>
+          <li><strong>ARM64</strong> (Snapdragon, Surface Pro X&hellip;) &mdash; open <strong>MSYS2 CLANGARM64</strong>. Its packages are prefixed <code class="inline">mingw-w64-clang-aarch64-</code>.</li>
+          <li><strong>Intel or AMD, 64-bit</strong> &mdash; open <strong>MSYS2 UCRT64</strong>. Its packages are prefixed <code class="inline">mingw-w64-ucrt-x86_64-</code>.</li>
+        </ul>
+        <p>Not sure which you have? Settings &rarr; System &rarr; About, under <em>System type</em>. Or in any MSYS2 shell:</p>
+        <pre class="code">echo $MSYSTEM</pre>
+        <p>That prints the environment the shell is currently in &mdash; the same variable <code class="inline">install_gtk.sh</code> reads to decide what to install.</p>
+        <div class="note">
+          <p><strong>Don't use the plain "MSYS2 MSYS" shell.</strong> It's the odd one out: it builds POSIX-emulation binaries against <code class="inline">msys-2.0.dll</code> and has no native GTK4 at all, so nothing here will work from it. <code class="inline">install_gtk.sh</code> detects this specific mistake and tells you which shell to open instead, rather than failing halfway through an install.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="source">
+        <div class="chapter-head"><span class="chapter-num">4</span><h2>Get the source</h2></div>
+        <pre class="code">pacman -S --needed git
+git clone https://github.com/hansolovkarlsson/LogoMotive.git
+cd LogoMotive</pre>
+        <p>Every command on this page runs from the project root &mdash; the directory holding <code class="inline">Makefile</code>.</p>
+        <div class="note">
+          <p><strong>Cloning with Windows Git instead?</strong> That works too. Git for Windows ships with <code class="inline">core.autocrlf=true</code>, which would normally give you a CRLF working tree, but the repository's <code class="inline">.gitattributes</code> overrides that and pins line endings to LF. That matters: one test reads an example script off disk and compares interpreter output byte-for-byte, and a stray carriage return makes it fail on Windows and nowhere else.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="deps">
+        <div class="chapter-head"><span class="chapter-num">5</span><h2>Install the dependencies</h2></div>
+        <p>The bundled script reads <code class="inline">$MSYSTEM</code> and installs the correctly-prefixed packages for your environment:</p>
+        <pre class="code">./scripts/install_gtk.sh</pre>
+        <p>No <code class="inline">sudo</code> needed &mdash; MSYS2's <code class="inline">pacman</code> runs as you. Afterwards it checks that the compiler and <code class="inline">make</code> really are present rather than assuming, so a missing one is reported immediately instead of three commands later in the middle of a compile.</p>
+        <p>Or do it by hand. On <strong>CLANGARM64</strong>:</p>
+        <pre class="code">pacman -S --needed \
+    mingw-w64-clang-aarch64-clang \
+    mingw-w64-clang-aarch64-gcc-compat \
+    mingw-w64-clang-aarch64-pkgconf \
+    mingw-w64-clang-aarch64-gtk4 \
+    mingw-w64-clang-aarch64-SDL2 \
+    make</pre>
+        <p>On <strong>UCRT64</strong>, swap the prefix and take a real gcc instead of clang:</p>
+        <pre class="code">pacman -S --needed \
+    mingw-w64-ucrt-x86_64-gcc \
+    mingw-w64-ucrt-x86_64-pkgconf \
+    mingw-w64-ucrt-x86_64-gtk4 \
+    mingw-w64-ucrt-x86_64-SDL2 \
+    make</pre>
+        <div class="note">
+          <p><strong>What's <code class="inline">gcc-compat</code>?</strong> The <code class="inline">Makefile</code> asks for <code class="inline">gcc</code>, and the CLANG environments don't have one &mdash; they have clang. <code class="inline">gcc-compat</code> provides a <code class="inline">gcc</code> that wraps it, so the same makefile works unchanged. UCRT64 has a real gcc, so it doesn't need this.</p>
+        </div>
+        <p>Want to check what you've got before building? These print a version number if the library is installed and fail if it isn't:</p>
+        <pre class="code">pkg-config --modversion gtk4
+pkg-config --modversion sdl2</pre>
+      </section>
+
+      <section class="chapter" id="build">
+        <div class="chapter-head"><span class="chapter-num">6</span><h2>Build and test</h2></div>
+        <pre class="code">make</pre>
+        <p>That produces <code class="inline">bin/logomotive.exe</code>. On CLANGARM64 it builds with no warnings at all. What matters is that it finishes without an <strong>error</strong>.</p>
+        <p>To confirm the build is sound rather than merely complete:</p>
+        <pre class="code">make test</pre>
+        <p>Eight test binaries build and run. All eight should end the same way:</p>
+        <div class="output">All tests passed.</div>
+        <p>These are headless &mdash; no window opens and none is needed.</p>
+      </section>
+
+      <section class="chapter" id="run">
+        <div class="chapter-head"><span class="chapter-num">7</span><h2>Run it</h2></div>
+        <pre class="code">make run</pre>
+        <p>Builds if needed, then opens the window: turtle canvas on one side, history pane and entry box on the other. Type <code class="inline">REPEAT 4 [FD 100 RT 90]</code> into the entry box and press Enter.</p>
+        <p>Once built, you can run the binary directly, optionally handing it a script:</p>
+        <pre class="code">./bin/logomotive.exe
+./bin/logomotive.exe examples/sample.logo</pre>
+        <p>Headless mode works from <code class="inline">cmd.exe</code> and PowerShell as well as the MSYS2 shell:</p>
+        <pre class="code">bin\logomotive.exe --headless examples\lists.logo</pre>
+        <p><strong>Menus and shortcuts</strong> match Linux rather than macOS: the menu bar is inside the window, and the modifier is <code class="inline">Ctrl</code>. <code class="inline">Ctrl+O</code> open &middot; <code class="inline">Ctrl+S</code> save &middot; <code class="inline">Ctrl+E</code> export PNG &middot; <code class="inline">Ctrl+Shift+O</code>/<code class="inline">Ctrl+Shift+S</code> bytecode &middot; <code class="inline">Ctrl+Plus</code>/<code class="inline">Ctrl+Minus</code>/<code class="inline">Ctrl+0</code> text size &middot; <code class="inline">Ctrl+Shift+I</code> hide the input pane &middot; <code class="inline">Ctrl+Q</code> quit. File dialogs are the native Windows ones.</p>
+      </section>
+
+      <section class="chapter" id="bundle">
+        <div class="chapter-head"><span class="chapter-num">8</span><h2>Share a build with someone</h2></div>
+        <p>The <code class="inline">.exe</code> alone won't run on a machine without MSYS2 &mdash; it needs about sixty GTK and SDL DLLs beside it, plus some data files GTK looks up by path. One script collects all of it:</p>
+        <pre class="code">./scripts/bundle_windows.sh</pre>
+        <p>That writes a self-contained folder under <code class="inline">dist/</code> &mdash; roughly 50&nbsp;MB &mdash; containing the executable, its full DLL closure, the gdk-pixbuf image loaders, GTK's compiled settings schemas, and the examples. Zip that folder and it runs on any Windows machine of the same architecture.</p>
+        <div class="note">
+          <p>Every CI build publishes one of these automatically, for both architectures, under the run's <em>Artifacts</em> &mdash; so you can also just download a build rather than making one.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="trouble">
+        <div class="chapter-head"><span class="chapter-num">9</span><h2>Troubleshooting</h2></div>
+
+        <p><strong><code class="inline">target not found: gtk4</code> from pacman</strong></p>
+        <p>You're following Linux instructions on Windows. MSYS2 has no bare <code class="inline">gtk4</code> package &mdash; every native package carries an environment prefix, as in step 5. Older copies of <code class="inline">install_gtk.sh</code> produced this exact error on Windows by mistaking MSYS2's <code class="inline">pacman</code> for Arch's; pull the latest <code class="inline">main</code> if you see it from the script itself.</p>
+
+        <p><strong><code class="inline">Package gtk4 was not found in the pkg-config search path</code></strong></p>
+        <p>Almost always the wrong shell &mdash; the packages are installed for one environment and you're building in another. Check <code class="inline">echo $MSYSTEM</code> against step 3.</p>
+
+        <p><strong><code class="inline">make: gcc: command not found</code></strong></p>
+        <p>On a CLANG environment, the <code class="inline">gcc-compat</code> package is missing. See step 5.</p>
+
+        <p><strong>Exit code 127, or the program exits instantly with no message</strong></p>
+        <p>In an MSYS2 shell, 127 usually means a missing DLL &mdash; but it can also mask a crash. Run the binary from PowerShell instead, which reports the real code: <code class="inline">-1073741571</code> (<code class="inline">0xC00000FD</code>) is a stack overflow, and means a build without the <code class="inline">Makefile</code>'s Windows stack flag. Pull the latest <code class="inline">main</code>.</p>
+
+        <p><strong><code class="inline">--help</code> or <code class="inline">--headless</code> prints nothing in a console</strong></p>
+        <p>Fixed on 2026-08-14. GTK4 links the program as a GUI-subsystem binary, and Windows gives such a process no console even when a console launched it, so output went nowhere while the program still exited 0. It now attaches to the launching console at startup. Redirecting to a file or piping always worked, and still does. Pull the latest <code class="inline">main</code>.</p>
+
+        <p><strong>A script's <code class="inline">SHOW</code> or <code class="inline">TEXT</code> output has odd blank lines</strong></p>
+        <p>A <code class="inline">.logo</code> file saved with CRLF line endings by a Windows editor, on a build from before 2026-08-14. Source is normalised on load now, so any editor's line endings work. Pull the latest <code class="inline">main</code>.</p>
+
+        <p><strong><code class="inline">LOADPIC: could not load</code></strong></p>
+        <p>Image paths are resolved relative to the working directory, not to the script. Run from the directory holding the image, or give a full path.</p>
+      </section>
+
+      <section class="chapter" id="tested">
+        <div class="chapter-head"><span class="chapter-num">10</span><h2>What's actually been tested</h2></div>
+        <p>Stated precisely, so you know what you're relying on:</p>
+        <ul>
+          <li><strong>Windows 11 on ARM64, CLANGARM64</strong> &mdash; verified 2026-08-14 by hand, on clang 22.1.8, GTK 4.22.4 and SDL2 2.32.10. Clean build with zero warnings, all 8 suites passing, the GUI drawing with menus present, <code class="inline">Ctrl+O</code> opening the native file dialog, <code class="inline">--headless</code> correct to a console and to a file and through a pipe, and a bundled copy running with MSYS2 entirely off <code class="inline">PATH</code>.</li>
+          <li><strong>Windows on x86-64, UCRT64</strong> &mdash; expected to work, <em>not</em> verified by hand: no Intel or AMD machine was available. It uses a real gcc rather than clang, which if anything is the better-trodden path. CI covers this configuration on every push; if it's green, that row is verified.</li>
+          <li><strong>Windows 10</strong> &mdash; untested. Nothing is known to be wrong; nobody has run it.</li>
+          <li><strong>MSYS2 MINGW64, CLANG64, MINGW32</strong> &mdash; <code class="inline">install_gtk.sh</code> knows their package names and they resolve, but nothing has been built with them. UCRT64 is the recommended x86-64 environment.</li>
+        </ul>
+        <p>If you build it somewhere not on this list, <a href="https://github.com/hansolovkarlsson/LogoMotive/issues" target="_blank" rel="noopener">say so on the issue tracker</a> &mdash; working or not, that's useful.</p>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap narrow">
+    Built alongside LogoMotive's own C interpreter &mdash; see the
+    <a href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">repository</a>
+    for the source, the language design docs, and the full changelog.
+  </div>
+</footer>
+
+</body>
+</html>

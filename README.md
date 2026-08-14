@@ -103,6 +103,11 @@ comments). Build under [MSYS2](https://www.msys2.org), which supplies
 the compiler, GTK4, SDL2, pkg-config, and the POSIX shell the Makefile
 needs for `mkdir -p` / `rm -rf` and its `$(shell ...)` probes.
 
+There's a step-by-step Windows build guide, with per-environment package
+commands and troubleshooting, at
+[`website/windows.html`](website/windows.html) — the counterpart to the
+Linux one.
+
 Pick the MSYS2 environment matching your CPU and open that shell:
 
 | CPU | MSYS2 environment | Package prefix |
