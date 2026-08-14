@@ -28,7 +28,7 @@ name: Build and test
 
 on:
   push:
-    branches: [main, windows-port]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
