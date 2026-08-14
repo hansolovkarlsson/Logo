@@ -1,0 +1,133 @@
+name: Build and test
+
+# Builds the project and runs `make test` on every platform it claims to
+# support, on machines this project doesn't own.
+#
+# This is the first item in docs/ROADMAP.md's "Distribution &
+# infrastructure" section, and its reasoning has now played out twice.
+# The Linux port (2026-08-13) hit build failures -- -std=c11 hiding
+# open_memstream/usleep/clock_gettime behind glibc's feature-test
+# macros, and a missing -lm -- that were immediate and deterministic on
+# any Linux box, yet sat undiscovered because the session that scoped
+# the port ran on macOS. The Windows port (2026-08-14) then did the same
+# thing: strcasestr and clock_gettime64 were instant, deterministic
+# failures on mingw-w64 that no amount of reading the source had
+# predicted. A red job either day would have said so immediately.
+#
+# Dependencies are installed by running the project's own
+# scripts/install_gtk.sh rather than by listing packages here. That's
+# deliberate: it means CI exercises the script users are told to run,
+# so the two can't drift. It also finally exercises the apt-get branch,
+# which that script's own comment notes had never actually been run --
+# the Ubuntu box that verified its package names already had them
+# installed.
+#
+# `make test`'s binaries are headless by design (see the Makefile's own
+# `test` target), so no display or window server is needed on any
+# runner.
+
+on:
+  push:
+    branches: [main, windows-port]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # macOS and Linux share a job: both have a POSIX shell by default and
+  # install_gtk.sh picks brew vs apt-get on its own.
+  unix:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Every platform's result is wanted on every run. Without this,
+      # the first red job cancels the others and hides whether a
+      # failure is platform-specific or universal -- which is the single
+      # most useful thing this workflow can tell anyone.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: ./scripts/install_gtk.sh
+
+      - name: Build
+        run: make
+
+      - name: Test
+        run: make test
+
+  windows:
+    name: windows ${{ matrix.msystem }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # UCRT64 is x86-64 with a real gcc -- so it gets
+          # -fconserve-stack, which clang rejects, and the Makefile's
+          # STACK_FLAGS carries less of the load than it does on ARM64.
+          # This row is the one the README currently lists as expected
+          # but unverified; this workflow is what verifies it.
+          - runner: windows-latest
+            msystem: UCRT64
+          # CLANGARM64 is the environment the port was actually
+          # developed and verified on, by hand, on 2026-08-14.
+          - runner: windows-11-arm
+            msystem: CLANGARM64
+    defaults:
+      run:
+        # Everything below runs in the MSYS2 shell for this row's
+        # environment, which is what puts the right toolchain on PATH
+        # and sets $MSYSTEM -- the variable install_gtk.sh keys off.
+        shell: msys2 {0}
+    steps:
+      # `defaults.run.shell` above only applies to `run:` steps, so the
+      # two `uses:` steps here are unaffected by it and need no shell of
+      # their own -- including this checkout, which necessarily runs
+      # before setup-msys2 has created that shell.
+      #
+      # Checkout's line-ending handling is left at its default, which
+      # honours .gitattributes and so gives an LF working tree. That
+      # matters: a CRLF tree makes
+      # test_type_show_example_runs_correctly fail on Windows and only
+      # on Windows (see that test's own comment). Called out because
+      # "set core.autocrlf" is a tempting wrong answer if this ever
+      # goes red.
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          # No `install:` list on purpose: install_gtk.sh below is what
+          # installs every dependency, for the dogfooding reason in
+          # this file's header comment. Listing packages here too would
+          # reintroduce exactly the drift that choice avoids.
+
+      - name: Install dependencies
+        run: ./scripts/install_gtk.sh
+
+      - name: Build
+        run: make
+
+      - name: Test
+        run: make test
+
+      - name: Bundle a standalone build
+        run: ./scripts/bundle_windows.sh
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: logomotive-windows-${{ matrix.msystem }}
+          path: dist/
+          # A GTK4 bundle is ~50 MB of DLLs that compress poorly and go
+          # stale the moment the code changes; a fortnight is plenty to
+          # download a build from a specific run.
+          retention-days: 14
