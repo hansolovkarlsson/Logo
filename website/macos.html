@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogoMotive on macOS</title>
+<link rel="icon" type="image/svg+xml" href="assets/turtle-mark.svg">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="site-logo" href="index.html">
+      <svg class="logo-mark" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path class="trail" d="M -22,24 A 22,22 0 0 1 -3,-20" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path class="turtle" d="M 0,-30 L 21,30 L -21,30 Z" transform="rotate(-14)"/>
+      </svg>
+      LogoMotive
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="tutorial.html">Tutorial</a>
+      <a href="tutorial-2.html">Tutorial II</a>
+      <a href="tutorial-3.html">Tutorial III</a>
+      <a href="reference.html">Reference</a>
+      <a href="macos.html" class="current">macOS</a>
+      <a href="linux.html">Linux</a>
+      <a href="windows.html">Windows</a>
+      <a href="https://github.com/hansolovkarlsson/LogoMotive/releases" target="_blank" rel="noopener">Releases</a>
+    </nav>
+    <a class="site-github" href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">GitHub &#8599;</a>
+  </div>
+</header>
+
+<div class="wrap narrow">
+
+  <div class="page-hero">
+    <p class="eyebrow">Download, or build from source</p>
+    <h1 class="title">LogoMotive on macOS</h1>
+    <p class="lede">
+      macOS is where LogoMotive is developed and used daily &mdash; it's
+      the original target, not a port. There are two ways to get it
+      running: download a pre-built binary, or build it yourself in
+      about a minute. This page covers both.
+    </p>
+  </div>
+
+  <div class="layout">
+    <nav class="chapter-toc">
+      <p class="toc-label">Contents</p>
+      <ol>
+        <li><a href="#requirements"><span class="num">1</span>What you need</a></li>
+        <li><a href="#choose"><span class="num">2</span>Download or build?</a></li>
+        <li><a href="#download"><span class="num">3</span>Download a release</a></li>
+        <li><a href="#source"><span class="num">4</span>Build from source</a></li>
+        <li><a href="#run"><span class="num">5</span>Run it</a></li>
+        <li><a href="#ui"><span class="num">6</span>Menus &amp; shortcuts</a></li>
+        <li><a href="#trouble"><span class="num">7</span>Troubleshooting</a></li>
+        <li><a href="#tested"><span class="num">8</span>What's tested</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <div class="howto">
+        <h2>The short version</h2>
+        <p>On Apple Silicon: install Homebrew if needed, install the two libraries, then grab and unzip the latest archive from the <a href="https://github.com/hansolovkarlsson/LogoMotive/releases/latest" target="_blank" rel="noopener">Releases page</a> and run it.</p>
+        <pre class="code">brew install gtk4 sdl2
+unzip ~/Downloads/logomotive-*-macos-arm64.zip -d ~/Downloads/logomotive
+cd ~/Downloads/logomotive/logomotive-*-macos-arm64
+./logomotive</pre>
+        <p>No Homebrew yet, an Intel Mac, or you'd rather build it yourself? Keep reading.</p>
+      </div>
+
+      <section class="chapter" id="requirements">
+        <div class="chapter-head"><span class="chapter-num">1</span><h2>What you need</h2></div>
+        <p>Either way, the app links against two libraries at runtime:</p>
+        <ul>
+          <li><strong>GTK4</strong> &mdash; the windowing toolkit. This is the big one.</li>
+          <li><strong>SDL2</strong> &mdash; sound and joystick input. Not optional, even if you never make a sound: the interpreter links against it unconditionally.</li>
+          <li><strong><a href="https://brew.sh" target="_blank" rel="noopener">Homebrew</a></strong> &mdash; the only supported way to get both on macOS.</li>
+        </ul>
+        <p>Building from source adds two more, both usually already on your Mac:</p>
+        <ul>
+          <li><strong>Xcode's Command Line Tools</strong> &mdash; supplies the C compiler and <code class="inline">make</code>. Homebrew itself requires these to install, so a Mac with Homebrew already has them.</li>
+          <li><strong>pkg-config</strong> &mdash; how the <code class="inline">Makefile</code> finds GTK4 and SDL2. Installed alongside them in step 4.</li>
+        </ul>
+      </section>
+
+      <section class="chapter" id="choose">
+        <div class="chapter-head"><span class="chapter-num">2</span><h2>Download or build?</h2></div>
+        <p>Both produce the same app. Pick whichever fits:</p>
+        <ul>
+          <li><strong>Download</strong> if you're on <strong>Apple Silicon</strong> (M1 or later) and just want to run it &mdash; skips the compiler entirely. That's the only architecture a release is built for.</li>
+          <li><strong>Build from source</strong> if you're on an <strong>Intel Mac</strong> (no pre-built binary exists), you want the latest unreleased code, or you're planning to change something.</li>
+        </ul>
+        <div class="note">
+          <p>Building isn't the fallback option here the way it is on Linux &mdash; it's genuinely just as quick, since Homebrew is doing the same library install either way. The only extra step is compiling, and that's under a second on a modern Mac.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="download">
+        <div class="chapter-head"><span class="chapter-num">3</span><h2>Download a release</h2></div>
+        <p>Grab the <code class="inline">&#8230;-macos-arm64.zip</code> archive from the <a href="https://github.com/hansolovkarlsson/LogoMotive/releases/latest" target="_blank" rel="noopener">Releases page</a> and unzip it &mdash; the filename carries the version, e.g. <code class="inline">logomotive-v0.1.0-macos-arm64.zip</code>. Inside: the <code class="inline">logomotive</code> executable, the <code class="inline">examples/</code> folder, and a <code class="inline">README.txt</code> with these same notes.</p>
+        <p>The archive doesn't bundle GTK4 or SDL2 &mdash; install them once with Homebrew:</p>
+        <pre class="code">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install gtk4 sdl2</pre>
+        <p>(Skip the first line if <code class="inline">brew --version</code> already prints something.)</p>
+        <p>Then, from a terminal in the unzipped folder:</p>
+        <pre class="code">./logomotive
+./logomotive examples/concurrent_agents.logo</pre>
+        <div class="note">
+          <p><strong>Gatekeeper will warn on first launch.</strong> This build isn't code-signed or notarized, so macOS reports it as from an unidentified developer. Right-click <code class="inline">logomotive</code> in Finder and choose <em>Open</em> (only needed once), or allow it afterwards under <em>System Settings &rarr; Privacy &amp; Security</em>. This is expected, not a sign anything's wrong &mdash; see <a href="https://github.com/hansolovkarlsson/LogoMotive/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">the roadmap</a> for the notarization plan.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="source">
+        <div class="chapter-head"><span class="chapter-num">4</span><h2>Build from source</h2></div>
+        <pre class="code">git clone https://github.com/hansolovkarlsson/LogoMotive.git
+cd LogoMotive
+./scripts/install_brew.sh   # only if `brew --version` doesn't already work
+./scripts/install_gtk.sh
+make run</pre>
+        <p><code class="inline">install_gtk.sh</code> runs <code class="inline">brew install gtk4 sdl2 pkg-config</code> and then checks that a compiler and <code class="inline">make</code> are really present, rather than assuming &mdash; so a missing Xcode Command Line Tools install is reported immediately, with the exact command to fix it, instead of failing three steps later mid-compile.</p>
+        <p>Or do each piece by hand:</p>
+        <pre class="code">xcode-select --install
+brew install gtk4 sdl2 pkg-config
+make
+make test</pre>
+        <p><code class="inline">make</code> alone produces <code class="inline">bin/logomotive</code>; <code class="inline">make test</code> builds and runs all eight headless test binaries, which should each end with:</p>
+        <div class="output">All tests passed.</div>
+        <p>There's also <code class="inline">./build.sh</code>, a single-shot alternative that compiles everything in one invocation without <code class="inline">make</code>.</p>
+      </section>
+
+      <section class="chapter" id="run">
+        <div class="chapter-head"><span class="chapter-num">5</span><h2>Run it</h2></div>
+        <p>From a source build:</p>
+        <pre class="code">make run
+./bin/logomotive
+./bin/logomotive examples/sample.logo</pre>
+        <p>A window opens: turtle canvas on one side, history pane and entry box on the other. Type <code class="inline">REPEAT 4 [FD 100 RT 90]</code> into the entry box and press Return.</p>
+        <p>There are 71 scripts in <code class="inline">examples/</code> covering most of the language. For scripting or automation, <code class="inline">--headless</code> runs with no window at all &mdash; <code class="inline">PRINT</code> goes to stdout and the process exits when the script ends:</p>
+        <pre class="code">./bin/logomotive --headless examples/lists.logo</pre>
+        <p><code class="inline">./bin/logomotive --help</code> lists every option.</p>
+      </section>
+
+      <section class="chapter" id="ui">
+        <div class="chapter-head"><span class="chapter-num">6</span><h2>Menus and shortcuts</h2></div>
+        <p>Unlike Linux and Windows, the menu bar lives in the <strong>system-wide bar</strong> at the top of the screen, not inside the window &mdash; the standard macOS layout. <strong>File</strong> has Open, Save, Export as PNG, Load/Save Bytecode and Quit; <strong>View</strong> has the text-size actions and the <em>Show Input Window</em> toggle.</p>
+        <p>Shortcuts use <strong>Cmd</strong>, not Ctrl:</p>
+        <ul>
+          <li><code class="inline">Cmd+O</code> open a <code class="inline">.logo</code> file &middot; <code class="inline">Cmd+S</code> save</li>
+          <li><code class="inline">Cmd+E</code> export the canvas as a PNG</li>
+          <li><code class="inline">Cmd+Shift+O</code> / <code class="inline">Cmd+Shift+S</code> load and save bytecode</li>
+          <li><code class="inline">Cmd+Plus</code> / <code class="inline">Cmd+Minus</code> / <code class="inline">Cmd+0</code> text size</li>
+          <li><code class="inline">Cmd+Shift+I</code> hide the input pane, leaving just the canvas</li>
+          <li><code class="inline">Cmd+Q</code> quit</li>
+        </ul>
+        <div class="note">
+          <p><strong>Ctrl+C is different.</strong> Typed in the terminal you launched from, it interrupts the <em>running script</em> and prints <code class="inline">Interrupted.</code> &mdash; it doesn't close the app, which keeps running and stays ready for the next command. That's the only way to stop a runaway loop short of quitting.</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="trouble">
+        <div class="chapter-head"><span class="chapter-num">7</span><h2>Troubleshooting</h2></div>
+
+        <p><strong>"logomotive" cannot be opened because the developer cannot be verified</strong></p>
+        <p>Gatekeeper, on an unsigned build &mdash; see step 3. Right-click the binary and choose <em>Open</em> once, or allow it under <em>System Settings &rarr; Privacy &amp; Security</em>.</p>
+
+        <p><strong><code class="inline">dyld: Library not loaded: &#8230;libgtk-4&#8230;</code> or similarly for <code class="inline">libSDL2</code></strong></p>
+        <p>GTK4 or SDL2 isn't installed. Run <code class="inline">brew install gtk4 sdl2</code> &mdash; both are required, and a machine with only one installed fails exactly this way rather than starting.</p>
+
+        <p><strong><code class="inline">Package gtk4 was not found in the pkg-config search path</code>, while building</strong></p>
+        <p>Usually Homebrew isn't on your shell's <code class="inline">PATH</code>. On Apple Silicon, Homebrew installs to <code class="inline">/opt/homebrew</code>; on an Intel Mac, <code class="inline">/usr/local</code>. The Homebrew installer prints the exact line to add to your shell profile at the end of the install &mdash; run it again if you skipped past it, or open a new terminal window, which picks it up automatically on a fresh install.</p>
+
+        <p><strong><code class="inline">xcrun: error: invalid active developer path</code>, or <code class="inline">make: command not found</code></strong></p>
+        <p>Xcode's Command Line Tools aren't installed:</p>
+        <pre class="code">xcode-select --install</pre>
+
+        <p><strong>The app won't close from the terminal</strong></p>
+        <p>Its interrupt handler survives <code class="inline">SIGTERM</code>, so a plain <code class="inline">kill</code> &mdash; and <code class="inline">timeout</code> &mdash; won't stop it. Quit normally with <code class="inline">Cmd+Q</code>, or:</p>
+        <pre class="code">pkill -x -9 logomotive</pre>
+        <p>Don't use <code class="inline">pkill -f bin/logomotive</code>: that pattern matches the shell you typed it into and kills your own terminal.</p>
+      </section>
+
+      <section class="chapter" id="tested">
+        <div class="chapter-head"><span class="chapter-num">8</span><h2>What's actually been tested</h2></div>
+        <p>Stated precisely, so you know what you're relying on:</p>
+        <ul>
+          <li><strong>Apple Silicon (arm64)</strong> &mdash; the original development platform, built and run here every day. This is also the only architecture the Releases page publishes a binary for.</li>
+          <li><strong>Intel Macs (x86-64)</strong> &mdash; expected to work by building from source (the <code class="inline">Makefile</code> and dependency scripts have no architecture-specific code, and Homebrew's Intel prefix is handled the same way as its Apple Silicon one), but not separately verified, and no pre-built download is offered for it.</li>
+        </ul>
+        <p>If you build or run it somewhere not on this list, <a href="https://github.com/hansolovkarlsson/LogoMotive/issues" target="_blank" rel="noopener">say so on the issue tracker</a> &mdash; working or not, that's useful.</p>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap narrow">
+    Built alongside LogoMotive's own C interpreter &mdash; see the
+    <a href="https://github.com/hansolovkarlsson/LogoMotive" target="_blank" rel="noopener">repository</a>
+    for the source, the language design docs, and the full changelog.
+  </div>
+</footer>
+
+</body>
+</html>

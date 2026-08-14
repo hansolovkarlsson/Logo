@@ -64,6 +64,11 @@ None of the builds are code-signed, so macOS Gatekeeper and Windows
 SmartScreen will both warn on first run; each archive's `README.txt`
 says how to proceed.
 
+Step-by-step guides, covering both the download and the from-source
+build, with troubleshooting: [`website/macos.html`](website/macos.html),
+[`website/linux.html`](website/linux.html),
+[`website/windows.html`](website/windows.html).
+
 ## Build & Run
 
 ```sh
