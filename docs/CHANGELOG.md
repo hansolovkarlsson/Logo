@@ -2292,3 +2292,202 @@ not die on SIGTERM. Its Ctrl+C interrupt handler (`request_interrupt`,
 the app and a plain `kill` leaves it running — use `pkill -x -9
 logomotive`. Do **not** use `pkill -f "bin/logomotive"`: the pattern
 matches the invoking shell's own command line and kills the shell.
+
+## Windows port (2026-08-14)
+
+LogoMotive now builds and runs natively on Windows — no WSL, no VM.
+Verified by hand on **Windows 11 ARM64** under MSYS2's **CLANGARM64**
+environment (clang 22.1.8, GTK 4.22.4, SDL2 2.32.10): clean `make` with
+zero warnings, all eight `make test` binaries passing, the GUI drawing
+with the File/View menu bar present and `Ctrl+O` opening the native
+Windows file dialog, and `--headless` correct to a console, to a file
+redirect and through a pipe.
+
+Unlike the Linux port, this one **did** touch `src/`, though not much:
+two shims, one refactor, one behaviour fix, and one Makefile flag. Also
+unlike the Linux port, the 2026-08-14 scoping pass got it substantially
+wrong, which is the most useful thing in this entry — see "What the
+scoping missed" below.
+
+The environment matters and is not incidental. MSYS2 has five native
+environments; the machine was ARM64, where **CLANGARM64 is the only
+toolchain that targets Windows-on-ARM at all**. So this port is a clang
+port as much as a Windows one, and that interacts badly with
+`-fconserve-stack` — see the stack section. UCRT64 (x86-64, real gcc) is
+expected to work and is covered by CI, but has not been verified by
+hand.
+
+### The five things that had to change
+
+- **`strcasestr`** (`interpreter.c`'s `TO`…`END` scanner) — a GNU
+  extension glibc and macOS both have and mingw-w64 doesn't. Shimmed in
+  the new `src/compat.h`, which is `_WIN32`-only and compiles to
+  nothing on macOS and Linux.
+
+- **`localtime_r`** (`vm.c`'s `TIME`/`DATE`) — the Windows CRT spells
+  the same thread-safe conversion `localtime_s`, with the arguments
+  reversed and an `errno_t` return. Also in `compat.h`.
+
+- **`open_memstream`** (`vm.c`'s `SAVEBYTECODE`, `ui.c`'s Save Bytecode
+  dialog, and two test sites) — no mingw-w64 equivalent, and no way to
+  hand back a `FILE *` that behaves like one. This one is deliberately
+  *not* a shim: all the callers wanted disassembly *text* rather than a
+  stream, and had open-coded the identical open/disassemble/fclose
+  dance — as had `test_bytecode.c`, in a static helper of its own. It
+  became `bytecode_disassemble_to_string` next to
+  `bytecode_disassemble` itself, keeping `open_memstream` on POSIX and
+  backing Windows with `tmpfile()`.
+
+- **`clock_gettime`** (`vm.c`'s `MILLISECONDS`) — the only one that
+  compiled fine and then failed at *link*: mingw-w64 declares it in
+  `<pthread_time.h>` but only defines it in `libwinpthread`, giving
+  "undefined symbol: clock_gettime64". Now `g_get_real_time()` — the
+  same epoch wall clock in GLib's spelling, GLib already being a hard
+  dependency of that file. This is the one change here that also
+  affects macOS and Linux; the alternative was threading
+  `-lwinpthread` through every link line touching `vm.c`, against the
+  `Makefile`'s stated preference for one shared flag set.
+
+- **`STACK_FLAGS`** (`Makefile`) — see below.
+
+### The stack, which is where this port nearly went wrong
+
+Nothing ran at first. Every test binary that recurses died instantly,
+and **MSYS2's shell reported that as a bare exit 127** — which reads as
+a missing DLL and sends you looking in entirely the wrong place. Run
+from PowerShell instead, the real exit code is `-1073741571`
+(`0xC00000FD`, `STACK_OVERFLOW`).
+
+Windows is worse here from two directions at once. A PE image's default
+stack is **1 MB**, an eighth of the 8 MB macOS and Linux give the main
+thread. And `-fconserve-stack` — which this `Makefile` already
+documents at length as load-bearing for reaching `MAX_SCOPE_DEPTH`'s
+200-level cap, taking `exec_call`'s frame from 61856 bytes to 1232 — is
+**gcc-only, and clang rejects it**, so `CONSERVE_STACK` correctly probes
+empty on CLANGARM64 and that 50× reduction simply isn't available.
+
+`STACK_FLAGS` passes `-Wl,--stack` on Windows only, on all eleven link
+lines. 8 MB is the measured floor (`test_interpreter` passes there and
+fails below it); 16 MB is set for margin, which costs nothing real
+since Windows reserves address space and commits stack pages lazily.
+Detection is via `uname` rather than a compiler probe because it's the
+target OS that matters, not the compiler.
+
+Worth noting for the UCRT64 row: with a real gcc, `-fconserve-stack`
+*is* available, so the frames are small and `STACK_FLAGS` carries much
+less of the load there. The two Windows configurations are genuinely
+different, not two copies of one.
+
+### What the scoping missed
+
+The 2026-08-14 static read of the sources predicted three of the five
+changes above (`open_memstream`, `localtime_r`, and the stack, which it
+flagged as "the sleeper risk"). It missed `strcasestr` entirely, and it
+got `clock_gettime` backwards — asserting mingw-w64 "provides" it, when
+mingw-w64 only *declares* it. Both were immediate, deterministic
+failures that appeared within seconds of the first real compile.
+
+It also declared `--headless` working on the strength of redirected and
+piped output, and was wrong: see below. The general lesson, now acted
+on via CI, is that reading headers is not a substitute for running a
+compiler, and that a test which captures output can hide a bug *about*
+output.
+
+### Two things that needed no change at all
+
+Both `#ifdef __APPLE__` sites in `src/ui.c` already had the right answer
+for Windows via their `#else` branch: `<Control>` accelerators rather
+than `<Meta>`, and `gtk_application_window_set_show_menubar(TRUE)`. The
+Linux port did the Windows work there by accident.
+
+`src/agent.c`'s scheduler is a plain synchronous VM-level construct with
+no OS threads, no `ucontext` and no `pthread` anywhere — the thing that
+most often sinks a port was a non-issue.
+
+### Console output — the bug the first round of testing hid
+
+`logomotive.exe --help` run from `cmd.exe` printed nothing. Neither did
+`--headless`. The process ran to completion and exited 0 either way,
+which made it easy to misread as "the script produced no output" rather
+than "the output went nowhere".
+
+GTK4's own pkg-config libs link `-mwindows`, marking the PE
+GUI-subsystem (`objdump -p`: "Subsystem 00000002 (Windows GUI)"), and
+Windows withholds a console from such a process even when a console
+launched it. Redirection and pipes were never affected, because there
+the parent hands down a real file/pipe handle — **which is exactly why
+this survived the first round of testing: every way of capturing output
+in order to check it also happened to fix it.** It took photographing an
+actual console window to see the failure.
+
+`main.c` now calls `AttachConsole(ATTACH_PARENT_PROCESS)` before
+anything can print. The ordering inside `attach_parent_console` is the
+part not to "simplify" later: `AttachConsole` itself repoints any
+standard handle that isn't already set, so the handles must be sampled
+*before* the attach to tell "the caller redirected this" from "the
+attach just filled it in". Backwards, and `--headless x.logo > out.txt`
+loses its redirection.
+
+### CRLF — a real bug, and not the one it looked like
+
+`test_type_show_example_runs_correctly` failed on the first Windows run
+with expected and actual printing **byte-identical**. Git for Windows
+ships `core.autocrlf=true`, so the clone had a CRLF working tree, and
+that test reads `examples/type_show.logo` off disk.
+
+The lexer was never the problem and needed no change: `isspace()` covers
+`'\r'`, so `skip_insignificant` and `is_bareword_char` both stop on one
+exactly as they stop on a space. What leaked was the raw source spans
+captured downstream — `AST_PROC_DEF`'s `body_text`/`body_len`, which
+`TEXT`/`SHOW`/`SAVE` print back verbatim. `parse_proc_def` sets that span
+to run up to the `END` token, so it takes in the preceding line ending,
+and on CRLF input every body line `SHOW` printed carried a stray
+carriage return.
+
+Two complementary fixes: a new `.gitattributes` pins the working tree to
+LF on every platform (keeping the checked-in corpus byte-identical), and
+`logo_normalize_newlines` (`src/lexer.h`) rewrites ingested source to LF
+at all eleven points where Logo *source* enters — deliberately not on
+`OPENREAD`/`READLINE` channels or `LOADBYTECODE`, which are user data the
+caller expects back byte-for-byte.
+
+It's `static inline` in the header rather than a function in `lexer.c`
+for a specific reason: `interpreter.c` needs it, and the `Makefile`'s
+`TEST_TARGET` builds `interpreter.c` *without* `lexer.c`, so a linked
+symbol would break that target.
+
+### Distribution and infrastructure
+
+Three of `docs/ROADMAP.md`'s "Distribution & infrastructure" items are
+now done, which is why that section is rewritten rather than merely
+ticked.
+
+`scripts/install_gtk.sh` gained an MSYS2 branch, checked **before** the
+existing pacman branch because MSYS2 ships pacman too — without that
+ordering the Arch branch matched on Windows and asked for bare
+`gtk4`/`sdl2`, which don't exist in repos where every native package is
+prefixed, failing with "target not found" having installed nothing.
+
+`scripts/bundle_windows.sh` is new: it assembles the `.exe` plus ~60
+DLLs and the three things GTK resolves through the filesystem rather
+than the linker (compiled GSettings schemas, gdk-pixbuf loaders, an icon
+theme) into a folder that runs with MSYS2 entirely off `PATH`. The DLL
+closure is walked with `objdump` rather than `ldd` on purpose: `ldd`
+resolves against the current `PATH` and so reports the MSYS2 copies as
+found, saying nothing about what a clean machine lacks.
+
+`.github/workflows/build.yml` is the project's first build CI — four
+rows (ubuntu, macos, windows UCRT64, windows ARM64), installing
+dependencies by running `install_gtk.sh` itself so CI and the documented
+path can't drift, and publishing a bundled Windows build as an artifact
+from each Windows row.
+
+`website/windows.html` is the counterpart to `linux.html`.
+
+### One operational note
+
+A directory can't be removed on Windows while any process has it as a
+working directory, and testing a bundle means running things from inside
+it — so `bundle_windows.sh` empties its output directory rather than
+removing it. A plain `rm -rf` failed with "Device or resource busy" and,
+under `set -e`, aborted the whole script.

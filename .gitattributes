@@ -7,9 +7,13 @@
 # Windows and only on Windows. Forcing LF in the working tree on every
 # platform keeps the one checked-in corpus byte-identical everywhere.
 #
-# Note this fixes the *repo*; it does not make the lexer itself
-# CRLF-tolerant, so a .logo file the user writes in a Windows editor can
-# still trip the same behaviour. See docs/ROADMAP.md.
+# This fixes the *repo*. Source the user supplies is handled separately
+# and no longer depends on this: logo_normalize_newlines (src/lexer.h)
+# rewrites ingested source to LF at every point it enters the program,
+# so a .logo file written in a Windows editor behaves exactly like an
+# LF one. The two are complementary rather than redundant -- this keeps
+# the checked-in test corpus byte-identical across platforms, which is
+# what the test above compares against.
 * text=auto eol=lf
 
 # Binary assets -- never munge these.

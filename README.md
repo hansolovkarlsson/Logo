@@ -31,8 +31,8 @@ classic 80s Logo experience, running natively on macOS, Linux and Windows.
 - macOS, Linux, or Windows
 - GTK4, SDL2 and pkg-config
 - A C compiler and `make`
-- On macOS and Linux, `scripts/install_gtk.sh` installs all of the above
-  on Linux, and the libraries on macOS (where the compiler comes from
+- `scripts/install_gtk.sh` installs all of the above on Linux and
+  Windows, and the libraries on macOS (where the compiler comes from
   Xcode's Command Line Tools instead); it verifies the toolchain is
   present either way
 - On macOS: [Homebrew](https://brew.sh)
@@ -49,7 +49,7 @@ package commands and troubleshooting, at
 
 ```sh
 ./scripts/install_brew.sh   # macOS only, and only if Homebrew isn't installed
-./scripts/install_gtk.sh    # gtk4 + sdl2 + pkg-config + toolchain, via brew/dnf/apt
+./scripts/install_gtk.sh    # gtk4 + sdl2 + pkg-config + toolchain, via brew/dnf/apt/pacman/MSYS2
 make run
 ```
 
@@ -115,30 +115,39 @@ Pick the MSYS2 environment matching your CPU and open that shell:
 | ARM64 | **CLANGARM64** | `mingw-w64-clang-aarch64-` |
 | x86-64 | **UCRT64** | `mingw-w64-ucrt-x86_64-` |
 
-Then install the dependencies with the prefix for your environment
-(CLANGARM64 shown):
+Then, from that shell:
+
+```sh
+./scripts/install_gtk.sh
+make run
+```
+
+The script reads `$MSYSTEM` and installs the correctly-prefixed
+packages for whichever environment you opened — no `sudo` needed, since
+MSYS2's `pacman` runs as you. Open the plain **MSYS** shell by mistake
+and it says so specifically, rather than failing partway through: that
+environment builds against `msys-2.0.dll` and has no native GTK4 at all.
+
+To install by hand instead (CLANGARM64 shown):
 
 ```sh
 pacman -S --needed \
     mingw-w64-clang-aarch64-clang \
     mingw-w64-clang-aarch64-gcc-compat \
-    mingw-w64-clang-aarch64-make \
     mingw-w64-clang-aarch64-pkgconf \
     mingw-w64-clang-aarch64-gtk4 \
     mingw-w64-clang-aarch64-SDL2 \
     make
-make run
 ```
 
 `gcc-compat` is what supplies the `gcc` the Makefile's `CC` asks for,
 wrapping clang; on UCRT64 you get a real gcc instead and can install
 `mingw-w64-ucrt-x86_64-gcc` in place of the `clang`/`gcc-compat` pair.
 
-**Do not use `scripts/install_gtk.sh` on Windows.** It detects `pacman`
-and assumes Arch Linux, so it asks for the bare `gtk4`/`sdl2` package
-names — which don't exist in MSYS2's repositories, where every native
-package carries an environment prefix. It fails with "target not found"
-rather than installing anything. Use the `pacman` line above instead.
+To hand the result to someone without MSYS2, `scripts/bundle_windows.sh`
+collects the `.exe`, its ~60 GTK/SDL DLLs and the runtime data GTK looks
+up by path into a self-contained folder under `dist/`. CI publishes one
+of these for both architectures on every build.
 
 Two things behave differently on Windows and are handled in-tree rather
 than being anything you need to do:
@@ -246,6 +255,7 @@ tests/              headless tests for the interpreter core (make test)
 docs/               language reference and roadmap
 Makefile            make / make run / make test / make clean
 build.sh            one-shot alternative build script
-scripts/            dependency setup helpers (brew/dnf/apt; not Windows
-                     -- see "Building on Windows" above)
+scripts/            dependency setup (brew/dnf/apt/pacman/MSYS2) and
+                     bundle_windows.sh, which packages a standalone
+                     Windows build
 ```

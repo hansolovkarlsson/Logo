@@ -139,41 +139,46 @@ LogoMotive genuinely doesn't have — cross-checked against
 Not language features, and not from the dialect research pass above.
 These came out of the 2026-08-13 Linux port, which turned "how does
 someone who isn't the author actually get this" into a real question
-for the first time — there are now three supported platforms and a
-pre-built binary for exactly one of them. Same rule as the section
-above: pick up only on explicit request. They're listed in dependency
-order; the first unblocks the other two.
+for the first time. The 2026-08-14 Windows port then made it sharper
+again: four supported platforms now (macOS, Linux, Windows x86-64,
+Windows ARM64), with a downloadable build for two of them — macOS by
+hand, Windows from CI. Same rule as the section above: pick up only on
+explicit request.
 
-- [ ] **CI (GitHub Actions)** — build the project and run `make test`
-  automatically on every push, on machines this project doesn't own. A
-  YAML file in `.github/workflows/`; free for public repos.
+- [x] **CI (GitHub Actions)** — done 2026-08-14,
+  `.github/workflows/build.yml`. Four rows: `ubuntu-latest`,
+  `macos-latest`, `windows-latest` (MSYS2 UCRT64) and `windows-11-arm`
+  (MSYS2 CLANGARM64), each running `make` then `make test`, with
+  `fail-fast` off so one platform's failure doesn't hide the others'
+  results. The Windows rows also run `scripts/bundle_windows.sh` and
+  upload the result, so every build produces a downloadable standalone
+  Windows binary.
 
-  **Why it's first**: the Linux port's build failures are exactly what
-  CI exists to catch. `-std=c11` hiding `open_memstream`/`usleep`/
-  `clock_gettime` behind glibc's feature-test macros, and the missing
-  `-lm`, were both *immediate, deterministic* failures on any Linux
-  box — but they sat undiscovered until 2026-08-13, because the
-  2026-08-12 session that scoped the port ran on macOS and said so
-  outright ("this session's dev environment is macOS and cannot itself
-  validate Linux builds"). A Linux job would have gone red the day the
-  code was written. The same applies going forward: `#ifdef
-  __APPLE__`-gated code in `src/ui.c` means the two platforms now
-  compile *different source*, and only one of them gets compiled on any
-  given developer machine.
+  Dependencies are installed by running the project's own
+  `scripts/install_gtk.sh` rather than by listing packages in the
+  workflow, so CI exercises the same script users are told to run and
+  the two can't drift. That also finally exercises its `apt-get`
+  branch, which had never actually been run.
 
-  **Shape of a v1 slice**: one workflow, `make && make test` on
-  `ubuntu-latest` and `macos-latest`, on push and PR. Roughly 20 lines.
-  Runners are available in both x86_64 and aarch64, which matters
-  because every machine this project has been developed on is aarch64
-  while most Linux desktop users are x86_64 — CI is the cheapest way to
-  compile for hardware nobody here owns.
+  **The reasoning that put this first held up, twice.** The Linux
+  port's `-std=c11` hiding `open_memstream`/`usleep`/`clock_gettime`
+  behind glibc's feature-test macros, and its missing `-lm`, were
+  immediate deterministic failures on any Linux box that sat
+  undiscovered because the scoping session ran on macOS. The Windows
+  port then repeated it exactly: `strcasestr` and `clock_gettime64`
+  were instant deterministic failures on mingw-w64 that a careful
+  static read of the sources did not predict. A red job either day
+  would have said so in minutes.
 
   **The limit, stated plainly so CI isn't over-trusted**: it cannot see
   the GUI. The 2026-08-13 menu-bar bug compiled clean, emitted no
   warnings, passed all 8 suites and launched with zero stderr — a
   headless CI run would have been exactly as blind to it as the local
-  suites were. CI covers the build and the test suites. Every GUI claim
-  still needs introspection or a human.
+  suites were. The 2026-08-14 console-output bug is the same shape and
+  worse: it would pass CI, because every way CI captures output is also
+  a way that makes the bug disappear. CI covers the build and the test
+  suites. Every GUI claim, and every claim about what a *terminal*
+  shows, still needs a human or a screenshot.
 
 - [ ] **A Linux package** — there's no Linux download, only build-from-
   source. Worth fixing eventually, but **not by uploading a binary to
@@ -205,10 +210,28 @@ order; the first unblocks the other two.
   are the most native and the most maintenance: one build plus a
   dependency declaration per distro per release.
 
+  **One data point on the AppImage cost, from having now done the
+  equivalent on Windows** (`scripts/bundle_windows.sh`, 2026-08-14):
+  hand-bundling GTK4 turned out to be tractable rather than forbidding
+  — a transitive DLL walk plus exactly the three filesystem-resolved
+  pieces named above. Two caveats before reading that as encouragement.
+  Windows has no graphics-driver problem, which is the item on that
+  list most likely to be the genuinely hard one on Linux. And it still
+  produced a ~50 MB artifact per architecture. So the estimate for
+  AppImage should come down somewhat, but the ranking below Flatpak
+  stands.
+
 - [ ] **Automated, notarized releases** — the current release is
   `v0.1.0` (2026-08-12), a single hand-built asset
   (`logomotive-v0.1.0-macos-arm64.zip`). Built and uploaded by hand,
-  which doesn't scale to three platforms and doesn't repeat reliably.
+  which doesn't scale to four platforms and doesn't repeat reliably.
+
+  **No longer blocked**: this listed CI as its prerequisite, and CI
+  landed 2026-08-14. The Windows half is closer than the rest, since
+  `build.yml` already produces exactly the artifact a release would
+  ship — attaching it to a tag rather than to a run is the remaining
+  step, and it needs no signing story to be useful. macOS notarization
+  is the part that stays genuinely involved.
 
   Two separate things are missing. **Automation** — building the
   release artifacts from a tag rather than from whatever was on the
