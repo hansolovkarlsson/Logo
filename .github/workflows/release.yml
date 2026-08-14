@@ -196,6 +196,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # A tag with a hyphen in it is a semver pre-release
+          # (v0.2.0-rc1, v1.0.0-beta.2). Without --prerelease, gh
+          # publishes it as a normal release, which makes GitHub show it
+          # as "Latest release" on the repository front page -- so a
+          # throwaway release candidate would quietly displace the last
+          # real release as the thing people are pointed at.
+          PRERELEASE=""
+          case "${{ github.ref_name }}" in
+            *-*) PRERELEASE="--prerelease" ;;
+          esac
+          echo "prerelease flag: ${PRERELEASE:-(none, this is a full release)}"
+
           cat > notes.md <<'NOTES'
           ### Downloads
 
@@ -221,4 +233,5 @@ jobs:
             --title "LogoMotive ${{ github.ref_name }}" \
             --notes-file notes.md \
             --generate-notes \
+            $PRERELEASE \
             artifacts/*.zip
