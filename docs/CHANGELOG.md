@@ -2313,9 +2313,11 @@ The environment matters and is not incidental. MSYS2 has five native
 environments; the machine was ARM64, where **CLANGARM64 is the only
 toolchain that targets Windows-on-ARM at all**. So this port is a clang
 port as much as a Windows one, and that interacts badly with
-`-fconserve-stack` — see the stack section. UCRT64 (x86-64, real gcc) is
-expected to work and is covered by CI, but has not been verified by
-hand.
+`-fconserve-stack` — see the stack section. UCRT64 (x86-64, real gcc)
+was verified the same day by CI rather than by hand, no x86-64 machine
+being available here: clean build and a full green suite, plus
+`install_gtk.sh`'s UCRT64 branch and `bundle_windows.sh` exercised. The
+GUI is verified on ARM64 only, CI having no screen to look at.
 
 ### The five things that had to change
 
@@ -2481,6 +2483,17 @@ rows (ubuntu, macos, windows UCRT64, windows ARM64), installing
 dependencies by running `install_gtk.sh` itself so CI and the documented
 path can't drift, and publishing a bundled Windows build as an artifact
 from each Windows row.
+
+**Its first run went green on all four**, and immediately earned its
+keep by settling three things this session could not settle locally.
+The x86-64 Windows row passed, which is the configuration no machine
+here could build. The macOS and Linux rows passed, which is what
+confirms the one change in this port that wasn't Windows-only —
+`MILLISECONDS` moving from `clock_gettime` to `g_get_real_time` —
+didn't regress the platforms it touched. And the `windows-11-arm`
+runner turned out to exist and work, which had been written down as
+"confirm and drop the row if not". Both bundles published as artifacts,
+23.1 MB (ARM64) and 25.9 MB (x86-64).
 
 `website/windows.html` is the counterpart to `linux.html`.
 
