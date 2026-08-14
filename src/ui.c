@@ -1831,14 +1831,20 @@ static void action_save_bytecode(GSimpleAction *action, GVariant *parameter, gpo
     BytecodeChunk *chunk = calloc(1, sizeof(BytecodeChunk));
     compile_program(&parse_result->pool, parse_result->program, chunk);
 
-    char *text = NULL;
-    size_t size = 0;
-    FILE *f = open_memstream(&text, &size);
-    bytecode_disassemble(chunk, f);
-    fclose(f);
+    char *text = bytecode_disassemble_to_string(chunk, NULL);
 
     free(chunk);
     parse_result_destroy(parse_result);
+
+    // Only reachable if the backing stream couldn't be opened at all
+    // (on Windows that's a failed tmpfile(); see bytecode.c). Bail
+    // before the dialog rather than after: on_save_bytecode_response
+    // strlen()s this text, so handing it NULL would crash on whatever
+    // path the user eventually picks.
+    if (text == NULL) {
+        append_output(app, "Save Bytecode: could not disassemble\n");
+        return;
+    }
 
     SaveBytecodeContext *ctx = malloc(sizeof(SaveBytecodeContext));
     ctx->app = app;

@@ -63,6 +63,35 @@ SDL_LIBS = sdl2
 # aarch64, 2026-08-13.
 CONSERVE_STACK := $(shell $(CC) -fconserve-stack -Werror -E -x c /dev/null >/dev/null 2>&1 && echo -fconserve-stack)
 
+# Windows only, and the counterpart to CONSERVE_STACK above rather than
+# an unrelated knob: both exist so MAX_SCOPE_DEPTH's 200-level recursion
+# cap is reachable without blowing the real stack, and on Windows the
+# problem is worse from both directions at once. A PE image's default
+# stack is 1 MB, an eighth of the 8 MB macOS and Linux both give the
+# main thread -- and the MSYS2 toolchain that can actually target
+# Windows-on-ARM is clang, which rejects -fconserve-stack, so
+# CONSERVE_STACK probes empty there and the 50x frame reduction it buys
+# on Linux/gcc simply isn't available. Without this flag every test
+# binary that recurses dies at 0xC00000FD (STACK_OVERFLOW) before
+# printing anything -- and MSYS2's shell reports that as a bare exit
+# 127, which looks like a missing DLL rather than a crash.
+#
+# 8388608 (8 MB) is the measured floor: test_interpreter passes cleanly
+# there and at every larger size probed, and fails below it. 16 MB is
+# what's set, for margin on the other test binaries -- it costs nothing
+# real, since this reserves address space and Windows commits stack
+# pages lazily as they're touched.
+#
+# Detected via uname rather than a compiler probe because it's the
+# target OS that matters here, not the compiler: MSYS2 reports
+# CLANGARM64_NT-* / MINGW64_NT-* / MSYS_NT-*, all matching "NT", while
+# macOS says "Darwin" and Linux says "Linux".
+ifneq (,$(findstring NT,$(shell uname -s)))
+STACK_FLAGS := -Wl,--stack,16777216
+else
+STACK_FLAGS :=
+endif
+
 CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS) $(SDL_LIBS))
 
 # -lm on every link line below, for the same macOS-vs-Linux reason as
@@ -74,12 +103,12 @@ CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG)
 # platform-guarded. The three pkg-config-free targets
 # (test_lexer/test_parser/test_bytecode) genuinely don't need it --
 # lexer.c/parser.c/ast.c/compiler.c/bytecode.c touch no math.h.
-LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS) $(SDL_LIBS)) -lm
+LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS) $(SDL_LIBS)) -lm $(STACK_FLAGS)
 
 TEST_TARGET = build/test_interpreter
 TEST_SRC = tests/test_interpreter.c src/interpreter.c
 TEST_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
+TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm $(STACK_FLAGS)
 
 # lexer.c (docs/BYTECODE_VM_DESIGN.md's Stage 1) has zero dependency on
 # GTK/GLib/interpreter.h by design -- its own test binary needs no
@@ -103,7 +132,7 @@ TEST_PARSER_CFLAGS = -Wall -Wextra -g -O1 -std=gnu11
 TEST_EVAL_TARGET = build/test_eval
 TEST_EVAL_SRC = tests/test_eval.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
 TEST_EVAL_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
+TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm $(STACK_FLAGS)
 
 # test_shadow_diff.c (the migration strategy from
 # docs/BYTECODE_VM_DESIGN.md) needs both engines in one binary --
@@ -113,7 +142,7 @@ TEST_EVAL_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 TEST_SHADOW_DIFF_TARGET = build/test_shadow_diff
 TEST_SHADOW_DIFF_SRC = tests/test_shadow_diff.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
 TEST_SHADOW_DIFF_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
+TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm $(STACK_FLAGS)
 
 # test_vm.c (Stage 2's own shadow-diff corpus, docs/BYTECODE_VM_DESIGN.md)
 # needs the compiler+VM (compiler.c/bytecode.c/vm.c) alongside the same
@@ -124,7 +153,7 @@ TEST_SHADOW_DIFF_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 TEST_VM_TARGET = build/test_vm
 TEST_VM_SRC = tests/test_vm.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
 TEST_VM_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
+TEST_VM_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm $(STACK_FLAGS)
 
 # test_bytecode.c (Stage B of the bytecode save/load/assembler
 # initiative, docs/ROADMAP.md) -- bytecode.c/compiler.c are both
@@ -142,7 +171,7 @@ TEST_BYTECODE_CFLAGS = -Wall -Wextra -g -O1 -std=gnu11
 TEST_AGENT_TARGET = build/test_agent
 TEST_AGENT_SRC = tests/test_agent.c src/agent.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
 TEST_AGENT_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-TEST_AGENT_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
+TEST_AGENT_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm $(STACK_FLAGS)
 
 # tools/logi_cli.c -- a standalone command-line driver for Stage 1's new
 # evaluator (see docs/BYTECODE_VM_DESIGN.md), letting a script be run
@@ -158,7 +187,7 @@ TEST_AGENT_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
 LOGI_TARGET = bin/logi
 LOGI_SRC = tools/logi_cli.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
 LOGI_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
+LOGI_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm $(STACK_FLAGS)
 
 .PHONY: all clean run test test-lexer test-parser test-eval test-shadow-diff test-vm test-bytecode test-agent logi vmrun
 
@@ -201,14 +230,14 @@ test-lexer: $(TEST_LEXER_TARGET)
 
 $(TEST_LEXER_TARGET): $(TEST_LEXER_SRC) src/lexer.h
 	@mkdir -p build
-	$(CC) $(TEST_LEXER_CFLAGS) $(TEST_LEXER_SRC) -o $(TEST_LEXER_TARGET)
+	$(CC) $(TEST_LEXER_CFLAGS) $(TEST_LEXER_SRC) -o $(TEST_LEXER_TARGET) $(STACK_FLAGS)
 
 test-parser: $(TEST_PARSER_TARGET)
 	./$(TEST_PARSER_TARGET)
 
 $(TEST_PARSER_TARGET): $(TEST_PARSER_SRC) src/parser.h src/ast.h src/lexer.h
 	@mkdir -p build
-	$(CC) $(TEST_PARSER_CFLAGS) $(TEST_PARSER_SRC) -o $(TEST_PARSER_TARGET)
+	$(CC) $(TEST_PARSER_CFLAGS) $(TEST_PARSER_SRC) -o $(TEST_PARSER_TARGET) $(STACK_FLAGS)
 
 test-eval: $(TEST_EVAL_TARGET)
 	./$(TEST_EVAL_TARGET)
@@ -236,7 +265,7 @@ test-bytecode: $(TEST_BYTECODE_TARGET)
 
 $(TEST_BYTECODE_TARGET): $(TEST_BYTECODE_SRC) src/compiler.h src/bytecode.h src/parser.h src/ast.h src/lexer.h
 	@mkdir -p build
-	$(CC) $(TEST_BYTECODE_CFLAGS) $(TEST_BYTECODE_SRC) -o $(TEST_BYTECODE_TARGET)
+	$(CC) $(TEST_BYTECODE_CFLAGS) $(TEST_BYTECODE_SRC) -o $(TEST_BYTECODE_TARGET) $(STACK_FLAGS)
 
 test-agent: $(TEST_AGENT_TARGET)
 	./$(TEST_AGENT_TARGET)
@@ -259,7 +288,7 @@ $(LOGI_TARGET): $(LOGI_SRC) $(HEADERS)
 VMRUN_TARGET = bin/vmrun
 VMRUN_SRC = tools/vmrun_cli.c src/compiler.c src/bytecode.c src/vm.c src/eval.c src/parser.c src/ast.c src/lexer.c src/interpreter.c
 VMRUN_CFLAGS = -Wall -Wextra -g -O1 $(CONSERVE_STACK) -std=gnu11 $(shell $(PKG_CONFIG) --cflags $(GTK_LIBS))
-VMRUN_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm
+VMRUN_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(GTK_LIBS)) -lm $(STACK_FLAGS)
 
 vmrun: $(VMRUN_TARGET)
 

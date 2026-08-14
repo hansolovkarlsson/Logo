@@ -501,6 +501,21 @@ const char *bytecode_opcode_name(OpCode op);
 // docs/BYTECODE_VM_DESIGN.md's "Self-contained BytecodeChunk" entry).
 void bytecode_disassemble(const BytecodeChunk *chunk, FILE *out);
 
+// The same disassembly as a heap-allocated NUL-terminated string (the
+// caller free()s it), with the byte count written to *out_size when
+// out_size is non-NULL. Returns NULL only if the backing stream can't
+// be opened.
+//
+// Both callers that wanted disassembly text rather than a stream --
+// ui.c's Save Bytecode dialog and vm.c's SAVEBYTECODE -- had open-coded
+// the identical open_memstream/disassemble/fclose dance. That's the
+// whole reason this exists: open_memstream is POSIX and mingw-w64 has
+// no equivalent, so rather than #ifdef the same shim into two call
+// sites, the pattern moves here once and Windows backs it with a temp
+// file instead (see bytecode.c). macOS and Linux keep the original
+// open_memstream path, so this is not a behaviour change for them.
+char *bytecode_disassemble_to_string(const BytecodeChunk *chunk, size_t *out_size);
+
 // Stage C of the bytecode save/load/assembler initiative: parses
 // `text` into `chunk`, appending instructions/procs/literals via the
 // same bytecode_emit/bytecode_add_word_literal/bytecode_add_list_literal

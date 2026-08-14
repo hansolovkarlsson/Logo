@@ -31,6 +31,7 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
+#include "compat.h" // localtime_r on Windows -- no-op on macOS/Linux
 
 static void push(Vm *vm, EvalValue v) {
     if (vm->stack_top >= MAX_VM_STACK) return; // can't happen for this vertical slice's own test scripts; see this file's own note on MAX_INSTRUCTIONS overflow handling in compiler.c for the same "not yet robustly reported" tradeoff
@@ -313,11 +314,12 @@ static void exec_stampsprite(LogoApp *app) {
 // (eval_save_value): "Saved <path>\n" on success, "SAVEBYTECODE: could
 // not write file\n" on failure.
 static void exec_savebytecode(LogoApp *app, BytecodeChunk *chunk, const char *path) {
-    char *text = NULL;
     size_t size = 0;
-    FILE *f = open_memstream(&text, &size);
-    bytecode_disassemble(chunk, f);
-    fclose(f);
+    char *text = bytecode_disassemble_to_string(chunk, &size);
+    if (text == NULL) {
+        append_output(app, "SAVEBYTECODE: could not write file\n");
+        return;
+    }
     GError *error = NULL;
     if (g_file_set_contents(path, text, (gssize)size, &error)) {
         append_output(app, "Saved ");
@@ -607,10 +609,16 @@ static EvalValue eval_date_value(void) {
     return word_val(buf);
 }
 static EvalValue eval_milliseconds_value(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    double ms = (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
-    return num_val(ms);
+    // g_get_real_time rather than clock_gettime(CLOCK_REALTIME): same
+    // epoch-based wall clock, but GLib's spelling of it, and GLib is
+    // already a hard dependency of this file. mingw-w64 declares
+    // clock_gettime in <pthread_time.h> but only defines it in
+    // libwinpthread, so the POSIX form compiles and then fails at link
+    // with "undefined symbol: clock_gettime64" unless -lwinpthread is
+    // threaded through every link line that touches vm.c. This keeps
+    // one shared flag set instead, matching the Makefile's existing
+    // preference for that over per-OS branches.
+    return num_val((double)g_get_real_time() / 1000.0);
 }
 
 // DEFINED? -- looks the word up in the CURRENTLY EXECUTING chunk's own

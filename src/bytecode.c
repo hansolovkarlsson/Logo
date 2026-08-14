@@ -12,6 +12,45 @@
 #include <string.h>  // strchr/memcpy/memset/strncmp, used by bytecode_assemble
 #include <strings.h> // strcasecmp, used by bytecode_find_proc
 
+// bytecode_disassemble_to_string (see bytecode.h) -- the POSIX form is
+// just open_memstream, which grows a buffer in memory and publishes it
+// at fclose. mingw-w64 has no equivalent and no way to hand back a
+// FILE * that behaves like one, so Windows disassembles into a temp
+// file (tmpfile(), auto-deleted on close) and slurps it back. Same
+// return contract either way: a malloc'd NUL-terminated string the
+// caller frees.
+#ifdef _WIN32
+char *bytecode_disassemble_to_string(const BytecodeChunk *chunk, size_t *out_size) {
+    FILE *f = tmpfile();
+    if (f == NULL) return NULL;
+    bytecode_disassemble(chunk, f);
+
+    long len = ftell(f);
+    if (len < 0) { fclose(f); return NULL; }
+    rewind(f);
+
+    char *text = malloc((size_t)len + 1);
+    if (text == NULL) { fclose(f); return NULL; }
+    size_t got = fread(text, 1, (size_t)len, f);
+    text[got] = '\0';
+    fclose(f);
+
+    if (out_size != NULL) *out_size = got;
+    return text;
+}
+#else
+char *bytecode_disassemble_to_string(const BytecodeChunk *chunk, size_t *out_size) {
+    char *text = NULL;
+    size_t size = 0;
+    FILE *f = open_memstream(&text, &size);
+    if (f == NULL) return NULL;
+    bytecode_disassemble(chunk, f);
+    fclose(f); // publishes text/size
+    if (out_size != NULL) *out_size = size;
+    return text;
+}
+#endif
+
 int bytecode_emit(BytecodeChunk *chunk, Instr instr) {
     if (chunk->count >= MAX_INSTRUCTIONS) return -1;
     chunk->code[chunk->count] = instr;

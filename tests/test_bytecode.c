@@ -69,18 +69,14 @@ static BytecodeChunk *compile_source(const char *source) {
     return chunk;
 }
 
-// Disassembles `chunk` into a freshly malloc'd NUL-terminated string
-// via open_memstream (POSIX, confirmed available on this project's own
-// macOS/darwin toolchain) -- the streaming-sink shape append_output
-// already uses elsewhere in this codebase, just captured into memory
-// instead of routed to a GTK widget. Caller frees the result.
+// Disassembles `chunk` into a freshly malloc'd NUL-terminated string;
+// caller frees. This used to open-code open_memstream here, but that's
+// POSIX-only and the Windows build needs a temp-file path instead, so
+// the real implementation now lives next to bytecode_disassemble itself
+// as bytecode_disassemble_to_string (see bytecode.h). Kept as a
+// one-line wrapper so the ~30 call sites below don't all have to change.
 static char *disassemble_to_string(const BytecodeChunk *chunk) {
-    char *buf = NULL;
-    size_t size = 0;
-    FILE *f = open_memstream(&buf, &size);
-    bytecode_disassemble(chunk, f);
-    fclose(f);
-    return buf;
+    return bytecode_disassemble_to_string(chunk, NULL);
 }
 
 TEST(test_opcode_name_covers_a_representative_sample) {

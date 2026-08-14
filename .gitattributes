@@ -1,0 +1,23 @@
+# Git for Windows ships with core.autocrlf=true, so a Windows clone of
+# this repo gets a CRLF working tree unless told otherwise. That isn't
+# cosmetic here: tests/test_vm.c's
+# test_type_show_example_runs_correctly reads examples/type_show.logo
+# off disk and compares the interpreter's output against a literal
+# expected string, so the stray \r at each line end makes it fail on
+# Windows and only on Windows. Forcing LF in the working tree on every
+# platform keeps the one checked-in corpus byte-identical everywhere.
+#
+# Note this fixes the *repo*; it does not make the lexer itself
+# CRLF-tolerant, so a .logo file the user writes in a Windows editor can
+# still trip the same behaviour. See docs/ROADMAP.md.
+* text=auto eol=lf
+
+# Binary assets -- never munge these.
+*.png binary
+*.wav binary
+
+# .lgb is NOT binary despite the extension: bytecode_disassemble writes
+# it and bytecode_assemble parses it back as line-oriented text (see
+# bytecode.h), so it wants the same LF normalisation as everything else.
+*.lgb text eol=lf
+*.svg text eol=lf

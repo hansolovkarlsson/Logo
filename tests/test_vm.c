@@ -3107,11 +3107,7 @@ TEST(test_a_disassembled_then_reassembled_chunk_runs_standalone_without_the_orig
     char original_output[4096];
     snprintf(original_output, sizeof(original_output), "%s", captured_output);
 
-    char *text = NULL;
-    size_t text_size = 0;
-    FILE *f = open_memstream(&text, &text_size);
-    bytecode_disassemble(chunk1, f);
-    fclose(f);
+    char *text = bytecode_disassemble_to_string(chunk1, NULL);
 
     BytecodeChunk *chunk2 = calloc(1, sizeof(BytecodeChunk));
     char asm_err[256];
