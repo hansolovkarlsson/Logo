@@ -147,9 +147,11 @@ make test</pre>
 
       <section class="chapter" id="ui">
         <div class="chapter-head"><span class="chapter-num">6</span><h2>Menus and shortcuts</h2></div>
-        <p>Unlike Linux and Windows, the menu bar lives in the <strong>system-wide bar</strong> at the top of the screen, not inside the window &mdash; the standard macOS layout. <strong>File</strong> has Open, Save, Export as PNG, Load/Save Bytecode and Quit; <strong>View</strong> has the text-size actions and the <em>Show Input Window</em> toggle.</p>
+        <p>Unlike Linux and Windows, the menu bar lives in the <strong>system-wide bar</strong> at the top of the screen, not inside the window &mdash; the standard macOS layout. <strong>File</strong> has Editor, Open, Save, Export as PNG, Load/Save Bytecode and Quit; <strong>View</strong> has the text-size actions and the <em>Show Input Window</em> toggle.</p>
+        <p><em>File &gt; Editor&hellip;</em> opens a separate window for writing a whole program &mdash; several <code class="inline">TO</code>/<code class="inline">END</code> definitions plus top-level setup &mdash; instead of the entry box's one-line-at-a-time submission, with its own Open/Save (the raw file, not just the current definitions) and a Run button. It stays open (hidden, not closed) in the background, so text survives switching back to the main window.</p>
         <p>Shortcuts use <strong>Cmd</strong>, not Ctrl:</p>
         <ul>
+          <li><code class="inline">Cmd+Shift+E</code> open the Editor window &middot; <code class="inline">Cmd+Return</code> inside it runs the whole buffer</li>
           <li><code class="inline">Cmd+O</code> open a <code class="inline">.logo</code> file &middot; <code class="inline">Cmd+S</code> save</li>
           <li><code class="inline">Cmd+E</code> export the canvas as a PNG</li>
           <li><code class="inline">Cmd+Shift+O</code> / <code class="inline">Cmd+Shift+S</code> load and save bytecode</li>
