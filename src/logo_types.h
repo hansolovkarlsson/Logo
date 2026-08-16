@@ -564,6 +564,16 @@ typedef struct LogoApp {
     // visibility directly, leaving drawing_area/paned untouched.
     GtkWidget *repl_box;
 
+    // File > Editor… — a separate window for composing a whole program
+    // before running it (see open_editor_window in ui.c). Built once per
+    // process, then hidden rather than destroyed when closed so its text
+    // survives being reopened; NULL until the first time it's opened.
+    // The main window's own "destroy" handler destroys this too, so a
+    // hidden editor never keeps the GtkApplication alive after the main
+    // window closes.
+    GtkWidget *editor_window;
+    GtkWidget *editor_view;
+
     GtkCssProvider *css_provider;
     int font_size;
 

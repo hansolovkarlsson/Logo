@@ -1541,6 +1541,278 @@ static GListModel *logo_file_filters(void) {
     return G_LIST_MODEL(filters); // caller owns the returned GListStore
 }
 
+// Wires up bracket-matching and syntax highlighting on `text_view`'s own
+// buffer -- shared by the REPL entry box (build_main_window) and the
+// editor window (open_editor_window below) so the same two signal
+// handlers (update_bracket_match/update_syntax_highlighting, both up in
+// the BRACKET MATCHING / SYNTAX HIGHLIGHTING sections above, and already
+// written to take the buffer as their own signal argument rather than
+// reaching for app->entry directly) serve both text views without being
+// duplicated. Each buffer gets its own copy of the six tags below --
+// GtkTextTags don't carry across buffers/tag tables, only within one.
+static void install_editing_tags(GtkWidget *text_view, LogoApp *app) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
+
+    GdkRGBA match_color;
+    gdk_rgba_parse(&match_color, "rgba(90,140,255,0.35)");
+    gtk_text_buffer_create_tag(buffer, "bracket-match", "background-rgba", &match_color, NULL);
+    GdkRGBA nomatch_color;
+    gdk_rgba_parse(&nomatch_color, "rgba(255,80,80,0.35)");
+    gtk_text_buffer_create_tag(buffer, "bracket-nomatch", "background-rgba", &nomatch_color, NULL);
+    g_signal_connect(buffer, "notify::cursor-position", G_CALLBACK(update_bracket_match), app);
+
+    GdkRGBA keyword_color, number_color, variable_color, word_color;
+    gdk_rgba_parse(&keyword_color, "#7C3AED");  // violet
+    gdk_rgba_parse(&number_color, "#059669");   // emerald
+    gdk_rgba_parse(&variable_color, "#D97706"); // amber
+    gdk_rgba_parse(&word_color, "#DC2626");     // red
+    gtk_text_buffer_create_tag(buffer, "syntax-keyword", "foreground-rgba", &keyword_color, NULL);
+    gtk_text_buffer_create_tag(buffer, "syntax-number", "foreground-rgba", &number_color, NULL);
+    gtk_text_buffer_create_tag(buffer, "syntax-variable", "foreground-rgba", &variable_color, NULL);
+    gtk_text_buffer_create_tag(buffer, "syntax-word", "foreground-rgba", &word_color, NULL);
+    g_signal_connect(buffer, "changed", G_CALLBACK(update_syntax_highlighting), app);
+}
+
+// --- EDITOR WINDOW ---
+//
+// File > Editor… — a persistent, separate window for composing a whole
+// program (several TO/END definitions plus top-level setup commands)
+// before running it, as opposed to the REPL entry box's one-line(or
+// one-block)-at-a-time submission. Shares this LogoApp's own interpreter
+// state -- a MAKE/TO run from here defines a variable/procedure the REPL
+// entry and canvas see exactly as if it had been typed there, since both
+// operate on the same `app`.
+
+// Extracts the editor buffer's full text and runs it as one script --
+// the same run_logo_script the REPL entry and File > Open use, so a
+// whole program compiles and runs as a single unit rather than one line
+// at a time.
+static void editor_run(LogoApp *app) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->editor_view));
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    logo_normalize_newlines(text); // see lexer.h -- pasted text can arrive as CRLF
+    run_logo_script(app, text);
+    g_free(text);
+}
+
+static void on_editor_run_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    editor_run((LogoApp *)user_data);
+}
+
+// Cmd/Ctrl+Return runs the buffer without leaving the keyboard. Plain
+// Return is deliberately left alone here (unlike the REPL entry's own
+// key controller) -- a full program needs ordinary Enter to compose
+// multiple lines freely, not submit on every one. Scoped to this text
+// view alone via its own EventControllerKey, the same way the REPL
+// entry's Return handling is scoped to app->entry -- not a global
+// accelerator, so it can't ever intercept the entry box's own Return
+// handling (WAITKEY/INPUT/history) when the editor isn't even open.
+static gboolean on_editor_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode,
+                                       GdkModifierType state, gpointer user_data) {
+    (void)controller;
+    (void)keycode;
+    LogoApp *app = (LogoApp *)user_data;
+    GdkModifierType mods = state & gtk_accelerator_get_default_mod_mask();
+    if (keyval != GDK_KEY_Return && keyval != GDK_KEY_KP_Enter) return FALSE;
+#ifdef __APPLE__
+    if (mods != GDK_META_MASK) return FALSE;
+#else
+    if (mods != GDK_CONTROL_MASK) return FALSE;
+#endif
+    editor_run(app);
+    return TRUE;
+}
+
+// Finishes the async GtkFileDialog started by the editor's own Open
+// button: loads the chosen file straight into the editor buffer (unlike
+// File > Open, which runs it immediately) so it can be reviewed or
+// edited before Run.
+static void on_editor_open_response(GObject *source, GAsyncResult *result, gpointer user_data) {
+    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
+    LogoApp *app = (LogoApp *)user_data;
+
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_open_finish(dialog, result, &error);
+    if (file == NULL) {
+        if (error != NULL) g_error_free(error); // includes user cancellation
+        return;
+    }
+
+    char *contents = NULL;
+    gsize length = 0;
+    GError *read_error = NULL;
+    if (g_file_load_contents(file, NULL, &contents, &length, NULL, &read_error)) {
+        logo_normalize_newlines(contents); // see lexer.h
+        GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->editor_view));
+        gtk_text_buffer_set_text(buffer, contents, -1);
+        g_free(contents);
+    } else {
+        append_output(app, "Could not read file\n");
+        if (read_error != NULL) g_error_free(read_error);
+    }
+
+    g_object_unref(file);
+}
+
+static void on_editor_open_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Open Logo Script");
+    GListModel *filters = logo_file_filters();
+    gtk_file_dialog_set_filters(dialog, filters);
+    g_object_unref(filters);
+
+    gtk_file_dialog_open(dialog, GTK_WINDOW(app->editor_window), NULL, on_editor_open_response, app);
+    g_object_unref(dialog);
+}
+
+// Finishes the async GtkFileDialog started by the editor's own Save
+// button: writes the editor buffer's raw text verbatim, unlike File >
+// Save's serialize_procedures dump of the interpreter's *current*
+// definitions -- this saves exactly what's on screen, top-level commands
+// and in-progress edits included.
+static void on_editor_save_response(GObject *source, GAsyncResult *result, gpointer user_data) {
+    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
+    LogoApp *app = (LogoApp *)user_data;
+
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_save_finish(dialog, result, &error);
+    if (file == NULL) {
+        if (error != NULL) g_error_free(error); // includes user cancellation
+        return;
+    }
+
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->editor_view));
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char *content = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+
+    GError *write_error = NULL;
+    if (g_file_replace_contents(file, content, strlen(content), NULL, FALSE,
+                                 G_FILE_CREATE_NONE, NULL, NULL, &write_error)) {
+        char *path = g_file_get_path(file);
+        append_output(app, "Saved ");
+        append_output(app, path != NULL ? path : "file");
+        append_output(app, "\n");
+        g_free(path);
+    } else {
+        append_output(app, "Could not save file\n");
+        if (write_error != NULL) g_error_free(write_error);
+    }
+
+    g_free(content);
+    g_object_unref(file);
+}
+
+static void on_editor_save_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    LogoApp *app = (LogoApp *)user_data;
+
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Save Logo Script");
+    gtk_file_dialog_set_initial_name(dialog, "untitled.logo");
+    GListModel *filters = logo_file_filters();
+    gtk_file_dialog_set_filters(dialog, filters);
+    g_object_unref(filters);
+
+    gtk_file_dialog_save(dialog, GTK_WINDOW(app->editor_window), NULL, on_editor_save_response, app);
+    g_object_unref(dialog);
+}
+
+// Closing the editor (its own close button) hides it instead of
+// destroying it, so whatever's been typed survives switching back to the
+// main window and reopening via File > Editor… later. The main window's
+// own "destroy" handler (on_window_destroy) destroys this window for
+// real once the main window goes away, so a hidden editor never keeps
+// the GtkApplication running with no visible window left.
+static gboolean on_editor_close_request(GtkWindow *window, gpointer user_data) {
+    (void)user_data;
+    gtk_widget_set_visible(GTK_WIDGET(window), FALSE);
+    return TRUE; // stop the default handler from destroying the window
+}
+
+// Builds the editor window the first time it's needed; later calls just
+// re-present whatever's already there, text and all.
+static void open_editor_window(LogoApp *app) {
+    if (app->editor_window != NULL) {
+        gtk_widget_set_visible(app->editor_window, TRUE);
+        gtk_window_present(GTK_WINDOW(app->editor_window));
+        return;
+    }
+
+    GtkApplication *gtk_app = gtk_window_get_application(GTK_WINDOW(app->window));
+    GtkWidget *window = gtk_application_window_new(gtk_app);
+    app->editor_window = window;
+    gtk_window_set_title(GTK_WINDOW(window), "Editor \xe2\x80\x94 LogoMotive");
+    gtk_window_set_default_size(GTK_WINDOW(window), 700, 600);
+    g_signal_connect(window, "close-request", G_CALLBACK(on_editor_close_request), NULL);
+
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child(GTK_WINDOW(window), box);
+
+    GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_start(toolbar, 8);
+    gtk_widget_set_margin_end(toolbar, 8);
+    gtk_widget_set_margin_top(toolbar, 8);
+    gtk_widget_set_margin_bottom(toolbar, 8);
+
+    GtkWidget *open_button = gtk_button_new_with_label("Open\xe2\x80\xa6");
+    g_signal_connect(open_button, "clicked", G_CALLBACK(on_editor_open_clicked), app);
+    GtkWidget *save_button = gtk_button_new_with_label("Save\xe2\x80\xa6");
+    g_signal_connect(save_button, "clicked", G_CALLBACK(on_editor_save_clicked), app);
+    GtkWidget *run_button = gtk_button_new_with_label("Run");
+    gtk_widget_add_css_class(run_button, "suggested-action");
+    g_signal_connect(run_button, "clicked", G_CALLBACK(on_editor_run_clicked), app);
+
+    GtkWidget *hint = gtk_label_new(
+#ifdef __APPLE__
+        "\xe2\x8c\x98+Return to run"
+#else
+        "Ctrl+Return to run"
+#endif
+    );
+    gtk_widget_add_css_class(hint, "dim-label");
+    gtk_widget_set_hexpand(hint, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(hint), 1.0);
+
+    gtk_box_append(GTK_BOX(toolbar), open_button);
+    gtk_box_append(GTK_BOX(toolbar), save_button);
+    gtk_box_append(GTK_BOX(toolbar), run_button);
+    gtk_box_append(GTK_BOX(toolbar), hint);
+    gtk_box_append(GTK_BOX(box), toolbar);
+
+    app->editor_view = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(app->editor_view), GTK_WRAP_WORD_CHAR);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(app->editor_view), TRUE);
+    gtk_widget_add_css_class(app->editor_view, "logo-text");
+    gtk_widget_set_vexpand(app->editor_view, TRUE);
+
+    GtkEventController *editor_key_controller = gtk_event_controller_key_new();
+    g_signal_connect(editor_key_controller, "key-pressed", G_CALLBACK(on_editor_key_pressed), app);
+    gtk_widget_add_controller(app->editor_view, editor_key_controller);
+
+    install_editing_tags(app->editor_view, app);
+
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), app->editor_view);
+    gtk_widget_set_vexpand(scroll, TRUE);
+    gtk_box_append(GTK_BOX(box), scroll);
+
+    gtk_window_present(GTK_WINDOW(window));
+    gtk_widget_grab_focus(app->editor_view);
+}
+
+static void action_open_editor(GSimpleAction *action, GVariant *parameter, gpointer user_data) {
+    (void)action;
+    (void)parameter;
+    open_editor_window((LogoApp *)user_data);
+}
+
 // Finishes the async GtkFileDialog started by action_open_file: reads the
 // chosen file and runs it as Logo source, same as typing it into the REPL.
 static void on_file_open_response(GObject *source, GAsyncResult *result, gpointer user_data) {
@@ -1976,9 +2248,20 @@ static void action_quit(GSimpleAction *action, GVariant *parameter, gpointer use
 // close button) is the one place that's guaranteed to run before any
 // of drawing_area's own resources go away, so cancelling the pending
 // timer and freeing its SuspendedRun here removes the race entirely.
+//
+// Also destroys app->editor_window if one was ever opened: it's hidden
+// rather than destroyed on its own close (see on_editor_close_request),
+// so without this, closing the main window would leave that hidden
+// window still registered with the GtkApplication -- which keeps the
+// process running with no visible window left instead of exiting, since
+// a GtkApplication only quits on its own once its last window is gone.
 static void on_window_destroy(GtkWidget *widget, gpointer user_data) {
     (void)widget;
-    (void)user_data;
+    LogoApp *app = (LogoApp *)user_data;
+    if (app->editor_window != NULL) {
+        gtk_window_destroy(GTK_WINDOW(app->editor_window));
+        app->editor_window = NULL;
+    }
     if (g_suspend_timeout_id != 0) {
         g_source_remove(g_suspend_timeout_id);
         g_suspend_timeout_id = 0;
@@ -2115,32 +2398,9 @@ static LogoApp *build_main_window(GtkApplication *app) {
     g_signal_connect(entry_key_controller, "key-released", G_CALLBACK(on_entry_key_released), logo);
     gtk_widget_add_controller(logo->entry, entry_key_controller);
 
-    // Bracket matching: highlight the [ ] pair the cursor is touching, or
-    // flag a lone unmatched one. Semi-transparent so it reads fine in
-    // both light and dark themes.
-    GtkTextBuffer *entry_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(logo->entry));
-    GdkRGBA match_color;
-    gdk_rgba_parse(&match_color, "rgba(90,140,255,0.35)");
-    gtk_text_buffer_create_tag(entry_buffer, "bracket-match", "background-rgba", &match_color, NULL);
-    GdkRGBA nomatch_color;
-    gdk_rgba_parse(&nomatch_color, "rgba(255,80,80,0.35)");
-    gtk_text_buffer_create_tag(entry_buffer, "bracket-nomatch", "background-rgba", &nomatch_color, NULL);
-    g_signal_connect(entry_buffer, "notify::cursor-position", G_CALLBACK(update_bracket_match), logo);
-
-    // Syntax highlighting: keywords/procedure calls, numbers, :variables,
-    // and "word literals each get their own foreground color. Chosen at
-    // medium lightness/high saturation so they hold reasonable contrast
-    // against both light and dark theme backgrounds.
-    GdkRGBA keyword_color, number_color, variable_color, word_color;
-    gdk_rgba_parse(&keyword_color, "#7C3AED");  // violet
-    gdk_rgba_parse(&number_color, "#059669");   // emerald
-    gdk_rgba_parse(&variable_color, "#D97706"); // amber
-    gdk_rgba_parse(&word_color, "#DC2626");     // red
-    gtk_text_buffer_create_tag(entry_buffer, "syntax-keyword", "foreground-rgba", &keyword_color, NULL);
-    gtk_text_buffer_create_tag(entry_buffer, "syntax-number", "foreground-rgba", &number_color, NULL);
-    gtk_text_buffer_create_tag(entry_buffer, "syntax-variable", "foreground-rgba", &variable_color, NULL);
-    gtk_text_buffer_create_tag(entry_buffer, "syntax-word", "foreground-rgba", &word_color, NULL);
-    g_signal_connect(entry_buffer, "changed", G_CALLBACK(update_syntax_highlighting), logo);
+    // Bracket matching + syntax highlighting -- shared with the editor
+    // window's own text view; see install_editing_tags.
+    install_editing_tags(logo->entry, logo);
 
     GtkWidget *entry_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(entry_scroll), logo->entry);
@@ -2166,6 +2426,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     apply_font_size(logo);
 
     static GActionEntry file_actions[] = {
+        {.name = "open-editor", .activate = action_open_editor},
         {.name = "open-file", .activate = action_open_file},
         {.name = "save-file", .activate = action_save_file},
         {.name = "load-bytecode", .activate = action_load_bytecode},
@@ -2204,6 +2465,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     // before the app ever sees them — so Linux hardcodes <Control>
     // directly rather than relying on <Primary> to resolve correctly.
 #ifdef __APPLE__
+    const char *open_editor_accels[] = {"<Meta><Shift>e", NULL};
     const char *open_accels[] = {"<Meta>o", NULL};
     const char *save_accels[] = {"<Meta>s", NULL};
     const char *load_bytecode_accels[] = {"<Meta><Shift>o", NULL};
@@ -2215,6 +2477,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     const char *toggle_input_window_accels[] = {"<Meta><Shift>i", NULL};
     const char *quit_accels[] = {"<Meta>q", NULL};
 #else
+    const char *open_editor_accels[] = {"<Control><Shift>e", NULL};
     const char *open_accels[] = {"<Control>o", NULL};
     const char *save_accels[] = {"<Control>s", NULL};
     const char *load_bytecode_accels[] = {"<Control><Shift>o", NULL};
@@ -2226,6 +2489,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     const char *toggle_input_window_accels[] = {"<Control><Shift>i", NULL};
     const char *quit_accels[] = {"<Control>q", NULL};
 #endif
+    gtk_application_set_accels_for_action(app, "app.open-editor", open_editor_accels);
     gtk_application_set_accels_for_action(app, "app.open-file", open_accels);
     gtk_application_set_accels_for_action(app, "app.save-file", save_accels);
     gtk_application_set_accels_for_action(app, "app.load-bytecode", load_bytecode_accels);
@@ -2240,6 +2504,7 @@ static LogoApp *build_main_window(GtkApplication *app) {
     GMenu *menu_bar = g_menu_new();
 
     GMenu *file_menu = g_menu_new();
+    g_menu_append(file_menu, "Editor\xe2\x80\xa6", "app.open-editor");
     g_menu_append(file_menu, "Open\xe2\x80\xa6", "app.open-file");
     g_menu_append(file_menu, "Save\xe2\x80\xa6", "app.save-file");
     g_menu_append(file_menu, "Load Bytecode\xe2\x80\xa6", "app.load-bytecode");
